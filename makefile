@@ -109,7 +109,7 @@ upgrade: check-uv ## 🔄 Upgrade all packages to latest versions
 .PHONY: install-hooks
 install-hooks: sync ## 🪝 Install pre-commit hooks
 	@echo "$(BLUE)ℹ️  Installing pre-commit hooks...$(END)"
-	@uv run pre-commit install -c .pre_commit_hooks/pre-commit-config.yaml || { \
+	@uv run pre-commit install || { \
 		echo "$(RED)❌ Failed to install pre-commit hooks$(END)"; \
 		exit 1; \
 	}
@@ -118,7 +118,7 @@ install-hooks: sync ## 🪝 Install pre-commit hooks
 .PHONY: pre-commit
 pre-commit: sync ## 🔍 Run pre-commit hooks manually
 	@echo "$(BLUE)ℹ️  Running pre-commit hooks...$(END)"
-	@uv run pre-commit run -c .pre_commit_hooks/pre-commit-config.yaml --all-files || { \
+	@uv run pre-commit run --all-files || { \
 		echo "$(RED)❌ Pre-commit hooks failed$(END)"; \
 		exit 1; \
 	}
