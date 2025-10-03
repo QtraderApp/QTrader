@@ -463,6 +463,21 @@ ______________________________________________________________________
 ## 7. Event Loop (Canonical)
 
 ```python
+# Phase 1: Initialization
+strategy.on_init(ctx)                    # register custom indicators
+
+# Phase 2: Warmup (if indicators.warmup=true)
+if warmup_enabled:
+  for bar in warmup_bars:
+    emit(bar)
+    # Process bar for indicator computation only
+    # Do NOT call strategy.on_bar()
+    # Portfolio remains at initial state
+
+# Phase 3: Strategy Start
+strategy.on_start(ctx)                   # after warmup completes
+
+# Phase 4: Trading Loop
 for bar in dataset:
   emit(bar)
   strategy.on_bar(bar)                   # submit orders (strategy_ts = bar.ts)
@@ -472,9 +487,14 @@ for bar in dataset:
   ledger.eod_accruals()                  # borrow, short dividends if ex‑date
   outputs.snapshot_if_eod()
   logs.write()
+
+# Phase 5: Finalization
+strategy.on_end(ctx)
 ```
 
 **Timestamps:** each fill slice records `strategy_ts` (submission) and `execution_ts` (fill). Engine clock = bar timestamps; no sub‑bar clock in P1.
+
+**Warmup behavior:** When `indicators.warmup=true`, bars in the warmup period are processed to compute indicator values but `strategy.on_bar()` is NOT called. Trading begins after warmup completes.
 
 ______________________________________________________________________
 
@@ -511,6 +531,10 @@ trading:
 costs:
   per_share: 0.0005
   ticket_min: 1.00
+
+indicators:
+  warmup: false           # Enable automatic indicator warmup (default: false)
+  warmup_bars: null       # Auto-detect max lookback, or specify explicit count
 ```
 
 ______________________________________________________________________
@@ -631,6 +655,368 @@ ______________________________________________________________________
 
 - Indicator math in float64 for speed; ledger and serialized prices in Decimal (quantized to `data.decimals`).
 - Target: 10 years × 3k symbols × 1d bars under 60s on a modern CPU (non‑parallel). Provide `numerics.mode: {float_indicators|full_decimal}` toggle (default `float_indicators`).
+
+______________________________________________________________________
+
+## 13A. Indicators & Technical Analysis
+
+### 13A.1 Overview
+
+QTrader provides a comprehensive **Indicators Framework** for computing technical analysis indicators from bar data. The framework supports:
+
+- **Built-in indicators**: SMA, EMA, Bollinger Bands, ATR, RSI, MACD
+- **Custom indicators**: User-defined indicators inheriting from `Indicator` base class
+- **Indicator helpers**: 13 utility functions for crossover, threshold, divergence, histogram, and trend detection
+- **Efficient caching**: Incremental updates, O(1) per bar for rolling indicators
+- **Float64 math**: Per §13, indicators use float64 for performance (ledger remains Decimal)
+
+### 13A.2 Base Indicator Class
+
+All indicators (built-in and custom) inherit from `Indicator[T]`:
+
+```python
+from qtrader.api.indicators import Indicator
+
+class MyIndicator(Indicator[float]):
+    """Custom indicator implementation."""
+
+    def __init__(self, period: int):
+        super().__init__()
+        self.period = period
+
+    def compute(self, symbol: str, ctx: Context) -> float | None:
+        """
+        Compute indicator value for current bar.
+
+        Returns None if insufficient data.
+        """
+        bars = ctx.get_bar_history(symbol, self.period)
+        if len(bars) < self.period:
+            return None
+
+        # Your indicator logic here
+        ...
+```
+
+**Lifecycle:**
+
+1. `__init__()`: Initialize parameters
+1. `warmup(symbol, ctx)`: Optional pre-computation (called before on_start)
+1. `compute(symbol, ctx)`: Called on each bar to get current value
+1. `reset(symbol)`: Clear cached state (called on backtest restart)
+
+### 13A.3 Built-in Indicators API
+
+Access via `ctx.ind.<indicator>()` in strategy methods:
+
+**Simple Moving Average:**
+
+```python
+sma_20 = ctx.ind.sma(symbol, period=20, field='close')
+```
+
+**Exponential Moving Average:**
+
+```python
+ema_12 = ctx.ind.ema(symbol, period=12, field='close')
+```
+
+**Bollinger Bands:**
+
+```python
+bb = ctx.ind.bollinger_bands(symbol, period=20, num_std=2.0)
+if bar.close > bb.upper:
+    # Overbought
+    ...
+```
+
+**Average True Range (Volatility):**
+
+```python
+atr_14 = ctx.ind.atr(symbol, period=14)
+```
+
+**Relative Strength Index (Momentum):**
+
+```python
+rsi_14 = ctx.ind.rsi(symbol, period=14)
+if rsi_14 and rsi_14 > 70:
+    # Overbought
+    ...
+```
+
+**MACD:**
+
+```python
+macd_line, signal_line, histogram = ctx.ind.macd(symbol, fast=12, slow=26, signal=9)
+if histogram > 0:
+    # Bullish
+    ...
+```
+
+### 13A.4 Custom Indicators
+
+**Registration in `on_start()`:**
+
+```python
+class MyStrategy(Strategy):
+    def on_start(self, ctx: Context):
+        """Register custom indicators before trading."""
+        ctx.ind.register("momentum", CustomMomentum(period=20))
+
+    def on_bar(self, bar, ctx):
+        mom = ctx.ind.get("momentum", bar.symbol)
+        if mom and mom > 5.0:
+            ctx.buy_market(bar.symbol, 100)
+```
+
+**Custom indicator implementation:**
+
+```python
+class CustomMomentum(Indicator[float]):
+    def __init__(self, period: int = 10):
+        super().__init__()
+        self.period = period
+
+    def compute(self, symbol: str, ctx) -> float | None:
+        bars = ctx.get_bar_history(symbol, self.period + 1)
+        if len(bars) < self.period + 1:
+            return None
+
+        curr = float(bars[-1].close)
+        prev = float(bars[-self.period - 1].close)
+        return (curr - prev) / prev * 100.0
+```
+
+### 13A.5 Indicator Helper Functions
+
+QTrader provides helper functions for common indicator patterns and signal detection.
+
+**Module:** `qtrader.api.indicator_helpers`
+
+#### Crossover Detection
+
+**Two-Value Crossover (Manual):**
+
+```python
+from qtrader.api.indicator_helpers import crossed_above, crossed_below
+
+fast_curr = ctx.ind.sma(bar.symbol, 20)
+slow_curr = ctx.ind.sma(bar.symbol, 50)
+# ... get previous values ...
+
+if crossed_above(fast_curr, slow_curr, fast_prev, slow_prev):
+    ctx.buy_market(bar.symbol, 100)
+```
+
+**Context-Tracked Crossover (Recommended):**
+
+```python
+# Track indicators
+ctx._track_indicator(bar.symbol, 'sma_20', ctx.ind.sma(bar.symbol, 20))
+ctx._track_indicator(bar.symbol, 'sma_50', ctx.ind.sma(bar.symbol, 50))
+
+# Check crossover (automatic previous value tracking)
+if ctx.crossed_above(bar.symbol, 'sma_20', 'sma_50'):
+    ctx.buy_market(bar.symbol, 100)
+elif ctx.crossed_below(bar.symbol, 'sma_20', 'sma_50'):
+    ctx.sell_market(bar.symbol, 100)
+```
+
+#### Threshold Detection
+
+**Crossing Thresholds:**
+
+```python
+# Track RSI
+rsi = ctx.ind.rsi(bar.symbol, 14)
+ctx._track_indicator(bar.symbol, 'rsi_14', rsi)
+
+# RSI crosses above 30 (oversold exit)
+if ctx.crossed_above_threshold(bar.symbol, 'rsi_14', 30):
+    ctx.buy_market(bar.symbol, 100)
+
+# RSI crosses below 70 (overbought exit)
+if ctx.crossed_below_threshold(bar.symbol, 'rsi_14', 70):
+    ctx.sell_market(bar.symbol, 100)
+```
+
+**Current State Checks:**
+
+```python
+from qtrader.api.indicator_helpers import above_threshold, below_threshold, between_thresholds
+
+rsi = ctx.ind.rsi(bar.symbol, 14)
+
+if below_threshold(rsi, 30):
+    # RSI is oversold (may have been for multiple bars)
+    pass
+
+if above_threshold(rsi, 70):
+    # RSI is overbought
+    pass
+
+if between_thresholds(rsi, 40, 60):
+    # RSI is in neutral zone
+    pass
+```
+
+#### Available Helper Functions
+
+| Function                       | Purpose                                 | Common Use Case               |
+| ------------------------------ | --------------------------------------- | ----------------------------- |
+| `crossed_above()`              | Value1 crossed above value2             | Fast SMA > Slow SMA (bullish) |
+| `crossed_below()`              | Value1 crossed below value2             | Fast SMA < Slow SMA (bearish) |
+| `crossed_above_threshold()`    | Value crossed above threshold           | RSI > 30 (oversold exit)      |
+| `crossed_below_threshold()`    | Value crossed below threshold           | RSI < 70 (overbought exit)    |
+| `above_threshold()`            | Value currently above threshold         | RSI > 70 (overbought state)   |
+| `below_threshold()`            | Value currently below threshold         | RSI < 30 (oversold state)     |
+| `between_thresholds()`         | Value in range                          | RSI between 40-60 (neutral)   |
+| `divergence_bullish()`         | Price lower low, indicator higher low   | RSI bullish divergence        |
+| `divergence_bearish()`         | Price higher high, indicator lower high | RSI bearish divergence        |
+| `histogram_flipped_positive()` | Histogram crossed above zero            | MACD bullish momentum         |
+| `histogram_flipped_negative()` | Histogram crossed below zero            | MACD bearish momentum         |
+| `is_increasing()`              | Indicator trending up N periods         | SMA uptrend confirmation      |
+| `is_decreasing()`              | Indicator trending down N periods       | SMA downtrend confirmation    |
+
+### 13A.6 Performance Characteristics
+
+- **Caching**: Indicators cache computed values per (symbol, timestamp)
+- **Incremental updates**: Rolling indicators (SMA, EMA) update in O(1) per bar
+- **Memory**: Default cache size 1000 values per indicator per symbol
+- **Numerics**: Float64 math for speed (ledger/serialized prices remain Decimal)
+
+### 13A.7 Warmup Behavior
+
+By default, indicators return `None` when insufficient data exists (e.g., SMA(20) needs 20 bars).
+
+**Warmup Configuration:**
+
+```yaml
+indicators:
+  warmup: true              # Enable automatic warmup (default: false)
+  warmup_bars: null         # Auto-detect max period, or specify explicit count
+```
+
+**Warmup Modes:**
+
+1. **No warmup (default):**
+
+   ```python
+   # Strategy must handle None during warmup period
+   sma = ctx.ind.sma(bar.symbol, 20)
+   if sma is None:
+       return  # Skip this bar
+   ```
+
+1. **Automatic warmup enabled:**
+
+   ```yaml
+   indicators:
+     warmup: true
+   ```
+
+   - Engine **pre-computes all registered indicators** before calling `on_start()`
+   - Warmup period = maximum lookback across all indicators + datasets
+   - Example: If SMA(50) is the longest indicator, engine processes 50 bars before `on_start()`
+   - Strategy's `on_bar()` is only called after warmup completes
+   - **Benefits:** Indicators always return valid values; no None handling needed
+   - **Cost:** Delayed strategy start (no fills during warmup period)
+
+1. **Explicit warmup bars:**
+
+   ```yaml
+   indicators:
+     warmup: true
+     warmup_bars: 100  # Process 100 bars before on_start()
+   ```
+
+   - Override auto-detection with explicit count
+   - Useful when warmup period exceeds indicator lookbacks (e.g., for stable variance estimation)
+
+**Warmup Process (when enabled):**
+
+1. **Detection phase** (before `on_start()`):
+
+   - Engine scans all registered indicators to determine max lookback
+   - Example: Strategy uses SMA(20), SMA(50), RSI(14) → max lookback = 50 bars
+
+1. **Warmup phase**:
+
+   - Engine processes `warmup_bars` (or detected max) bars **without calling strategy `on_bar()`**
+   - Indicators compute and cache values during this phase
+   - Portfolio remains at initial state (no trading)
+
+1. **Trading phase**:
+
+   - After warmup completes, engine calls `strategy.on_start(ctx)`
+   - Then begins normal `on_bar()` loop with all indicators ready
+
+**Example with warmup:**
+
+```python
+class SMACrossover(Strategy):
+    """SMA crossover with automatic warmup."""
+
+    def on_start(self, ctx: Context):
+        """Called after warmup completes. Indicators are ready."""
+        # No need to register - using built-in indicators
+        print(f"Warmup complete. Trading starts at {ctx.current_date}")
+
+    def on_bar(self, bar: Bar, ctx: Context):
+        # Indicators ALWAYS return valid values (warmup guarantees this)
+        fast = ctx.ind.sma(bar.symbol, 20)
+        slow = ctx.ind.sma(bar.symbol, 50)
+
+        # No None checks needed!
+        if fast > slow:
+            ctx.buy_market(bar.symbol, 100)
+        elif fast < slow:
+            ctx.sell_market(bar.symbol, 100)
+```
+
+**Warmup with custom indicators:**
+
+```python
+class MyStrategy(Strategy):
+    def on_init(self, ctx: Context):
+        """Called BEFORE warmup to register custom indicators."""
+        ctx.ind.register("custom_momentum", CustomMomentum(period=30))
+
+    def on_start(self, ctx: Context):
+        """Called AFTER warmup completes."""
+        # Custom indicators are also warmed up
+        pass
+
+    def on_bar(self, bar: Bar, ctx: Context):
+        mom = ctx.ind.get("custom_momentum", bar.symbol)
+        # mom is always valid (never None) after warmup
+```
+
+**Run metadata:**
+
+When warmup is enabled, `run.json` records:
+
+```json
+{
+  "indicators": {
+    "warmup_enabled": true,
+    "warmup_bars": 50,
+    "warmup_end_date": "2019-02-28",
+    "trading_start_date": "2019-03-01"
+  }
+}
+```
+
+**Phase 1 Implementation:**
+
+- ✅ Warmup configuration in YAML
+- ✅ Auto-detection of max lookback
+- ✅ Explicit `warmup_bars` override
+- ✅ `on_init()` lifecycle hook (called before warmup)
+- ✅ `on_start()` called after warmup completes
+- ✅ Warmup metadata in `run.json`
+- ✅ CLI flag: `--warmup` to enable without config change
 
 ______________________________________________________________________
 
@@ -815,11 +1201,20 @@ class Strategy:
     Base strategy class. User strategies inherit from this.
 
     Strategy file is self-contained: includes both trading logic and config.
+
+    Lifecycle hooks (in order):
+    1. on_init()  - Called before warmup; register custom indicators
+    2. [warmup phase - if enabled]
+    3. on_start() - Called after warmup; strategy setup
+    4. on_bar()   - Called for each bar during trading
+    5. on_fill()  - Called after each fill
+    6. on_end()   - Called at backtest end
     """
     # Optional: Strategy configuration (Pydantic model)
     config: Optional[BaseModel] = None
 
-    def on_start(self, ctx: Context) -> None: ...     # optional
+    def on_init(self, ctx: Context) -> None: ...      # optional; before warmup
+    def on_start(self, ctx: Context) -> None: ...     # optional; after warmup
     def on_bar(self, bar: Bar, ctx: Context) -> None: ...  # required
     def on_fill(self, fill, ctx: Context) -> None: ...# optional
     def on_end(self, ctx: Context) -> None: ...       # optional
@@ -850,6 +1245,22 @@ class Context:
     def has_data(self, dataset: str, symbol: str, ts: datetime) -> bool: ...
     def list_datasets(self) -> List[str]: ...
     def get_dataset_info(self, dataset: str) -> dict: ...
+
+    # Indicator API (Phase 1 - Stage 6A)
+    @property
+    def ind(self) -> IndicatorManager: ...
+    """Access indicator framework (ctx.ind.sma(), ctx.ind.rsi(), etc.)"""
+
+    # Bar history API (for indicators)
+    def current_bar(self, symbol: str) -> Bar | None: ...
+    def get_bar_history(self, symbol: str, lookback: int) -> List[Bar]: ...
+
+    # Indicator tracking & crossover helpers (Phase 1 - Stage 6A)
+    def _track_indicator(self, symbol: str, key: str, value: Any) -> None: ...
+    def crossed_above(self, symbol: str, key1: str, key2: str) -> bool: ...
+    def crossed_below(self, symbol: str, key1: str, key2: str) -> bool: ...
+    def crossed_above_threshold(self, symbol: str, key: str, threshold: float) -> bool: ...
+    def crossed_below_threshold(self, symbol: str, key: str, threshold: float) -> bool: ...
 ```
 
 **Self-contained strategy example:**
@@ -910,13 +1321,16 @@ qtrader backtest \
   --strategy strategies/sentiment_sma.py \
   --data configs/multi_dataset.yaml \
   --out ./runs/exp1 \
-  --set fast_period=10 --set sentiment_threshold=0.8
+  --set fast_period=10 --set sentiment_threshold=0.8 \
+  --warmup
 ```
 
 - `--strategy PATH`: Path to self-contained strategy Python file (required)
 - `--data PATH`: Path to data configuration YAML (optional, uses defaults if omitted)
 - `--out PATH`: Output directory for results (required)
 - `--set KEY=VALUE`: Override strategy config parameters (optional, multiple allowed)
+- `--warmup`: Enable indicator warmup (optional, overrides config)
+- `--warmup-bars N`: Set explicit warmup period (optional, requires --warmup)
 
 **Key design decisions:**
 

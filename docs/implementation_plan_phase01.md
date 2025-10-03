@@ -1754,9 +1754,236 @@ Implement volume participation caps with partial fills and residual queuing.
 
 ______________________________________________________________________
 
-### **Stage 6: Shorting, Accruals & Outputs**
+### **Stage 6A: Indicators Framework** ✨ **NEW**
 
-**Timeline:** Days 17-20 **Branch:** `stage-6-accruals-outputs`
+**Timeline:** Days 14-17 **Branch:** `stage-6a-indicators` **Priority:** HIGH (blocks realistic strategy development)
+
+#### Summary
+
+Implement comprehensive indicators framework with built-in indicators, custom indicator support, helper functions, and automatic warmup system.
+
+**Rationale for Stage 6A (NEW):**
+
+- Indicators are fundamental for strategy development
+- Required for golden tests (Stage 8 needs SMA crossover)
+- Current Stage 6 (Shorting/Accruals) doesn't depend on indicators
+- Logical dependency chain: Data → Orders → Execution → **Indicators** → Strategies
+
+**Key Components:**
+
+1. **Base Indicator Class** (1-2 hours)
+
+   - Abstract `Indicator[T]` with Generic typing
+   - Lifecycle: `compute()`, `warmup()`, `reset()`
+   - Built-in caching infrastructure
+   - Documentation with examples
+
+1. **Built-in Indicators** (3-4 hours)
+
+   - SMA (Simple Moving Average)
+   - EMA (Exponential Moving Average)
+   - Bollinger Bands (upper, middle, lower)
+   - ATR (Average True Range - volatility)
+   - RSI (Relative Strength Index - momentum)
+   - MACD (Moving Average Convergence Divergence)
+
+1. **Indicator Helper Functions** (1 hour)
+
+   - Module: `src/qtrader/api/indicator_helpers.py`
+   - 13 helper functions across 5 categories:
+     - **Crossover**: `crossed_above()`, `crossed_below()`
+     - **Threshold**: `crossed_above_threshold()`, `crossed_below_threshold()`, `above_threshold()`, `below_threshold()`, `between_thresholds()`
+     - **Divergence**: `divergence_bullish()`, `divergence_bearish()`
+     - **Histogram**: `histogram_flipped_positive()`, `histogram_flipped_negative()`
+     - **Trend**: `is_increasing()`, `is_decreasing()`
+
+1. **Indicator Manager** (1-2 hours)
+
+   - `IndicatorManager` class
+   - Convenience methods: `sma()`, `ema()`, `bollinger_bands()`, `atr()`, `rsi()`, `macd()`
+   - Custom indicator registration via `register(name, indicator)`
+   - Instance caching per (indicator_type, params)
+
+1. **Context Integration** (1-2 hours)
+
+   - Add `ctx.ind` property (returns IndicatorManager)
+   - Add `ctx.current_bar(symbol)` for indicator access
+   - Add `ctx.get_bar_history(symbol, lookback)` for indicator computation
+   - Add `ctx._track_indicator(symbol, key, value)` for crossover tracking
+   - Add crossover wrapper methods:
+     - `ctx.crossed_above(symbol, key1, key2)`
+     - `ctx.crossed_below(symbol, key2)`
+     - `ctx.crossed_above_threshold(symbol, key, threshold)`
+     - `ctx.crossed_below_threshold(symbol, key, threshold)`
+
+1. **Indicator Warmup System** (2-3 hours) ✨ **NEW**
+
+   - **Configuration:**
+     - Add `indicators.warmup` (bool) to config
+     - Add `indicators.warmup_bars` (int | null) for explicit/auto-detect
+   - **Engine Integration:**
+     - Add `strategy.on_init(ctx)` lifecycle hook (called before warmup)
+     - Detect max lookback across all registered indicators
+     - Process warmup bars WITHOUT calling `strategy.on_bar()`
+     - Indicators compute and cache values during warmup
+     - Call `strategy.on_start(ctx)` after warmup completes
+     - Trading loop begins after warmup
+   - **CLI Support:**
+     - Add `--warmup` flag to enable without config
+     - Add `--warmup-bars N` to override detected period
+   - **Run Metadata:**
+     - Record `warmup_enabled`, `warmup_bars`, `warmup_end_date`, `trading_start_date` in `run.json`
+   - **Benefits:**
+     - Strategies don't need to handle `None` from indicators
+     - Cleaner strategy code (no warmup period checks)
+     - Consistent indicator state when trading begins
+
+1. **Tests** (2-3 hours)
+
+   - **Unit tests** (synthetic bars):
+     - `tests/unit/api/test_indicator_base.py` - Base class tests
+     - `tests/unit/api/test_indicators_builtin.py` - All 6 built-in indicators
+     - `tests/unit/api/test_indicator_helpers.py` - All 13 helper functions
+     - `tests/unit/api/test_indicator_manager.py` - Manager functionality
+     - `tests/unit/engine/test_indicator_warmup.py` - Warmup system tests
+   - **Integration tests**:
+     - `tests/integration/test_sma_crossover.py` - Full SMA crossover strategy
+     - `tests/integration/test_rsi_threshold.py` - RSI threshold strategy with helpers
+     - `tests/integration/test_macd_histogram.py` - MACD histogram zero-cross
+     - `tests/integration/test_custom_indicator.py` - Custom indicator registration
+     - `tests/integration/test_warmup_lifecycle.py` - Warmup with on_init/on_start hooks
+
+**Files Created:**
+
+```
+src/qtrader/api/
+  indicators.py              # Base class + built-in indicators (400 lines)
+  indicator_manager.py        # Manager class (200 lines)
+  indicator_helpers.py        # 13 helper functions (300 lines)
+
+src/qtrader/engine/
+  warmup.py                  # Warmup system and lifecycle (150 lines)
+
+tests/unit/api/
+  test_indicator_base.py     # Base class tests (100 lines)
+  test_indicators_builtin.py # Built-in indicator tests (300 lines)
+  test_indicator_helpers.py  # Helper function tests (250 lines)
+  test_indicator_manager.py  # Manager tests (150 lines)
+
+tests/unit/engine/
+  test_indicator_warmup.py   # Warmup system tests (120 lines)
+
+tests/integration/
+  test_sma_crossover.py      # SMA crossover integration (100 lines)
+  test_rsi_threshold.py      # RSI threshold integration (80 lines)
+  test_macd_histogram.py     # MACD histogram integration (80 lines)
+  test_custom_indicator.py   # Custom indicator test (70 lines)
+  test_warmup_lifecycle.py   # Warmup lifecycle integration (100 lines)
+```
+
+**Usage Example (SMA Crossover with Warmup):**
+
+```python
+from qtrader import Strategy, Context
+from qtrader.models.bar import Bar
+
+class SMACrossover(Strategy):
+    """SMA crossover with automatic warmup - no None handling needed."""
+
+    def on_init(self, ctx: Context):
+        """Called before warmup. Register custom indicators here if needed."""
+        # Built-in indicators are auto-registered, but custom ones go here
+        pass
+
+    def on_start(self, ctx: Context):
+        """Called after warmup completes. All indicators ready."""
+        print(f"Trading starts at {ctx.current_date}")
+
+    def on_bar(self, bar: Bar, ctx: Context):
+        # With warmup enabled, indicators ALWAYS return valid values
+        fast = ctx.ind.sma(bar.symbol, 20)
+        slow = ctx.ind.sma(bar.symbol, 50)
+
+        # No None checks needed when warmup is enabled!
+        ctx._track_indicator(bar.symbol, 'sma_20', fast)
+        ctx._track_indicator(bar.symbol, 'sma_50', slow)
+
+        # Detect crossovers
+        if ctx.crossed_above(bar.symbol, 'sma_20', 'sma_50'):
+            ctx.buy_market(bar.symbol, 100)
+        elif ctx.crossed_below(bar.symbol, 'sma_20', 'sma_50'):
+            ctx.sell_market(bar.symbol, 100)
+```
+
+**Config Example:**
+
+```yaml
+indicators:
+  warmup: true              # Enable automatic warmup
+  warmup_bars: null         # Auto-detect (will use 50 for SMA(50))
+```
+
+**CLI Example:**
+
+```bash
+qtrader backtest \
+  --strategy strategies/sma_crossover.py \
+  --data configs/algoseek_daily.yaml \
+  --out runs/sma_warmup/ \
+  --warmup
+```
+
+**Tests Focus:**
+
+- SMA calculation correct (verified against pandas)
+- EMA calculation correct (verified against TA-Lib)
+- Bollinger Bands upper/lower correct
+- ATR calculation correct
+- RSI calculation correct (0-100 range)
+- MACD calculation correct (line, signal, histogram)
+- All helper functions work correctly
+- Caching works (no recomputation)
+- Custom indicator registration works
+- Insufficient data returns None (when warmup disabled)
+- Crossover detection accurate
+- **Warmup system:**
+  - Auto-detects max lookback correctly
+  - `on_init()` called before warmup
+  - Warmup phase processes bars without calling `on_bar()`
+  - `on_start()` called after warmup completes
+  - Indicators return valid values after warmup (never None)
+  - Explicit `warmup_bars` override works
+  - Warmup metadata recorded in `run.json`
+  - CLI flags `--warmup` and `--warmup-bars` work
+
+**Acceptance Criteria:**
+
+- ✅ All 6 built-in indicators implemented
+- ✅ All 13 helper functions implemented
+- ✅ IndicatorManager provides convenient API
+- ✅ Context has `ind` property and bar history methods
+- ✅ Context has indicator tracking and crossover helpers
+- ✅ Custom indicators can be registered
+- ✅ Indicators return None when insufficient data (warmup disabled)
+- ✅ Caching works correctly (O(1) lookups)
+- ✅ **Warmup system fully functional:**
+  - ✅ Config: `indicators.warmup` and `indicators.warmup_bars`
+  - ✅ Lifecycle: `on_init()` → warmup → `on_start()` → `on_bar()`
+  - ✅ Auto-detection of max lookback period
+  - ✅ Indicators always valid when warmup enabled
+  - ✅ CLI support: `--warmup` and `--warmup-bars N`
+  - ✅ Metadata in `run.json`
+- ✅ All tests pass (unit + integration)
+- ✅ Type hints complete (mypy --strict passes)
+- ✅ Documentation complete with examples
+
+**Duration:** 11-14 hours (increased from 9-11 due to warmup system)
+
+______________________________________________________________________
+
+### **Stage 6B: Shorting, Accruals & Outputs** _(renamed from Stage 6)_
+
+**Timeline:** Days 18-21 **Branch:** `stage-6-accruals-outputs`
 
 #### Summary
 
@@ -1780,7 +2007,7 @@ ______________________________________________________________________
 
 ### **Stage 7: Public API & CLI**
 
-**Timeline:** Days 21-25 **Branch:** `stage-7-api-cli`
+**Timeline:** Days 22-26 **Branch:** `stage-7-api-cli`
 
 #### Summary
 
@@ -1790,8 +2017,7 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
 
 - Strategy base class and protocol
 - Context with order submission methods
-- **Context debug API** (debug_state, debug_indicators, debug_orders)
-- Indicator framework (SMA, EMA, etc.)
+- **Context debug API** (debug_state, debug_orders, debug_fills)
 - Backtest runner with step-by-step mode
 - CLI command implementation
 - Config file loading
@@ -1804,7 +2030,6 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
 - Strategy lifecycle (on_start, on_bar, on_fill, on_end)
 - Context order submission
 - Context debug methods return correct state
-- Indicators calculate correctly
 - CLI commands work end-to-end
 - Backtest.next_bar() allows manual stepping
 - Debug output files generated correctly
@@ -1875,7 +2100,7 @@ ______________________________________________________________________
 
 ### **Stage 8: Golden Baselines & Validation**
 
-**Timeline:** Days 26-30 **Branch:** `stage-8-goldens`
+**Timeline:** Days 27-31 **Branch:** `stage-8-goldens`
 
 #### Summary
 
