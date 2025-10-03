@@ -90,6 +90,11 @@ sync: check-uv ## 📦 Sync dependencies and create virtual environment
 		echo "$(RED)❌ Failed to sync packages$(END)"; \
 		exit 1; \
 	}
+	@echo "$(BLUE)ℹ️  Installing qtrader in editable mode...$(END)"
+	@uv pip install -e . --quiet || { \
+		echo "$(RED)❌ Failed to install package$(END)"; \
+		exit 1; \
+	}
 	@echo "$(GREEN)✅ Dependencies synced successfully$(END)"
 
 .PHONY: upgrade
