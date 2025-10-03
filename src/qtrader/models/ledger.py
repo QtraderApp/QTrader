@@ -1,0 +1,167 @@
+"""Cash ledger with Decimal precision."""
+
+from decimal import Decimal
+from typing import List, NamedTuple
+
+import structlog
+
+logger = structlog.get_logger()
+
+
+class CashTransaction(NamedTuple):
+    """Record of a cash transaction."""
+
+    timestamp: str  # ISO format datetime
+    transaction_type: str  # FILL, DIVIDEND, BORROW_COST, DEPOSIT, WITHDRAWAL
+    amount: Decimal  # Positive for credit, negative for debit
+    description: str
+    balance_after: Decimal
+
+
+class CashLedger:
+    """
+    Cash ledger with Decimal precision.
+
+    Tracks all cash movements:
+    - Fill settlements (gross value + fees)
+    - Short dividend payments
+    - Borrow cost accruals
+    - Initial deposits
+    """
+
+    def __init__(self, initial_cash: Decimal = Decimal("100000.0")):
+        """
+        Initialize cash ledger.
+
+        Args:
+            initial_cash: Starting cash balance (default 100k)
+        """
+        if initial_cash < 0:
+            raise ValueError(f"initial_cash must be >= 0, got {initial_cash}")
+
+        self._balance = initial_cash
+        self._transactions: List[CashTransaction] = []
+
+        # Record initial deposit
+        self._transactions.append(
+            CashTransaction(
+                timestamp="",  # Will be set when engine starts
+                transaction_type="DEPOSIT",
+                amount=initial_cash,
+                description="Initial deposit",
+                balance_after=initial_cash,
+            )
+        )
+
+        logger.info("cash_ledger.initialized", initial_cash=float(initial_cash))
+
+    def get_balance(self) -> Decimal:
+        """Get current cash balance."""
+        return self._balance
+
+    def debit(self, amount: Decimal, timestamp: str, transaction_type: str, description: str) -> Decimal:
+        """
+        Debit (subtract) from cash.
+
+        Args:
+            amount: Amount to debit (positive value)
+            timestamp: ISO format timestamp
+            transaction_type: Type of transaction
+            description: Human-readable description
+
+        Returns:
+            New balance
+
+        Raises:
+            ValueError: If amount is negative
+        """
+        if amount < 0:
+            raise ValueError(f"Debit amount must be >= 0, got {amount}")
+
+        self._balance -= amount
+
+        self._transactions.append(
+            CashTransaction(
+                timestamp=timestamp,
+                transaction_type=transaction_type,
+                amount=-amount,  # Negative for debit
+                description=description,
+                balance_after=self._balance,
+            )
+        )
+
+        logger.debug(
+            "cash_ledger.debit",
+            amount=float(amount),
+            type=transaction_type,
+            balance=float(self._balance),
+        )
+
+        return self._balance
+
+    def credit(self, amount: Decimal, timestamp: str, transaction_type: str, description: str) -> Decimal:
+        """
+        Credit (add) to cash.
+
+        Args:
+            amount: Amount to credit (positive value)
+            timestamp: ISO format timestamp
+            transaction_type: Type of transaction
+            description: Human-readable description
+
+        Returns:
+            New balance
+
+        Raises:
+            ValueError: If amount is negative
+        """
+        if amount < 0:
+            raise ValueError(f"Credit amount must be >= 0, got {amount}")
+
+        self._balance += amount
+
+        self._transactions.append(
+            CashTransaction(
+                timestamp=timestamp,
+                transaction_type=transaction_type,
+                amount=amount,  # Positive for credit
+                description=description,
+                balance_after=self._balance,
+            )
+        )
+
+        logger.debug(
+            "cash_ledger.credit",
+            amount=float(amount),
+            type=transaction_type,
+            balance=float(self._balance),
+        )
+
+        return self._balance
+
+    def can_afford(self, amount: Decimal, cushion: Decimal = Decimal("0.0")) -> bool:
+        """
+        Check if sufficient cash available.
+
+        Args:
+            amount: Amount needed (positive value)
+            cushion: Additional buffer to maintain (default 0)
+
+        Returns:
+            True if balance >= amount + cushion
+        """
+        return self._balance >= (amount + cushion)
+
+    def get_transactions(self) -> List[CashTransaction]:
+        """Get all transactions (read-only copy)."""
+        return list(self._transactions)
+
+    def get_net_flow(self) -> Decimal:
+        """
+        Calculate net cash flow (excluding initial deposit).
+
+        Positive = net deposits/profits
+        Negative = net withdrawals/losses
+        """
+        # Skip first transaction (initial deposit)
+        return sum((t.amount for t in self._transactions[1:]), Decimal("0.0"))

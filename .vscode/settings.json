@@ -59,5 +59,6 @@
         "tearsheet",
         "testpaths",
         "venv"
-    ]
+    ],
+    "github.copilot.nextEditSuggestions.enabled": true
 }
