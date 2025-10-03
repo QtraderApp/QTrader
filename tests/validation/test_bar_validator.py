@@ -122,6 +122,7 @@ def test_validator_detects_bad_ohlc(bad_bar_high_low, data_config_strict):
 
     is_valid, reason = validator.validate_ohlc(bad_bar_high_low)
     assert is_valid is False
+    assert reason is not None
     assert "high" in reason
 
 
