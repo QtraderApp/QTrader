@@ -90,7 +90,9 @@ class BarValidator:
             self.close_only_count += 1
             return bar, True
 
-        return bar, False
+        # Unreachable: all enum values handled above
+        # This case exists for defensive programming and type exhaustiveness
+        raise AssertionError(f"Unhandled OHLCPolicy: {self.policy}")  # pragma: no cover
 
     def validate_frequency(self, bars: list[Bar]) -> bool:
         """
@@ -127,10 +129,12 @@ class BarValidator:
         expected = expected_deltas.get(freq)
         if expected and abs((median_delta - expected).total_seconds()) > 3600:  # 1 hour tolerance
             msg = f"Frequency mismatch: expected {freq}, median delta {median_delta}"
-            if self.config.strict_frequency:
+            # Handle based on strict_frequency setting
+            strict = self.config.strict_frequency
+            if strict:
                 logger.error("bar_validator.frequency_mismatch", expected=freq, median=str(median_delta))
                 raise ValueError(msg)
-            logger.warning("bar_validator.frequency_mismatch", expected=freq, median=str(median_delta))
+            logger.warning("bar_validator.frequency_mismatch", expected=freq, median=str(median_delta))  # type: ignore[unreachable]
             return False
 
         logger.info("bar_validator.frequency_validated", expected=freq, median=str(median_delta))

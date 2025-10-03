@@ -419,10 +419,6 @@ class FillPolicy:
             return self.evaluate_limit_order(order, current_bar)
         elif order.order_type == OrderType.STOP:
             return self.evaluate_stop_order(order, current_bar)
-        else:
-            return FillDecision(
-                should_fill=False,
-                fill_price=Decimal("0"),
-                reason=f"Order type {order.order_type.value} not supported",
-                next_bar=False,
-            )
+
+        # Unreachable: all OrderType enum values handled above
+        raise AssertionError(f"Unhandled OrderType: {order.order_type}")  # pragma: no cover
