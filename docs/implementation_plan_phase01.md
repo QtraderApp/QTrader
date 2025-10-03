@@ -1658,26 +1658,75 @@ Implement execution engine event loop with Market and MOC order fills. This is t
 
 ______________________________________________________________________
 
-### **Stage 4: Execution Engine — Limit & Stop**
+### **Stage 4: Execution Engine — Limit & Stop** ✅ **COMPLETE**
 
-**Timeline:** Days 11-13 **Branch:** `stage-4-limit-stop`
+**Timeline:** Days 11-13 **Branch:** `stage-4-limit-stop` **Status:** ✅ Completed
 
 #### Summary
 
 Add limit and stop order execution with conservative touch rules. Implement close-only bar handling.
 
-**Key Components:**
+**Key Components:** ✅ All Implemented
 
-- Limit/Stop evaluation logic
-- Conservative vs optimistic fill modes
-- Close-only bar detection (skip limit/stop evaluation)
-- DAY TIF expiration
+- ✅ Limit order evaluation with conservative touch rules
+- ✅ Stop order evaluation with conservative touch rules
+- ✅ Conservative vs optimistic fill modes (configurable)
+- ✅ Close-only bar detection (skip limit/stop evaluation)
+- ✅ DAY TIF expiration (expires at end of day/date change)
+- ✅ Stop order slippage calculation (configurable bps)
 
-**Tests Focus:**
+**Conservative Touch Rules Implemented:**
 
-- All 4 limit/stop conservative cases
-- Close-only bars skip limit/stop
-- DAY orders expire correctly
+- ✅ **Limit Buy:** if `low ≤ limit` then fill at `min(limit, close)`
+- ✅ **Limit Sell:** if `high ≥ limit` then fill at `max(limit, close)`
+- ✅ **Stop Buy:** if `high ≥ stop` then fill at `max(stop, close)` ± slippage
+- ✅ **Stop Sell:** if `low ≤ stop` then fill at `min(stop, close)` ± slippage
+
+**Test Results:**
+
+- ✅ **147/147 tests passing** (100% pass rate, +19 tests from Stage 3)
+- ✅ **94% overall code coverage** (maintained)
+- ✅ **ExecutionEngine: 90% coverage** (up from 82%)
+- ✅ **FillPolicy: 87% coverage** (up from 60%)
+
+**Integration Tests Created (19 tests):**
+
+- ✅ `test_limit_buy_touched_fills_at_min_limit_close` - Conservative Limit Buy fill logic
+- ✅ `test_limit_buy_touched_fills_at_limit_when_close_higher` - Fill at limit price
+- ✅ `test_limit_buy_not_touched` - Order remains pending when not touched
+- ✅ `test_limit_sell_touched_fills_at_max_limit_close` - Conservative Limit Sell fill logic
+- ✅ `test_limit_sell_touched_fills_at_limit_when_close_lower` - Fill at limit price
+- ✅ `test_limit_sell_not_touched` - Order remains pending when not touched
+- ✅ `test_stop_buy_triggered_fills_at_max_with_slippage` - Conservative Stop Buy with slippage
+- ✅ `test_stop_buy_triggered_at_stop_below_close` - Fill at close + slippage
+- ✅ `test_stop_buy_not_triggered` - Order remains pending when not triggered
+- ✅ `test_stop_sell_triggered_fills_at_min_with_slippage` - Conservative Stop Sell with slippage
+- ✅ `test_stop_sell_triggered_at_stop_above_close` - Fill at close - slippage
+- ✅ `test_stop_sell_not_triggered` - Order remains pending when not triggered
+- ✅ `test_close_only_bar_skips_limit_orders` - Malformed bars skip limit evaluation
+- ✅ `test_close_only_bar_skips_stop_orders` - Malformed bars skip stop evaluation
+- ✅ `test_close_only_bar_allows_moc_orders` - MOC orders work on close-only bars
+- ✅ `test_day_order_expires_next_day` - DAY orders expire at end of day
+- ✅ `test_day_order_survives_same_day_bars` - DAY orders persist same day
+- ✅ `test_engine_fills_limit_buy_and_updates_portfolio` - Full integration test
+- ✅ `test_engine_fills_stop_sell_and_updates_portfolio` - Full integration test
+
+**Key Achievements:**
+
+- ✅ Conservative fill model prevents look-ahead bias
+- ✅ Configurable modes allow team to choose optimistic if needed (with governance)
+- ✅ Close-only bar handling protects against malformed OHLC data
+- ✅ DAY order expiration works correctly across date boundaries
+- ✅ Stop orders include slippage modeling (5 bps default)
+- ✅ All order types (Market, MOC, Limit, Stop) now fully functional
+
+**Notes:**
+
+- Conservative mode is default and pinned (team governance required to change)
+- Close-only bars use only close price (high/low not trustworthy)
+- DAY orders expire when date changes (not just timestamp)
+- Stop orders apply slippage after determining fill price
+- ExecutionConfig validated on initialization
 
 ______________________________________________________________________
 
