@@ -6,12 +6,12 @@ from typing import Iterator
 
 import pandas as pd
 import pytz
-import structlog
 
 from qtrader.config.data_config import DataConfig
+from qtrader.config.logging_config import LoggerFactory
 from qtrader.models.bar import AdjustmentEvent, Bar, DataMode
 
-logger = structlog.get_logger()
+logger = LoggerFactory.get_logger()
 
 
 class CSVAdapter:

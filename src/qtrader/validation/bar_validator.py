@@ -4,12 +4,11 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
 
-import structlog
-
 from qtrader.config.data_config import DataConfig
+from qtrader.config.logging_config import LoggerFactory
 from qtrader.models.bar import Bar, OHLCPolicy
 
-logger = structlog.get_logger()
+logger = LoggerFactory.get_logger()
 
 
 class BarValidator:

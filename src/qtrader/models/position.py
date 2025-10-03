@@ -3,11 +3,10 @@
 from decimal import Decimal
 from typing import Dict, NamedTuple
 
-import structlog
-
+from qtrader.config.logging_config import LoggerFactory
 from qtrader.models.order import OrderSide
 
-logger = structlog.get_logger()
+logger = LoggerFactory.get_logger()
 
 
 class Position(NamedTuple):

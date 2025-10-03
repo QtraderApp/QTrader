@@ -3,9 +3,9 @@
 from decimal import Decimal
 from typing import List, NamedTuple
 
-import structlog
+from qtrader.config.logging_config import LoggerFactory
 
-logger = structlog.get_logger()
+logger = LoggerFactory.get_logger()
 
 
 class CashTransaction(NamedTuple):
