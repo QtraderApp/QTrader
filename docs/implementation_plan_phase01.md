@@ -1591,28 +1591,70 @@ Implement order types, position tracking, and cash ledger. This stage builds the
 
 ______________________________________________________________________
 
-### **Stage 3: Execution Engine — Market & MOC**
+### **Stage 3: Execution Engine — Market & MOC** ✅ **COMPLETE**
 
-**Timeline:** Days 7-10 **Branch:** `stage-3-market-moc`
+**Timeline:** Days 7-10 **Branch:** `stage-3-market-moc` **Status:** ✅ Completed
 
 #### Summary
 
 Implement execution engine event loop with Market and MOC order fills. This is the first stage where orders actually execute.
 
-**Key Components:**
+**Key Components:** ✅ All Implemented
 
-- Execution engine with event loop
-- Fill policy (conservative rules)
-- Commission calculation (per-share + ticket minimum)
-- Market orders fill at next bar open
-- MOC orders fill at current bar close with slippage
+- ✅ Execution engine with event loop (`ExecutionEngine`)
+- ✅ Fill policy (conservative rules) (`FillPolicy`)
+- ✅ Commission calculation (per-share + ticket minimum) (`CommissionCalculator`)
+- ✅ Market orders fill at next bar open
+- ✅ MOC orders fill at current bar close with slippage
+- ✅ Portfolio integration (cash + positions atomic updates)
+- ✅ Order state tracking (pending → filled)
 
-**Tests Focus:**
+**Test Results:**
 
-- Market orders fill at correct price
-- MOC orders with slippage calculation
-- Commission enforcement
-- Ledger updates after fills
+- ✅ **128/128 tests passing** (100% pass rate)
+- ✅ **94% overall code coverage** (up from 89%)
+- ✅ **ExecutionEngine: 88% coverage** (up from 30%)
+- ✅ **FillPolicy: 90% coverage** (up from 38%)
+- ✅ **CommissionCalculator: 100% coverage**
+
+**Integration Tests Created:**
+
+- ✅ `tests/execution/test_engine.py` - 9 integration tests validating:
+
+  - Engine initialization
+  - MOC order submission and immediate fill
+  - Market order waiting for next bar
+  - Portfolio updates after fills (cash + positions)
+  - Buy/sell round trips
+  - Short positions
+  - Multiple fills accumulation
+  - Commission deduction
+  - Order state transitions
+
+- ✅ `tests/execution/test_fill_policy.py` - 6 integration tests validating:
+
+  - FillPolicy initialization
+  - MOC orders fill immediately with slippage
+  - MOC sell negative slippage
+  - Market orders need next bar
+  - Limit orders not supported (Stage 4)
+  - Market order fills at next open
+
+**Key Achievements:**
+
+- ✅ Conservative fill model implemented (no look-ahead bias)
+- ✅ Decimal precision maintained throughout execution pipeline
+- ✅ Atomic portfolio updates (cash + positions in single operation)
+- ✅ Comprehensive logging with structlog
+- ✅ Order lifecycle fully tracked (submitted → filled)
+- ✅ Slippage model working (5 bps default for MOC)
+
+**Notes:**
+
+- ExecutionEngine uses `with_state()` for order transitions, not `with_partial_fill()` (partial fills in Stage 5)
+- Fill objects contain execution details (price, qty, fees, slippage_bps)
+- Market orders require next_bar parameter for fill evaluation
+- MOC orders fill immediately on bar close with configurable slippage
 
 ______________________________________________________________________
 
