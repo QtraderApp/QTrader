@@ -2,14 +2,17 @@
 
 **Version:** 2.0  
 **Date:** October 3, 2025  
-**Status:** In Progress - Stage 1  
+**Status:** In Progress - Stage 2  
 **Reference:** `docs/specs/phase01.md` v1.0
 
 **Architecture:**
+
 - ✅ Vendor-agnostic Bar model (pure OHLCV)
 - ✅ Multi-dataset support (primary + auxiliary)
 - ✅ Self-contained strategies
 - ✅ No backward compatibility constraints
+
+**Stage 1 Status:** ✅ COMPLETE (36/36 tests passing)
 
 ---
 
