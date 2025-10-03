@@ -55,7 +55,7 @@ repos:
           - mdformat-tables>=0.4.1
           - mdformat-frontmatter>=2.0.1
           - mdformat-footnote>=0.1.1
-        args: [--wrap=no, --number]
+        args: [--wrap=no, --end-of-line=lf]
         types: [markdown]
         exclude: ^(\.github/|\.vscode/)
 

@@ -1,14 +1,13 @@
-"""Fill policy for order execution."""
+"""Fill policy - determines if/when orders fill."""
 
 from decimal import Decimal
 from typing import NamedTuple, Optional
 
-import structlog
-
+from qtrader.config.logging_config import LoggerFactory
 from qtrader.models.bar import Bar
 from qtrader.models.order import OrderBase, OrderSide, OrderType
 
-logger = structlog.get_logger(__name__)
+logger = LoggerFactory.get_logger()
 
 
 class FillDecision(NamedTuple):

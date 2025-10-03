@@ -67,9 +67,8 @@ ensure_newline_before_comments = true
 src_paths = ["src"]
 
 [tool.mdformat]
-wrap = 500
-# Do not use sequential numbering - keep consistent "1." style to match markdownlint
-end_of_line = "lf"
+wrap = "no"  # Do not wrap lines
+end_of_line = "lf"  # Use LF line endings (Unix style)
 
 [tool.mypy]
 python_version = "3.13"

@@ -48,11 +48,11 @@ pytest tests/ --cov=src/qtrader --cov-report=html
    - `src/qtrader/models/order.py` → `tests/models/test_order.py`
    - `src/qtrader/adapters/csv_adapter.py` → `tests/adapters/test_csv_adapter.py`
 
-2. **One test file per source file**: Keep tests focused and easy to find
+1. **One test file per source file**: Keep tests focused and easy to find
 
-3. **Test file naming**: Prefix with `test_` (pytest convention)
+1. **Test file naming**: Prefix with `test_` (pytest convention)
 
-4. **Package structure**: Each test directory is a Python package with `__init__.py`
+1. **Package structure**: Each test directory is a Python package with `__init__.py`
 
 ## Current Test Coverage
 

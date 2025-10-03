@@ -1,16 +1,15 @@
-"""Portfolio: Unified account state (cash + positions)."""
+"""Portfolio manager with positions and cash."""
 
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Optional
 
-import structlog
-
+from qtrader.config.logging_config import LoggerFactory
 from qtrader.models.ledger import CashLedger
 from qtrader.models.order import OrderSide
 from qtrader.models.position import Position, PositionTracker
 
-logger = structlog.get_logger(__name__)
+logger = LoggerFactory.get_logger()
 
 
 class Portfolio:
@@ -88,6 +87,21 @@ class Portfolio:
 
         # Update cash ledger
         if net_cash_impact < Decimal("0"):
+            # Check if we have sufficient cash for buy orders
+            if side == OrderSide.BUY:
+                cash_balance = self.cash.get_balance()
+                if cash_balance + net_cash_impact < Decimal("0"):
+                    logger.warning(
+                        "portfolio.insufficient_cash",
+                        symbol=symbol,
+                        side=side.value,
+                        qty=qty,
+                        required_cash=float(abs(net_cash_impact)),
+                        available_cash=float(cash_balance),
+                        shortfall=float(abs(cash_balance + net_cash_impact)),
+                        order_id=order_id,
+                    )
+
             self.cash.debit(
                 amount=abs(net_cash_impact),
                 timestamp=ts.isoformat(),
@@ -103,7 +117,40 @@ class Portfolio:
             )
 
         # Update position tracker (uses side, qty, price)
+        old_position = self.positions.get_position(symbol)
+        old_qty = old_position.qty if old_position else 0
+
         self.positions.update_position(symbol, side, qty, fill_price)
+
+        new_position = self.positions.get_position(symbol)
+        new_qty = new_position.qty if new_position else 0
+
+        # Log position transitions (especially long→short or short→long)
+        if old_qty > 0 and new_qty < 0:
+            logger.info(
+                "portfolio.position_transition_long_to_short",
+                symbol=symbol,
+                old_qty=old_qty,
+                new_qty=new_qty,
+                fill_qty=qty,
+                side=side.value,
+            )
+        elif old_qty < 0 and new_qty > 0:
+            logger.info(
+                "portfolio.position_transition_short_to_long",
+                symbol=symbol,
+                old_qty=old_qty,
+                new_qty=new_qty,
+                fill_qty=qty,
+                side=side.value,
+            )
+        elif old_qty != 0 and new_qty == 0:
+            logger.info(
+                "portfolio.position_closed",
+                symbol=symbol,
+                old_qty=old_qty,
+                realized_pnl=float(new_position.realized_pnl) if new_position else 0.0,
+            )
 
         # Track current price for this symbol
         self._current_prices[symbol] = fill_price
@@ -117,7 +164,8 @@ class Portfolio:
             commission=float(commission),
             cash_impact=float(net_cash_impact),
             cash_balance=float(self.cash.get_balance()),
-            position_qty=self.positions.get_position(symbol).qty,
+            position_qty=new_qty,
+            position_avg_price=float(new_position.avg_price) if new_position else 0.0,
         )
 
     def apply_short_dividend(

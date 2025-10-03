@@ -4,8 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
-import structlog
-
+from qtrader.config.logging_config import LoggerFactory
 from qtrader.execution.commission import CommissionCalculator
 from qtrader.execution.config import ExecutionConfig
 from qtrader.execution.fill_policy import FillDecision, FillPolicy
@@ -13,7 +12,7 @@ from qtrader.models.bar import Bar
 from qtrader.models.order import Fill, OrderBase, OrderState, TimeInForce
 from qtrader.models.portfolio import Portfolio
 
-logger = structlog.get_logger(__name__)
+logger = LoggerFactory.get_logger()
 
 
 class ExecutionEngine:
@@ -87,6 +86,12 @@ class ExecutionEngine:
             ValueError: If order already exists
         """
         if order.order_id in self.pending_orders:
+            logger.error(
+                "execution_engine.order_duplicate",
+                order_id=order.order_id,
+                symbol=order.symbol,
+                reason="Order ID already exists in pending orders",
+            )
             raise ValueError(f"Order {order.order_id} already exists")
 
         # Set order to SUBMITTED state if not already
@@ -96,6 +101,11 @@ class ExecutionEngine:
         # Set submission_bar_ts for DAY orders (for expiration tracking)
         if order.tif == TimeInForce.DAY and order.submission_bar_ts is None and self.current_bar is not None:
             order = order._replace(submission_bar_ts=self.current_bar.ts)
+            logger.debug(
+                "execution_engine.day_order_timestamp_set",
+                order_id=order.order_id,
+                submission_ts=self.current_bar.ts.isoformat(),
+            )
 
         self.pending_orders[order.order_id] = order
 
@@ -107,6 +117,8 @@ class ExecutionEngine:
             qty=order.qty,
             order_type=order.order_type.value,
             tif=order.tif.value,
+            limit_price=float(order.limit_price) if order.limit_price else None,
+            stop_price=float(order.stop_price) if order.stop_price else None,
         )
 
     def on_bar(self, bar: Bar, next_bar: Optional[Bar] = None, is_close_only: bool = False) -> List[Fill]:
@@ -197,6 +209,23 @@ class ExecutionEngine:
                     qty=order.qty,
                     fill_price=float(fill.price),
                     fees=float(fill.fees),
+                    slippage_bps=fill.slippage_bps,
+                    order_type=order.order_type.value,
+                )
+            else:
+                # Order didn't fill - log reason for debugging
+                logger.debug(
+                    "execution_engine.order_not_filled",
+                    order_id=order_id,
+                    symbol=order.symbol,
+                    order_type=order.order_type.value,
+                    reason=decision.reason or "not evaluated yet",
+                    limit_price=float(order.limit_price) if order.limit_price else None,
+                    stop_price=float(order.stop_price) if order.stop_price else None,
+                    bar_high=float(bar.high),
+                    bar_low=float(bar.low),
+                    bar_close=float(bar.close),
+                    is_close_only=is_close_only,
                 )
 
         # Remove filled orders from pending
@@ -272,16 +301,27 @@ class ExecutionEngine:
             fill: Fill details
             bar: Current bar
         """
-        self.portfolio.apply_fill(
-            symbol=fill.symbol,
-            side=fill.side,
-            qty=fill.qty,
-            fill_price=fill.price,
-            commission=fill.fees,
-            ts=fill.execution_ts,
-            order_id=fill.order_id,
-            fill_id=fill.fill_id,
-        )
+        try:
+            self.portfolio.apply_fill(
+                symbol=fill.symbol,
+                side=fill.side,
+                qty=fill.qty,
+                fill_price=fill.price,
+                commission=fill.fees,
+                ts=fill.execution_ts,
+                order_id=fill.order_id,
+                fill_id=fill.fill_id,
+            )
+        except Exception as e:
+            logger.error(
+                "execution_engine.fill_application_failed",
+                order_id=order.order_id,
+                fill_id=fill.fill_id,
+                symbol=fill.symbol,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise
 
     def on_end_of_day(self, ts: datetime) -> None:
         """
@@ -292,13 +332,19 @@ class ExecutionEngine:
         Args:
             ts: End-of-day timestamp
         """
+        # Log EOD before borrow cost calculation
+        logger.debug(
+            "execution_engine.eod",
+            ts=ts.isoformat(),
+            pending_orders=len(self.pending_orders),
+            cash=float(self.portfolio.cash.get_balance()),
+        )
+
         # Accrue borrow costs
         self.portfolio.apply_borrow_cost(
             borrow_rate_annual=self.config.borrow_rate_annual,
             ts=ts,
         )
-
-        logger.debug("execution_engine.eod", ts=ts.isoformat())
 
     def get_pending_orders(self) -> Dict[str, OrderBase]:
         """Get all pending orders."""

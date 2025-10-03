@@ -639,11 +639,11 @@ ______________________________________________________________________
 ### 14.1 Order of Operations (Bar)
 
 1. Strategy computes and submits orders.
-2. Intrabar evaluation for limit/stop (with participation).
-3. End‑bar evaluation: MOC fill; Market scheduled for next bar open.
-4. Ledger updates: positions, cash, PnL, costs.
-5. EOD accruals: borrow; short dividends on ex‑date.
-6. Output snapshots and logs.
+1. Intrabar evaluation for limit/stop (with participation).
+1. End‑bar evaluation: MOC fill; Market scheduled for next bar open.
+1. Ledger updates: positions, cash, PnL, costs.
+1. EOD accruals: borrow; short dividends on ex‑date.
+1. Output snapshots and logs.
 
 ### 14.2 Symbol Ordering & Reproducibility
 

@@ -52,11 +52,44 @@ class AlgoseekParquetAdapter:
         4. Convert types (float → Decimal, timestamp → tz-aware)
         5. Yield Bar objects in symbol, timestamp order
         """
+        # Validate source exists
+        if not source.exists():
+            logger.error(
+                "algoseek_adapter.source_not_found",
+                source=str(source),
+            )
+            raise FileNotFoundError(f"Data source not found: {source}")
+
         # Build parquet glob pattern
         parquet_pattern = str(source / "**" / "*.parquet")
 
+        # Check if any parquet files exist
+        parquet_files = list(source.rglob("*.parquet"))
+        if not parquet_files:
+            logger.error(
+                "algoseek_adapter.no_parquet_files",
+                source=str(source),
+                pattern=parquet_pattern,
+            )
+            raise FileNotFoundError(f"No parquet files found in {source}")
+
+        logger.debug(
+            "algoseek_adapter.parquet_files_found",
+            source=str(source),
+            file_count=len(parquet_files),
+            files=[f.name for f in parquet_files[:10]],  # Log first 10 files
+        )
+
         # Configure timezone
-        tz = pytz.timezone(config.timezone)
+        try:
+            tz = pytz.timezone(config.timezone)
+        except pytz.exceptions.UnknownTimeZoneError as e:
+            logger.error(
+                "algoseek_adapter.invalid_timezone",
+                timezone=config.timezone,
+                error=str(e),
+            )
+            raise
 
         # Decimal quantization context
         price_decimals = config.decimals.get("price", 4)
@@ -71,6 +104,7 @@ class AlgoseekParquetAdapter:
             timezone=config.timezone,
             price_decimals=price_decimals,
             data_mode="adjusted",
+            file_count=len(parquet_files),
         )
 
         # Connect to DuckDB and read
@@ -93,37 +127,76 @@ class AlgoseekParquetAdapter:
             ORDER BY symbol, ts
             """
 
-            result = con.execute(query)
+            try:
+                result = con.execute(query)
+            except Exception as e:
+                logger.error(
+                    "algoseek_adapter.query_failed",
+                    query=query[:200],  # Log first 200 chars
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                raise
 
             bar_count = 0
+            last_symbol = None
+            symbol_bar_counts: dict[str, int] = {}
+
             # Yield bars one at a time
             for row in result.fetchall():
-                ts_naive, symbol, open_f, high_f, low_f, close_f, volume = row
+                try:
+                    ts_naive, symbol, open_f, high_f, low_f, close_f, volume = row
 
-                # Localize timestamp
-                ts = tz.localize(ts_naive)
+                    # Track symbols for logging
+                    if symbol != last_symbol:
+                        symbol_bar_counts[symbol] = symbol_bar_counts.get(symbol, 0) + 1
+                        if last_symbol is not None and symbol_bar_counts[last_symbol] > 0:
+                            logger.debug(
+                                "algoseek_adapter.symbol_completed",
+                                symbol=last_symbol,
+                                bar_count=symbol_bar_counts[last_symbol],
+                            )
+                        last_symbol = symbol
 
-                # Convert prices to Decimal
-                open_d = Decimal(str(open_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                high_d = Decimal(str(high_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                low_d = Decimal(str(low_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                close_d = Decimal(str(close_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
+                    # Localize timestamp
+                    ts = tz.localize(ts_naive)
 
-                bar_count += 1
-                yield Bar(
-                    ts=ts,
-                    symbol=symbol,
-                    open=open_d,
-                    high=high_d,
-                    low=low_d,
-                    close=close_d,
-                    volume=int(volume),
-                )
+                    # Convert prices to Decimal
+                    open_d = Decimal(str(open_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
+                    high_d = Decimal(str(high_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
+                    low_d = Decimal(str(low_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
+                    close_d = Decimal(str(close_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
 
-            logger.info("algoseek_adapter.bars_completed", bar_count=bar_count)
+                    bar_count += 1
+                    yield Bar(
+                        ts=ts,
+                        symbol=symbol,
+                        open=open_d,
+                        high=high_d,
+                        low=low_d,
+                        close=close_d,
+                        volume=int(volume),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "algoseek_adapter.bar_conversion_failed",
+                        row=str(row)[:200],  # Truncate long rows
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        bar_number=bar_count + 1,
+                    )
+                    raise
+
+            logger.info(
+                "algoseek_adapter.bars_completed",
+                bar_count=bar_count,
+                symbol_count=len(symbol_bar_counts),
+                symbols=list(symbol_bar_counts.keys()),
+            )
 
         finally:
             con.close()
+            logger.debug("algoseek_adapter.bars_connection_closed")
 
     def read_adjustments(self, source: Path, config: DataConfig) -> Iterator[AdjustmentEvent]:
         """
@@ -136,7 +209,16 @@ class AlgoseekParquetAdapter:
             return
 
         parquet_pattern = str(source / "**" / "*.parquet")
-        tz = pytz.timezone(config.timezone)
+
+        try:
+            tz = pytz.timezone(config.timezone)
+        except pytz.exceptions.UnknownTimeZoneError as e:
+            logger.error(
+                "algoseek_adapter.invalid_timezone_adjustments",
+                timezone=config.timezone,
+                error=str(e),
+            )
+            raise
 
         # Adjustment schema mapping
         adj_schema = config.adjustment_schema
@@ -164,36 +246,76 @@ class AlgoseekParquetAdapter:
             ORDER BY symbol, ts
             """
 
-            result = con.execute(query)
+            try:
+                result = con.execute(query)
+            except Exception as e:
+                logger.error(
+                    "algoseek_adapter.adjustments_query_failed",
+                    query=query[:200],
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                raise
 
             adj_count = 0
+            symbol_adj_counts: dict[str, int] = {}
+
             for row in result.fetchall():
-                ts_naive, symbol, event_type, px_f, vol_f = row[:5]
-                metadata_vals = row[5:] if len(row) > 5 else []
+                try:
+                    ts_naive, symbol, event_type, px_f, vol_f = row[:5]
+                    metadata_vals = row[5:] if len(row) > 5 else []
 
-                # Localize timestamp
-                ts = tz.localize(ts_naive)
+                    # Track adjustment counts by symbol
+                    symbol_adj_counts[symbol] = symbol_adj_counts.get(symbol, 0) + 1
 
-                # Convert factors to Decimal
-                px_factor = Decimal(str(px_f)).quantize(Decimal("0.0000001"))
-                vol_factor = Decimal(str(vol_f)).quantize(Decimal("0.0000001"))
+                    # Localize timestamp
+                    ts = tz.localize(ts_naive)
 
-                # Build metadata dict
-                metadata = {}
-                if adj_schema.metadata_fields and metadata_vals:
-                    metadata = dict(zip(adj_schema.metadata_fields, metadata_vals))
+                    # Convert factors to Decimal
+                    px_factor = Decimal(str(px_f)).quantize(Decimal("0.0000001"))
+                    vol_factor = Decimal(str(vol_f)).quantize(Decimal("0.0000001"))
 
-                adj_count += 1
-                yield AdjustmentEvent(
-                    ts=ts,
-                    symbol=symbol,
-                    event_type=event_type,
-                    px_factor=px_factor,
-                    vol_factor=vol_factor,
-                    metadata=metadata,
-                )
+                    # Build metadata dict
+                    metadata = {}
+                    if adj_schema.metadata_fields and metadata_vals:
+                        metadata = dict(zip(adj_schema.metadata_fields, metadata_vals))
 
-            logger.info("algoseek_adapter.adjustments_completed", adj_count=adj_count)
+                    adj_count += 1
+                    yield AdjustmentEvent(
+                        ts=ts,
+                        symbol=symbol,
+                        event_type=event_type,
+                        px_factor=px_factor,
+                        vol_factor=vol_factor,
+                        metadata=metadata,
+                    )
+
+                    # Log individual adjustments for debugging
+                    logger.debug(
+                        "algoseek_adapter.adjustment_event",
+                        symbol=symbol,
+                        ts=ts.isoformat(),
+                        event_type=event_type,
+                        px_factor=float(px_factor),
+                        vol_factor=float(vol_factor),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "algoseek_adapter.adjustment_conversion_failed",
+                        row=str(row)[:200],
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        adjustment_number=adj_count + 1,
+                    )
+                    raise
+
+            logger.info(
+                "algoseek_adapter.adjustments_completed",
+                adj_count=adj_count,
+                symbol_count=len(symbol_adj_counts),
+                adjustments_by_symbol=symbol_adj_counts,
+            )
 
         finally:
             con.close()
+            logger.debug("algoseek_adapter.adjustments_connection_closed")

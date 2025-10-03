@@ -92,35 +92,35 @@ ______________________________________________________________________
    - DataMode declares if prices are adjusted or unadjusted
    - Adapter normalizes vendor schema → canonical Bar
 
-2. **Decimal Precision:**
+1. **Decimal Precision:**
 
    - Bar prices (open/high/low/close): `Decimal` from adapter onward
    - Ledger (cash, PnL, costs): `Decimal`
    - Strategy indicators: `float64` for performance
    - Convert at adapter boundary and before indicators
 
-3. **Public API First:**
+1. **Public API First:**
 
    - Design as installable package (`pip install qtrader`)
    - Public API: `Strategy`, `Context`, `Backtest`, `load_config`, `run_backtest`
    - Internal engine components are private (not part of public API)
    - CLI entrypoint: `qtrader backtest`
 
-4. **Data Adapters:**
+1. **Data Adapters:**
 
    - Primary: Parquet adapter using DuckDB (matches fixture format)
    - Secondary: CSV adapter for security master linkage
    - Adapters emit canonical `Bar` objects (OHLCV only)
    - Adjustment metadata stored separately (optional)
 
-5. **Testing Approach:**
+1. **Testing Approach:**
 
    - TDD: Write tests first for each component
    - Focus on functional paths (not line coverage)
    - Use fixture data for all tests
    - Generate golden baselines in final stage
 
-6. **Golden Baseline Generation:**
+1. **Golden Baseline Generation:**
 
    - Create standalone scripts in `scripts/goldens/`
    - Run Buy-and-Hold and SMA Cross on fixture data
@@ -1817,7 +1817,7 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
    - No special "debug mode" required
    - All state visible at breakpoints
 
-2. **Context Debug API:**
+1. **Context Debug API:**
 
    ```python
    ctx.debug_state()           # Complete snapshot
@@ -1827,7 +1827,7 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
    ctx.debug_bar_history()     # Historical bars
    ```
 
-3. **Interactive Backtesting:**
+1. **Interactive Backtesting:**
 
    ```python
    bt = Backtest(strategy, config)
@@ -1837,26 +1837,26 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
        print(f"{bar.ts}: {ctx.get_cash()}")
    ```
 
-4. **Debug Logging:**
+1. **Debug Logging:**
 
    ```bash
    qtrader backtest --strategy s.py --log-level DEBUG --log-output both
    ```
 
-5. **Conditional Breakpoints:**
+1. **Conditional Breakpoints:**
 
    ```python
    if bar.symbol == "AAPL" and bar.ts.date() == date(2023, 1, 15):
        breakpoint()
    ```
 
-6. **Date Range Filtering:**
+1. **Date Range Filtering:**
 
    ```bash
    qtrader backtest --strategy s.py --start-date 2023-01-10 --end-date 2023-01-20 --symbols AAPL
    ```
 
-7. **Debug Output Files:**
+1. **Debug Output Files:**
 
    ```bash
    qtrader backtest --strategy s.py --debug-output
@@ -1893,14 +1893,14 @@ Create golden baseline strategies, generate reference results, and automate vali
 **Process:**
 
 1. Implement reference strategies
-2. **Debug strategies bar-by-bar** using `Backtest.next_bar()` and breakpoints
-3. **Verify indicator calculations** with `ctx.debug_indicators()`
-4. **Check fills** with `ctx.debug_fills()` and `ctx.debug_orders()`
-5. Run with `--debug-output` to generate comprehensive debug files
-6. Review results together (NAV curves, fills.csv, debug outputs)
-7. Commit golden files once validated
-8. Create automated validation tests
-9. Add CI checks for determinism
+1. **Debug strategies bar-by-bar** using `Backtest.next_bar()` and breakpoints
+1. **Verify indicator calculations** with `ctx.debug_indicators()`
+1. **Check fills** with `ctx.debug_fills()` and `ctx.debug_orders()`
+1. Run with `--debug-output` to generate comprehensive debug files
+1. Review results together (NAV curves, fills.csv, debug outputs)
+1. Commit golden files once validated
+1. Create automated validation tests
+1. Add CI checks for determinism
 
 **Debug-Assisted Golden Generation:**
 
@@ -1940,12 +1940,12 @@ assert Path("goldens/buy_hold_aapl/fills.csv").exists()
 **Validation Workflow:**
 
 1. **First run:** Use `--debug-output` and `--log-level DEBUG`
-2. **Inspect:** Review all debug files (bars.csv, indicators.csv, portfolio_snapshots.csv)
-3. **Spot-check:** Use `Backtest.next_bar()` to step through suspicious dates
-4. **Breakpoints:** Add conditional breakpoints for specific dates/symbols
-5. **Verify math:** Check indicator calculations match expected formulas
-6. **Confirm fills:** Verify limit/stop touches using bar high/low
-7. **Finalize:** Once satisfied, commit golden files to version control
+1. **Inspect:** Review all debug files (bars.csv, indicators.csv, portfolio_snapshots.csv)
+1. **Spot-check:** Use `Backtest.next_bar()` to step through suspicious dates
+1. **Breakpoints:** Add conditional breakpoints for specific dates/symbols
+1. **Verify math:** Check indicator calculations match expected formulas
+1. **Confirm fills:** Verify limit/stop touches using bar high/low
+1. **Finalize:** Once satisfied, commit golden files to version control
 
 ______________________________________________________________________
 
@@ -2024,12 +2024,12 @@ ______________________________________________________________________
 ### Per Stage
 
 1. **Create feature branch:** `git checkout -b stage-N-name`
-2. **Implement deliverables** following TDD (test → code → refactor)
-3. **Run tests:** `make test` (or `pytest tests/stageN/`)
-4. **Run QA:** `make qa` (format, lint, type-check, test)
-5. **Commit with pre-commit:** Hooks auto-format and validate
-6. **PR review:** Ensure all stage tests pass
-7. **Merge to master:** Stage complete ✅
+1. **Implement deliverables** following TDD (test → code → refactor)
+1. **Run tests:** `make test` (or `pytest tests/stageN/`)
+1. **Run QA:** `make qa` (format, lint, type-check, test)
+1. **Commit with pre-commit:** Hooks auto-format and validate
+1. **PR review:** Ensure all stage tests pass
+1. **Merge to master:** Stage complete ✅
 
 ### Testing Commands
 
@@ -2118,15 +2118,15 @@ ______________________________________________________________________
 
 Key Points:
 
-01. **Vendor-Agnostic Architecture:** Bar = Universal OHLCV contract, works with ANY data source
-02. **Separation of Concerns:** Adjustment metadata stored separately from Bar (AdjustmentEvent)
-03. **DataMode Declaration:** Adapters declare if prices are adjusted/unadjusted/split_adjusted
-04. **Schema Mapping:** Config-driven bar_schema and adjustment_schema for flexibility
-05. **Package Structure:** `qtrader` as installable package (not just `src/`)
-06. **Public API:** Strategy, Context, Backtest (stubs in Stage 1, full in Stage 7)
-07. **CLI:** `qtrader backtest` command (stub in Stage 1, full in Stage 7)
-08. **Data Foundation:** Bar model, adapters, validation (complete in Stage 1)
-09. **Logging:** structlog with INFO default, DEBUG when needed
-10. **Testing:** TDD approach, comprehensive tests per stage
+1. **Vendor-Agnostic Architecture:** Bar = Universal OHLCV contract, works with ANY data source
+1. **Separation of Concerns:** Adjustment metadata stored separately from Bar (AdjustmentEvent)
+1. **DataMode Declaration:** Adapters declare if prices are adjusted/unadjusted/split_adjusted
+1. **Schema Mapping:** Config-driven bar_schema and adjustment_schema for flexibility
+1. **Package Structure:** `qtrader` as installable package (not just `src/`)
+1. **Public API:** Strategy, Context, Backtest (stubs in Stage 1, full in Stage 7)
+1. **CLI:** `qtrader backtest` command (stub in Stage 1, full in Stage 7)
+1. **Data Foundation:** Bar model, adapters, validation (complete in Stage 1)
+1. **Logging:** structlog with INFO default, DEBUG when needed
+1. **Testing:** TDD approach, comprehensive tests per stage
 
 **Next Step:** Begin Stage 1 implementation with vendor-agnostic data foundation! 🚀
