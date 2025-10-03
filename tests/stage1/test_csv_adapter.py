@@ -109,8 +109,7 @@ def test_csv_adapter_can_read_single_file(tmp_path, bar_schema):
     # Create a temporary CSV file
     csv_file = tmp_path / "test.csv"
     csv_file.write_text(
-        "TradeDate,Ticker,Open,High,Low,Close,MarketHoursVolume\n"
-        "2023-01-01,TEST,100.0,105.0,99.0,102.0,1000000\n"
+        "TradeDate,Ticker,Open,High,Low,Close,MarketHoursVolume\n2023-01-01,TEST,100.0,105.0,99.0,102.0,1000000\n"
     )
 
     config = DataConfig(

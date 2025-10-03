@@ -5,10 +5,10 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.13.2
     hooks:
-      # Ruff linter with auto-fix (updated to non-legacy hook)
+      # Ruff linter with auto-fix
       - id: ruff
         name: ruff-check
-        args: [check, --fix]
+        args: [--fix]
         types_or: [python, pyi]
         exclude: ^(scripts/|playground/)
       # Ruff formatter

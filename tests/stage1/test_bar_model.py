@@ -1,10 +1,11 @@
 """Tests for Bar model and enums."""
 
-import pytz
 from datetime import datetime
 from decimal import Decimal
 
-from qtrader.models.bar import Bar, BarFrequency, DataMode, OHLCPolicy, AdjustmentEvent
+import pytz
+
+from qtrader.models.bar import AdjustmentEvent, Bar, BarFrequency, DataMode, OHLCPolicy
 
 
 def test_bar_creation_with_decimal_prices():

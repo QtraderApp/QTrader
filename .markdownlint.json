@@ -1,0 +1,12 @@
+{
+  "default": true,
+  "MD024": false,
+  "MD036": false,
+  "MD040": false,
+  "MD031": false,
+  "line-length": false,
+  "no-duplicate-heading": false,
+  "no-emphasis-as-heading": false,
+  "fenced-code-language": false,
+  "blanks-around-fences": false
+}

@@ -1,11 +1,6 @@
 """Tests for data configuration."""
 
-from qtrader.config.data_config import (
-    DataConfig,
-    ValidationConfig,
-    BarSchemaConfig,
-    AdjustmentSchemaConfig,
-)
+from qtrader.config.data_config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig, ValidationConfig
 
 
 def test_validation_config_defaults():
@@ -60,7 +55,7 @@ def test_data_config_defaults():
         volume="Volume",
     )
     config = DataConfig(bar_schema=bar_schema)
-    
+
     assert config.mode == "adjusted"
     assert config.frequency == "1d"
     assert config.timezone == "America/New_York"
@@ -88,6 +83,6 @@ def test_data_config_with_adjustment_schema():
         vol_factor="CumulativeVolumeFactor",
     )
     config = DataConfig(bar_schema=bar_schema, adjustment_schema=adj_schema)
-    
+
     assert config.adjustment_schema is not None
     assert config.adjustment_schema.event_type == "AdjustmentReason"

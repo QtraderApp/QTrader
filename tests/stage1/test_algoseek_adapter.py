@@ -7,11 +7,7 @@ from pathlib import Path
 import pytest
 
 from qtrader.adapters.algoseek_parquet import AlgoseekParquetAdapter
-from qtrader.config.data_config import (
-    AdjustmentSchemaConfig,
-    BarSchemaConfig,
-    DataConfig,
-)
+from qtrader.config.data_config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig
 from qtrader.models.bar import AdjustmentEvent, DataMode
 
 
@@ -124,7 +120,7 @@ def test_adapter_reads_adjustments_separately(fixture_path, data_config):
     # AAPL + MSFT have dividend events in 2019-2023
     assert len(adjustments) >= 30
     assert all(isinstance(adj, AdjustmentEvent) for adj in adjustments)
-    
+
     # Fixture contains CashDiv, BonusSame, Subdiv
     event_types = {adj.event_type for adj in adjustments}
     assert "CashDiv" in event_types

@@ -1,9 +1,6 @@
 # QTrader Phase 1 — Implementation Plan
 
-**Version:** 2.0  
-**Date:** October 3, 2025  
-**Status:** In Progress - Stage 2  
-**Reference:** `docs/specs/phase01.md` v1.0
+**Version:** 2.0 **Date:** October 3, 2025 **Status:** In Progress - Stage 2 **Reference:** `docs/specs/phase01.md` v1.0
 
 **Architecture:**
 
@@ -14,7 +11,7 @@
 
 **Stage 1 Status:** ✅ COMPLETE (36/36 tests passing)
 
----
+______________________________________________________________________
 
 ## 📊 Data Schema Analysis
 
@@ -82,57 +79,62 @@ adjustment_schema:
   vol_factor: CumulativeVolumeFactor
 ```
 
----
+______________________________________________________________________
 
 ## 🎯 Implementation Strategy
 
 ### Core Principles
 
 1. **Vendor-Agnostic Bar Model:**
+
    - Canonical Bar = Universal OHLCV contract (works with ANY vendor)
    - Adjustment metadata = Separate, optional (vendor-specific)
    - DataMode declares if prices are adjusted or unadjusted
    - Adapter normalizes vendor schema → canonical Bar
 
 2. **Decimal Precision:**
+
    - Bar prices (open/high/low/close): `Decimal` from adapter onward
    - Ledger (cash, PnL, costs): `Decimal`
    - Strategy indicators: `float64` for performance
    - Convert at adapter boundary and before indicators
 
 3. **Public API First:**
+
    - Design as installable package (`pip install qtrader`)
    - Public API: `Strategy`, `Context`, `Backtest`, `load_config`, `run_backtest`
    - Internal engine components are private (not part of public API)
    - CLI entrypoint: `qtrader backtest`
 
 4. **Data Adapters:**
+
    - Primary: Parquet adapter using DuckDB (matches fixture format)
    - Secondary: CSV adapter for security master linkage
    - Adapters emit canonical `Bar` objects (OHLCV only)
    - Adjustment metadata stored separately (optional)
 
 5. **Testing Approach:**
+
    - TDD: Write tests first for each component
    - Focus on functional paths (not line coverage)
    - Use fixture data for all tests
    - Generate golden baselines in final stage
 
 6. **Golden Baseline Generation:**
+
    - Create standalone scripts in `scripts/goldens/`
    - Run Buy-and-Hold and SMA Cross on fixture data
    - Manually validate results together
    - Commit golden files to `tests/goldens/fixtures/`
    - Automate validation in CI
 
----
+______________________________________________________________________
 
 ## 🚀 Implementation Stages
 
 ### **Stage 1: Core Data Models & Adapters (Foundation)**
 
-**Timeline:** Days 1-3  
-**Branch:** `stage-1-data-foundation`
+**Timeline:** Days 1-3 **Branch:** `stage-1-data-foundation`
 
 #### Deliverables
 
@@ -167,7 +169,7 @@ qtrader = "qtrader.cli:main"
 
 **Directory Structure:**
 
-```
+```txt
 src/
 ├── qtrader/                    # Public package (was just "src/")
 │   ├── __init__.py            # Public API exports
@@ -1096,17 +1098,17 @@ def main():
 def backtest(strategy, data, out, overrides):
     """
     Run a backtest with a self-contained strategy file.
-    
+
     Strategy file must contain a Strategy class and optionally a config.
     Data config YAML contains system settings (data source, adapter, validation).
-    
+
     Examples:
         # Basic usage
         qtrader backtest --strategy my_strategy.py --out results/
-        
+
         # With data config
         qtrader backtest --strategy my_strategy.py --data algoseek.yaml --out results/
-        
+
         # With parameter overrides
         qtrader backtest --strategy my_strategy.py --data algoseek.yaml --out results/ \\
           --set fast_period=10 --set position_size=200
@@ -1121,13 +1123,13 @@ def backtest(strategy, data, out, overrides):
 def validate_data(data):
     """
     Validate dataset without running backtest.
-    
+
     Loads data according to config and validates:
     - All bars load successfully
     - OHLC relationships are valid
     - Frequency matches expected
     - No missing data gaps
-    
+
     Example:
         qtrader validate-data --data algoseek.yaml
     """
@@ -1542,12 +1544,11 @@ def test_validator_tracks_statistics(bad_bar_high_low, bad_bar_low_high):
 - ✅ All Stage 1 tests pass (`make test`)
 - ✅ Code quality passes (`make qa`)
 
----
+______________________________________________________________________
 
 ### **Stage 2: Order Models & Ledger Foundation**
 
-**Timeline:** Days 4-6  
-**Branch:** `stage-2-orders-ledger`
+**Timeline:** Days 4-6 **Branch:** `stage-2-orders-ledger`
 
 #### Summary
 
@@ -1567,12 +1568,11 @@ Implement order types, position tracking, and cash ledger. This stage builds the
 - Cash debit/credit operations
 - Short selling validation
 
----
+______________________________________________________________________
 
 ### **Stage 3: Execution Engine — Market & MOC**
 
-**Timeline:** Days 7-10  
-**Branch:** `stage-3-market-moc`
+**Timeline:** Days 7-10 **Branch:** `stage-3-market-moc`
 
 #### Summary
 
@@ -1593,12 +1593,11 @@ Implement execution engine event loop with Market and MOC order fills. This is t
 - Commission enforcement
 - Ledger updates after fills
 
----
+______________________________________________________________________
 
 ### **Stage 4: Execution Engine — Limit & Stop**
 
-**Timeline:** Days 11-13  
-**Branch:** `stage-4-limit-stop`
+**Timeline:** Days 11-13 **Branch:** `stage-4-limit-stop`
 
 #### Summary
 
@@ -1617,12 +1616,11 @@ Add limit and stop order execution with conservative touch rules. Implement clos
 - Close-only bars skip limit/stop
 - DAY orders expire correctly
 
----
+______________________________________________________________________
 
 ### **Stage 5: Volume Participation & Partials**
 
-**Timeline:** Days 14-16  
-**Branch:** `stage-5-participation`
+**Timeline:** Days 14-16 **Branch:** `stage-5-participation`
 
 #### Summary
 
@@ -1642,12 +1640,11 @@ Implement volume participation caps with partial fills and residual queuing.
 - Queue expiration after N bars
 - Guardrail warns and clamps
 
----
+______________________________________________________________________
 
 ### **Stage 6: Shorting, Accruals & Outputs**
 
-**Timeline:** Days 17-20  
-**Branch:** `stage-6-accruals-outputs`
+**Timeline:** Days 17-20 **Branch:** `stage-6-accruals-outputs`
 
 #### Summary
 
@@ -1667,12 +1664,11 @@ Complete ledger with short dividends, borrow costs, and output file generation.
 - All output files generated
 - Run.json contains complete metadata
 
----
+______________________________________________________________________
 
 ### **Stage 7: Public API & CLI**
 
-**Timeline:** Days 21-25  
-**Branch:** `stage-7-api-cli`
+**Timeline:** Days 21-25 **Branch:** `stage-7-api-cli`
 
 #### Summary
 
@@ -1704,11 +1700,13 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
 **Debugging Features (per spec §20):**
 
 1. **Standard Python Debugging:**
+
    - Strategies work seamlessly with pdb, ipdb, VS Code, PyCharm debuggers
    - No special "debug mode" required
    - All state visible at breakpoints
 
 2. **Context Debug API:**
+
    ```python
    ctx.debug_state()           # Complete snapshot
    ctx.debug_indicators()      # All indicator values
@@ -1718,6 +1716,7 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
    ```
 
 3. **Interactive Backtesting:**
+
    ```python
    bt = Backtest(strategy, config)
    bt.setup()
@@ -1727,22 +1726,26 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
    ```
 
 4. **Debug Logging:**
+
    ```bash
    qtrader backtest --strategy s.py --log-level DEBUG --log-output both
    ```
 
 5. **Conditional Breakpoints:**
+
    ```python
    if bar.symbol == "AAPL" and bar.ts.date() == date(2023, 1, 15):
        breakpoint()
    ```
 
 6. **Date Range Filtering:**
+
    ```bash
    qtrader backtest --strategy s.py --start-date 2023-01-10 --end-date 2023-01-20 --symbols AAPL
    ```
 
 7. **Debug Output Files:**
+
    ```bash
    qtrader backtest --strategy s.py --debug-output
    # Creates: bars.csv, indicators.csv, portfolio_snapshots.csv, execution_log.jsonl
@@ -1756,12 +1759,11 @@ Implement full public API (Strategy, Context, Backtest) and working CLI with com
 - All debug methods must be read-only (no side effects)
 - Debug output files optional (performance overhead)
 
----
+______________________________________________________________________
 
 ### **Stage 8: Golden Baselines & Validation**
 
-**Timeline:** Days 26-30  
-**Branch:** `stage-8-goldens`
+**Timeline:** Days 26-30 **Branch:** `stage-8-goldens`
 
 #### Summary
 
@@ -1809,7 +1811,7 @@ for i in range(10):
     state = bt.ctx.debug_state()
     print(f"  Cash: {state['portfolio']['cash']}")
     print(f"  Positions: {state['portfolio']['positions']}")
-    
+
     # Breakpoint here to inspect if needed
     if i == 0:  # Check initial purchase
         assert len(state['orders']['filled']) == 1
@@ -1833,11 +1835,11 @@ assert Path("goldens/buy_hold_aapl/fills.csv").exists()
 6. **Confirm fills:** Verify limit/stop touches using bar high/low
 7. **Finalize:** Once satisfied, commit golden files to version control
 
----
+______________________________________________________________________
 
 ## 📦 Project Structure (Complete)
 
-```
+```txt
 qtrader/                        # Main package (was src/)
 ├── __init__.py                # Public API exports
 ├── cli.py                     # CLI entrypoint
@@ -1903,7 +1905,7 @@ scripts/
 └── goldens/                   # Standalone golden generators
 ```
 
----
+______________________________________________________________________
 
 ## 🔧 Development Workflow
 
@@ -1949,7 +1951,7 @@ make type-check
 make qa
 ```
 
----
+______________________________________________________________________
 
 ## 📝 Dependencies Summary
 
@@ -1974,7 +1976,7 @@ dependencies = [
 qtrader = "qtrader.cli:main"
 ```
 
----
+______________________________________________________________________
 
 ## ✅ Success Metrics
 
@@ -1996,7 +1998,7 @@ qtrader = "qtrader.cli:main"
 - Package installable via pip ✅
 - All 8 stages merged to master ✅
 
----
+______________________________________________________________________
 
 ## 🎯 Ready to Begin
 
@@ -2004,15 +2006,15 @@ qtrader = "qtrader.cli:main"
 
 Key Points:
 
-1. **Vendor-Agnostic Architecture:** Bar = Universal OHLCV contract, works with ANY data source
-2. **Separation of Concerns:** Adjustment metadata stored separately from Bar (AdjustmentEvent)
-3. **DataMode Declaration:** Adapters declare if prices are adjusted/unadjusted/split_adjusted
-4. **Schema Mapping:** Config-driven bar_schema and adjustment_schema for flexibility
-5. **Package Structure:** `qtrader` as installable package (not just `src/`)
-6. **Public API:** Strategy, Context, Backtest (stubs in Stage 1, full in Stage 7)
-7. **CLI:** `qtrader backtest` command (stub in Stage 1, full in Stage 7)
-8. **Data Foundation:** Bar model, adapters, validation (complete in Stage 1)
-9. **Logging:** structlog with INFO default, DEBUG when needed
+01. **Vendor-Agnostic Architecture:** Bar = Universal OHLCV contract, works with ANY data source
+02. **Separation of Concerns:** Adjustment metadata stored separately from Bar (AdjustmentEvent)
+03. **DataMode Declaration:** Adapters declare if prices are adjusted/unadjusted/split_adjusted
+04. **Schema Mapping:** Config-driven bar_schema and adjustment_schema for flexibility
+05. **Package Structure:** `qtrader` as installable package (not just `src/`)
+06. **Public API:** Strategy, Context, Backtest (stubs in Stage 1, full in Stage 7)
+07. **CLI:** `qtrader backtest` command (stub in Stage 1, full in Stage 7)
+08. **Data Foundation:** Bar model, adapters, validation (complete in Stage 1)
+09. **Logging:** structlog with INFO default, DEBUG when needed
 10. **Testing:** TDD approach, comprehensive tests per stage
 
 **Next Step:** Begin Stage 1 implementation with vendor-agnostic data foundation! 🚀

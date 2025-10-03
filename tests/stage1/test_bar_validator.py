@@ -1,12 +1,12 @@
 """Tests for Bar validator."""
 
-import pytz
 from datetime import datetime
 from decimal import Decimal
 
 import pytest
+import pytz
 
-from qtrader.config.data_config import DataConfig, ValidationConfig, BarSchemaConfig
+from qtrader.config.data_config import BarSchemaConfig, DataConfig, ValidationConfig
 from qtrader.models.bar import Bar
 from qtrader.validation.bar_validator import BarValidator
 

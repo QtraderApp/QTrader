@@ -1,0 +1,22 @@
+# Markdownlint configuration for QTrader documentation
+# This disables linting rules that conflict with our documentation style
+
+# MD024: Multiple headings with the same content
+# Reason: Implementation plan has multiple "Summary" sections (one per stage)
+MD024: false
+
+# MD036: Emphasis used instead of a heading
+# Reason: We use bold text for inline emphasis in examples
+MD036: false
+
+# MD040: Fenced code blocks should have a language specified
+# Reason: Some code blocks are generic/mixed and don't fit a single language
+MD040: false
+
+# MD031: Fenced code blocks should be surrounded by blank lines
+# Reason: Conflicts with nested lists and indented code blocks
+MD031: false
+
+# MD013: Line length
+# Reason: Technical documentation often has long lines (URLs, code, etc.)
+MD013: false

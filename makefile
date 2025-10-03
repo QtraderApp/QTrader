@@ -217,4 +217,3 @@ test-fast: sync ## ⚡ Run tests without coverage (faster)
 		exit 1; \
 	}
 	@echo "$(GREEN)✅ All tests passed$(END)"
-
