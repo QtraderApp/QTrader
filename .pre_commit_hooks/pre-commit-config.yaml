@@ -1,0 +1,64 @@
+# Pre-commit configuration for QTrader
+# See https://pre-commit.com for more information
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.2
+    hooks:
+      # Ruff linter with auto-fix (updated to non-legacy hook)
+      - id: ruff-check
+        args: [--fix]
+        files: ^src/.*\.py$
+        exclude: ^(scripts/|docs/)
+      # Ruff formatter  
+      - id: ruff-format
+        files: ^src/.*\.py$
+        exclude: ^(scripts/|docs/)
+        
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.1
+    hooks:
+      - id: isort
+        files: ^src/.*\.py$
+        exclude: ^(scripts/|docs/)
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        files: ^src/
+      - id: end-of-file-fixer
+        files: ^src/
+      - id: check-yaml
+        files: ^src/.*\.ya?ml$
+      - id: check-json
+        files: ^src/.*\.json$
+      - id: check-toml
+        files: ^src/.*\.toml$
+      - id: check-xml
+        files: ^src/.*\.xml$
+      - id: check-added-large-files
+        files: ^src/
+      - id: mixed-line-ending
+        files: ^src/
+      - id: check-executables-have-shebangs
+        files: ^src/
+      - id: check-shebang-scripts-are-executable
+        files: ^src/
+
+  # Markdown formatting (Python-based)
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 0.7.22
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+          - mdformat-gfm
+          - mdformat-tables
+          - mdformat-frontmatter
+        files: ^src/.*\.md$
+
+# Don't fail fast - run all hooks even if one fails
+fail_fast: false
+
+# No global file filter - let individual hooks handle their own file patterns
