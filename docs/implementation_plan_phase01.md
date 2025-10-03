@@ -1676,23 +1676,85 @@ Complete ledger with short dividends, borrow costs, and output file generation.
 
 #### Summary
 
-Implement full public API (Strategy, Context, Backtest) and working CLI.
+Implement full public API (Strategy, Context, Backtest) and working CLI with comprehensive debugging support.
 
 **Key Components:**
 
 - Strategy base class and protocol
 - Context with order submission methods
+- **Context debug API** (debug_state, debug_indicators, debug_orders)
 - Indicator framework (SMA, EMA, etc.)
-- Backtest runner
+- Backtest runner with step-by-step mode
 - CLI command implementation
 - Config file loading
+- **Interactive debugging support** (breakpoint-friendly execution)
+- **Debug logging** (structured logging with levels)
+- **Debug output files** (bars.csv, indicators.csv, portfolio_snapshots.csv)
 
 **Tests Focus:**
 
 - Strategy lifecycle (on_start, on_bar, on_fill, on_end)
 - Context order submission
+- Context debug methods return correct state
 - Indicators calculate correctly
 - CLI commands work end-to-end
+- Backtest.next_bar() allows manual stepping
+- Debug output files generated correctly
+
+**Debugging Features (per spec §20):**
+
+1. **Standard Python Debugging:**
+   - Strategies work seamlessly with pdb, ipdb, VS Code, PyCharm debuggers
+   - No special "debug mode" required
+   - All state visible at breakpoints
+
+2. **Context Debug API:**
+   ```python
+   ctx.debug_state()           # Complete snapshot
+   ctx.debug_indicators()      # All indicator values
+   ctx.debug_orders()          # Filtered order list
+   ctx.debug_fills()           # Recent fills
+   ctx.debug_bar_history()     # Historical bars
+   ```
+
+3. **Interactive Backtesting:**
+   ```python
+   bt = Backtest(strategy, config)
+   bt.setup()
+   while bar := bt.next_bar():
+       # Inspect bt.ctx at each step
+       print(f"{bar.ts}: {ctx.get_cash()}")
+   ```
+
+4. **Debug Logging:**
+   ```bash
+   qtrader backtest --strategy s.py --log-level DEBUG --log-output both
+   ```
+
+5. **Conditional Breakpoints:**
+   ```python
+   if bar.symbol == "AAPL" and bar.ts.date() == date(2023, 1, 15):
+       breakpoint()
+   ```
+
+6. **Date Range Filtering:**
+   ```bash
+   qtrader backtest --strategy s.py --start-date 2023-01-10 --end-date 2023-01-20 --symbols AAPL
+   ```
+
+7. **Debug Output Files:**
+   ```bash
+   qtrader backtest --strategy s.py --debug-output
+   # Creates: bars.csv, indicators.csv, portfolio_snapshots.csv, execution_log.jsonl
+   ```
+
+**Implementation Notes:**
+
+- `Context` must maintain complete state visibility for debug methods
+- `Backtest` must support both `run()` (all at once) and `next_bar()` (manual stepping)
+- Logger must be accessible from strategy (`self.logger`)
+- All debug methods must be read-only (no side effects)
+- Debug output files optional (performance overhead)
 
 ---
 
@@ -1703,7 +1765,7 @@ Implement full public API (Strategy, Context, Backtest) and working CLI.
 
 #### Summary
 
-Create golden baseline strategies, generate reference results, and automate validation.
+Create golden baseline strategies, generate reference results, and automate validation. **Use debugging tools to validate strategy behavior before committing goldens.**
 
 **Key Components:**
 
@@ -1712,14 +1774,64 @@ Create golden baseline strategies, generate reference results, and automate vali
 - Golden file generator scripts
 - Fixture hash calculation
 - Golden validation tests
+- **Debug validation workflow** (step through strategies before golden commit)
 
 **Process:**
 
 1. Implement reference strategies
-2. Run manually and review results together
-3. Commit golden files
-4. Create automated validation tests
-5. Add CI checks for determinism
+2. **Debug strategies bar-by-bar** using `Backtest.next_bar()` and breakpoints
+3. **Verify indicator calculations** with `ctx.debug_indicators()`
+4. **Check fills** with `ctx.debug_fills()` and `ctx.debug_orders()`
+5. Run with `--debug-output` to generate comprehensive debug files
+6. Review results together (NAV curves, fills.csv, debug outputs)
+7. Commit golden files once validated
+8. Create automated validation tests
+9. Add CI checks for determinism
+
+**Debug-Assisted Golden Generation:**
+
+```python
+# scripts/goldens/generate_buy_hold.py
+from qtrader import Backtest
+from strategies.buy_hold import BuyHold
+
+bt = Backtest(
+    strategy=BuyHold(symbols=["AAPL"]),
+    data_config="configs/algoseek_daily.yaml",
+    output_dir="goldens/buy_hold_aapl/"
+)
+
+# Manual stepping for first 10 bars to verify
+bt.setup()
+for i in range(10):
+    bar = bt.next_bar()
+    print(f"Bar {i}: {bar.symbol} @ {bar.ts} close={bar.close}")
+    state = bt.ctx.debug_state()
+    print(f"  Cash: {state['portfolio']['cash']}")
+    print(f"  Positions: {state['portfolio']['positions']}")
+    
+    # Breakpoint here to inspect if needed
+    if i == 0:  # Check initial purchase
+        assert len(state['orders']['filled']) == 1
+
+# Run remaining bars
+bt.run()
+bt.finalize()
+
+# Validate outputs exist
+assert Path("goldens/buy_hold_aapl/performance.json").exists()
+assert Path("goldens/buy_hold_aapl/fills.csv").exists()
+```
+
+**Validation Workflow:**
+
+1. **First run:** Use `--debug-output` and `--log-level DEBUG`
+2. **Inspect:** Review all debug files (bars.csv, indicators.csv, portfolio_snapshots.csv)
+3. **Spot-check:** Use `Backtest.next_bar()` to step through suspicious dates
+4. **Breakpoints:** Add conditional breakpoints for specific dates/symbols
+5. **Verify math:** Check indicator calculations match expected formulas
+6. **Confirm fills:** Verify limit/stop touches using bar high/low
+7. **Finalize:** Once satisfied, commit golden files to version control
 
 ---
 

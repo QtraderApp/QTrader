@@ -957,3 +957,410 @@ qtrader validate-data --data configs/algoseek_daily.yaml
 * Deprecations are announced one minor version in advance.
 
 ---
+
+## 20. Interactive Debugging & Development Workflow
+
+### 20.1 Design Philosophy
+
+**Core requirement:** Quants must be able to **step through strategies bar-by-bar** using standard Python debuggers (pdb, ipdb, VS Code, PyCharm) with full introspection of:
+
+* Current bar values (OHLCV)
+* All indicator values
+* Portfolio state (positions, cash, NAV)
+* Pending orders and fills
+* Auxiliary dataset values
+
+**No special debug mode required** — strategies are plain Python classes that work seamlessly with all Python debugging tools.
+
+### 20.2 Standard Python Debugging
+
+**VS Code / PyCharm:**
+
+```python
+# strategies/my_strategy.py
+from qtrader import Strategy, Context
+from qtrader.models.bar import Bar
+
+class MyStrategy(Strategy):
+    def on_bar(self, bar: Bar, ctx: Context):
+        # Set breakpoint here (VS Code: click gutter, PyCharm: Ctrl+F8)
+        fast_sma = ctx.ind.sma(bar.symbol, 20)
+        slow_sma = ctx.ind.sma(bar.symbol, 50)
+        
+        # Inspect variables in debugger:
+        # - bar.close, bar.volume
+        # - fast_sma, slow_sma
+        # - ctx.get_position(bar.symbol)
+        # - ctx.get_cash()
+        
+        if fast_sma > slow_sma:
+            ctx.buy_market(bar.symbol, 100)
+```
+
+**Run with debugger:**
+
+```bash
+# VS Code: F5 (Run and Debug)
+# PyCharm: Shift+F9 (Debug)
+# CLI with pdb:
+python -m pdb -m qtrader.cli backtest --strategy strategies/my_strategy.py --out debug_run/
+```
+
+**Interactive pdb/ipdb:**
+
+```python
+# Insert breakpoint in strategy code
+import ipdb; ipdb.set_trace()
+
+# Or use Python 3.7+ built-in
+breakpoint()
+```
+
+### 20.3 Context Debug API
+
+**Additional introspection methods on `Context` for debugging:**
+
+```python
+class Context:
+    # Existing trading API...
+    
+    # Debug introspection (read-only)
+    def debug_state(self) -> dict:
+        """
+        Get complete engine state snapshot for current bar.
+        
+        Returns:
+            {
+                'bar': {'ts': '2023-01-15', 'symbol': 'AAPL', 'close': 150.50, ...},
+                'portfolio': {
+                    'cash': 50000.00,
+                    'nav': 75000.00,
+                    'equity': 25000.00,
+                    'positions': {'AAPL': {'qty': 100, 'avg_price': 145.00, 'market_value': 15050.00}}
+                },
+                'orders': {
+                    'pending': [{'id': 'O123', 'symbol': 'MSFT', 'side': 'BUY', 'qty': 50, ...}],
+                    'filled': [{'id': 'O122', 'symbol': 'AAPL', 'side': 'BUY', 'qty': 100, ...}]
+                },
+                'indicators': {
+                    'AAPL': {'sma_20': 148.50, 'sma_50': 145.00, 'rsi_14': 65.5}
+                },
+                'aux_data': {
+                    'news': {'sentiment_score': 0.75, 'article_count': 12},
+                    'factors': {'value_z': 1.5, 'momentum_z': 0.8}
+                }
+            }
+        """
+        ...
+    
+    def debug_indicators(self, symbol: str = None) -> dict:
+        """Get all indicator values for symbol (or all symbols if None)."""
+        ...
+    
+    def debug_orders(self, state: str = None) -> List[dict]:
+        """Get orders filtered by state (PENDING/FILLED/EXPIRED/CANCELED/ALL)."""
+        ...
+    
+    def debug_fills(self, limit: int = 10) -> List[dict]:
+        """Get last N fills."""
+        ...
+    
+    def debug_bar_history(self, symbol: str, lookback: int = 10) -> List[Bar]:
+        """Get last N bars for symbol."""
+        ...
+```
+
+**Usage in debugger:**
+
+```python
+# At breakpoint in on_bar():
+(pdb) pp ctx.debug_state()
+{
+    'bar': {'ts': '2023-01-15', 'symbol': 'AAPL', 'close': Decimal('150.50'), ...},
+    'portfolio': {'cash': Decimal('50000.00'), 'nav': Decimal('75000.00'), ...},
+    ...
+}
+
+(pdb) pp ctx.debug_indicators('AAPL')
+{'sma_20': 148.50, 'sma_50': 145.00, 'rsi_14': 65.5, 'bbands_upper': 155.00}
+
+(pdb) pp ctx.debug_orders('PENDING')
+[{'id': 'O123', 'symbol': 'MSFT', 'side': 'BUY', 'qty': 50, 'type': 'LIMIT', 'limit': 250.00}]
+```
+
+### 20.4 Interactive Backtesting (Python API)
+
+**For Jupyter notebooks and interactive sessions:**
+
+```python
+from qtrader import Backtest
+from strategies.my_strategy import MyStrategy
+
+# Create backtest
+bt = Backtest(
+    strategy=MyStrategy(),
+    data_config="configs/algoseek_daily.yaml",
+    output_dir="debug_run/"
+)
+
+# Run bar-by-bar with manual control
+bt.setup()  # Load data, initialize strategy
+
+# Step through bars manually
+bar = bt.next_bar()  # Returns Bar or None if done
+print(f"Bar: {bar.symbol} @ {bar.ts} close={bar.close}")
+print(f"Cash: {bt.ctx.get_cash()}")
+print(f"Positions: {bt.ctx.debug_state()['portfolio']['positions']}")
+
+# Continue stepping
+while bar := bt.next_bar():
+    print(f"{bar.ts} {bar.symbol}: {bar.close}")
+    # Can inspect bt.ctx at any point
+
+# Or run all at once
+bt.run()  # Runs remaining bars
+bt.finalize()  # Writes output files
+```
+
+### 20.5 Debug Logging
+
+**Structured logging with debug levels:**
+
+```yaml
+# In config or CLI flag
+logging:
+  level: DEBUG              # DEBUG | INFO | WARNING | ERROR
+  output: console           # console | file | both
+  file: runs/debug.log
+  format: pretty            # pretty | json
+  modules:
+    qtrader.engine: DEBUG   # Detailed execution logs
+    qtrader.adapters: INFO  # Data loading logs
+    strategy: DEBUG         # Strategy-specific logs
+```
+
+**Strategy logging:**
+
+```python
+class MyStrategy(Strategy):
+    def on_bar(self, bar: Bar, ctx: Context):
+        # Use standard Python logging
+        self.logger.debug(f"Processing {bar.symbol} @ {bar.ts}")
+        
+        fast = ctx.ind.sma(bar.symbol, 20)
+        slow = ctx.ind.sma(bar.symbol, 50)
+        
+        self.logger.debug(f"SMA(20)={fast:.2f}, SMA(50)={slow:.2f}")
+        
+        if fast > slow:
+            self.logger.info(f"BUY signal: {bar.symbol}")
+            ctx.buy_market(bar.symbol, 100)
+```
+
+**CLI debug mode:**
+
+```bash
+# Enable debug logging
+qtrader backtest \
+  --strategy strategies/my_strategy.py \
+  --data configs/algoseek_daily.yaml \
+  --out debug_run/ \
+  --log-level DEBUG \
+  --log-output both
+```
+
+### 20.6 Conditional Breakpoints
+
+**Stop at specific date/symbol:**
+
+```python
+class MyStrategy(Strategy):
+    def on_bar(self, bar: Bar, ctx: Context):
+        # Breakpoint on specific condition
+        if bar.symbol == "AAPL" and bar.ts.date() == date(2023, 1, 15):
+            breakpoint()  # Stop here
+        
+        # Or use logging
+        if bar.ts >= datetime(2023, 1, 15):
+            self.logger.setLevel(logging.DEBUG)
+```
+
+**CLI date range filtering (for faster iteration):**
+
+```bash
+# Run only specific date range for debugging
+qtrader backtest \
+  --strategy strategies/my_strategy.py \
+  --data configs/algoseek_daily.yaml \
+  --out debug_run/ \
+  --start-date 2023-01-10 \
+  --end-date 2023-01-20 \
+  --symbols AAPL,MSFT
+```
+
+### 20.7 Visualization During Development
+
+**Plot indicators and signals (optional dependency: matplotlib):**
+
+```python
+from qtrader import Backtest
+import matplotlib.pyplot as plt
+
+bt = Backtest(strategy=MyStrategy(), data_config="config.yaml")
+bt.run()
+
+# Access internal state for plotting
+df = bt.get_bar_dataframe("AAPL")  # All bars for symbol
+ind = bt.get_indicator_dataframe("AAPL")  # All indicator values
+
+plt.figure(figsize=(14, 7))
+plt.plot(df['ts'], df['close'], label='Close')
+plt.plot(ind['ts'], ind['sma_20'], label='SMA(20)')
+plt.plot(ind['ts'], ind['sma_50'], label='SMA(50)')
+
+# Mark fills
+fills = bt.get_fills_dataframe(symbol="AAPL")
+buys = fills[fills['side'] == 'BUY']
+sells = fills[fills['side'] == 'SELL']
+plt.scatter(buys['ts'], buys['price'], marker='^', color='g', s=100, label='Buy')
+plt.scatter(sells['ts'], sells['price'], marker='v', color='r', s=100, label='Sell')
+
+plt.legend()
+plt.show()
+```
+
+### 20.8 Testing with Synthetic Bars
+
+**Create minimal bar sequences for unit testing:**
+
+```python
+from qtrader.models.bar import Bar
+from decimal import Decimal
+from datetime import datetime, timedelta
+import pytz
+
+def test_my_strategy():
+    """Test strategy with synthetic bars."""
+    strategy = MyStrategy()
+    ctx = MockContext()  # Test fixture
+    
+    # Create synthetic bars
+    tz = pytz.timezone("America/New_York")
+    bars = [
+        Bar(
+            ts=datetime(2023, 1, i, tzinfo=tz),
+            symbol="AAPL",
+            open=Decimal("150.00"),
+            high=Decimal("152.00"),
+            low=Decimal("149.00"),
+            close=Decimal("151.00"),
+            volume=1000000
+        )
+        for i in range(1, 11)  # 10 days
+    ]
+    
+    # Run strategy on synthetic bars
+    for bar in bars:
+        strategy.on_bar(bar, ctx)
+    
+    # Assert strategy behavior
+    assert len(ctx.orders) == 1
+    assert ctx.orders[0]['side'] == 'BUY'
+```
+
+### 20.9 Debug Output Files
+
+**Enhanced output when debug mode enabled:**
+
+```yaml
+# Standard outputs:
+runs/exp1/
+  performance.json
+  positions_daily.csv
+  orders.csv
+  fills.csv
+  run.json
+
+# Additional debug outputs:
+  debug/
+    bars.csv                      # All processed bars
+    indicators.csv                # All indicator values per symbol/bar
+    portfolio_snapshots.csv       # Portfolio state every bar
+    order_state_transitions.csv   # Order state changes with timestamps
+    execution_log.jsonl           # Detailed execution events
+    strategy_log.txt              # Strategy logger output
+```
+
+**Enable debug output:**
+
+```bash
+qtrader backtest \
+  --strategy strategies/my_strategy.py \
+  --out debug_run/ \
+  --debug-output
+```
+
+### 20.10 Common Debugging Workflows
+
+**Scenario 1: "Why didn't my order fill?"**
+
+```python
+# At breakpoint after expected fill
+(pdb) pp ctx.debug_orders('PENDING')
+[{'id': 'O123', 'symbol': 'MSFT', 'type': 'LIMIT', 'limit': 250.00, 'remaining': 100}]
+
+(pdb) pp bar
+Bar(ts=2023-01-15, symbol='MSFT', high=Decimal('248.00'), low=Decimal('245.00'), close=Decimal('247.00'))
+
+# Ah! High (248.00) < limit (250.00), so limit buy didn't touch
+```
+
+**Scenario 2: "Why is my indicator NaN?"**
+
+```python
+# At breakpoint
+(pdb) pp ctx.debug_indicators('AAPL')
+{'sma_20': nan, 'sma_50': nan}
+
+(pdb) pp ctx.debug_bar_history('AAPL', 25)
+# Only 10 bars available! Need 20+ for SMA(20)
+```
+
+**Scenario 3: "Check portfolio state at specific date"**
+
+```python
+if bar.ts.date() == date(2023, 1, 15):
+    state = ctx.debug_state()
+    print(f"NAV: {state['portfolio']['nav']}")
+    print(f"Positions: {state['portfolio']['positions']}")
+    print(f"Cash: {state['portfolio']['cash']}")
+    breakpoint()
+```
+
+### 20.11 Performance Profiling
+
+**Profile strategy performance:**
+
+```bash
+# Use Python profiler
+python -m cProfile -o profile.stats -m qtrader.cli backtest \
+  --strategy strategies/my_strategy.py \
+  --out profile_run/
+
+# Analyze profile
+python -m pstats profile.stats
+```
+
+**Memory profiling:**
+
+```bash
+# Install memory_profiler
+pip install memory_profiler
+
+# Profile strategy
+python -m memory_profiler -m qtrader.cli backtest \
+  --strategy strategies/my_strategy.py \
+  --out mem_profile_run/
+```
+
+---
