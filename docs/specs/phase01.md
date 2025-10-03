@@ -41,10 +41,18 @@ Build a **deterministic**, **auditable**, and **extensible** equities backtestin
 
 **Design goal:** Accept **any vendor schema** → transform to a **canonical Bar** used end‑to‑end across the trade lifecycle (signals → orders → fills → accounting).
 
-**Contract:**
+**Bar is vendor-agnostic, asset-agnostic, and frequency-agnostic.** Works with equities, futures, crypto, forex at any timeframe. Vendor-specific fields (adjustments, bid/ask, etc.) are stored separately in `AdjustmentEvent`.
+
+**Bar Contract (OHLCV only):**
 
 ```python
 class Bar(NamedTuple):
+    """
+    Canonical OHLCV bar - the ONLY contract consumed by execution engine.
+    
+    This is vendor-agnostic, asset-agnostic, and frequency-agnostic.
+    Works with equities, futures, crypto, forex at any timeframe.
+    """
     ts: datetime         # timezone-aware per data.timezone
     symbol: str
     open: Decimal
@@ -52,9 +60,36 @@ class Bar(NamedTuple):
     low: Decimal
     close: Decimal
     volume: int
-    adj_reason: Optional[str] = None
-    px_factor: Optional[Decimal] = None
-    vol_factor: Optional[Decimal] = None
+```
+
+**AdjustmentEvent (Separate Storage):**
+
+```python
+class AdjustmentEvent(NamedTuple):
+    """
+    Corporate action metadata for analysis and validation.
+    
+    NOT used by execution engine. Stored for:
+    - Audit trail (data provenance)
+    - Performance attribution (dividend-adjusted returns)
+    - Data validation (detect missing adjustments)
+    """
+    ts: datetime                      # Event timestamp (ex-date)
+    symbol: str
+    event_type: str                   # CashDiv, Split, StockDiv, SpinOff
+    px_factor: Decimal                # Cumulative price adjustment factor
+    vol_factor: Decimal               # Cumulative volume adjustment factor
+    metadata: Dict[str, Any]          # Vendor-specific details (amount, ratio, etc.)
+```
+
+**DataMode Enum:**
+
+```python
+class DataMode(Enum):
+    """Declares whether dataset is adjusted or unadjusted."""
+    ADJUSTED = "adjusted"              # Total-return adjusted (splits + dividends)
+    UNADJUSTED = "unadjusted"          # Raw prices, no adjustments
+    SPLIT_ADJUSTED = "split_adjusted"  # Split-adjusted only, no dividends
 ```
 
 **Adapter interface:**
@@ -63,44 +98,158 @@ class Bar(NamedTuple):
 class DataAdapter(Protocol):
     def can_read(self, source: URI) -> bool: ...
     def schema_version(self) -> str: ...
-    def read_iter(self, source: URI, config: DataConfig) -> Iterable[RawRecord]: ...
-    def normalize(self, raw: RawRecord, mapping: ColumnMap, config: DataConfig) -> Bar: ...
+    def get_data_mode(self) -> DataMode: ...
+    def read_bars(self, source: URI, config: DataConfig) -> Iterable[Bar]: ...
+    def read_adjustments(self, source: URI, config: DataConfig) -> Iterable[AdjustmentEvent]: ...
 ```
 
-**Pipeline:** `Read RawRecord → Normalize (column_map, dtype, tz) → Validate (schema, frequency) → Emit Bar`.
+**Pipeline:** `Read vendor data → Map schema → Emit Bar + AdjustmentEvent`.
 
-**Schema registry:**
+**Schema mapping (config-driven):**
 
-* Maintain `schemas/<vendor>/<dataset>/<version>.json` for RawRecord validation.
-* `column_map` in config binds vendor fields → engine fields without code changes.
+* `bar_schema` maps vendor columns to OHLCV fields (ts, symbol, open, high, low, close, volume)
+* `adjustment_schema` (optional) maps vendor columns to adjustment fields
+* No code changes needed for new vendors - just config
 
 **Extensibility rules:**
 
-* New vendor = new `DataAdapter` + schema file + unit tests; engine code unchanged.
-* The **Bar** type is the **only** price/volume contract consumed by Exec/Cost/Risk.
-* Optionally persist a **Standard Bar Extract** to disk (parquet) to speed reruns.
+* New vendor = new `DataAdapter` implementation + config mapping; engine code unchanged
+* The **Bar** type is the **only** price/volume contract consumed by Exec/Cost/Risk
+* **AdjustmentEvent** is optional metadata for audit/analysis, not execution
+* Adapter declares `DataMode` to indicate if data is adjusted or unadjusted
+* Optionally persist a **Standard Bar Extract** to disk (parquet) to speed reruns
 
 **Validation:**
 
-* Strict type/required checks at adapter boundary.
-* Frequency/monotonic checks after normalization.
+* Strict type/required checks at adapter boundary
+* Frequency/monotonic checks after normalization
+* OHLC relationship validation (high ≥ max(o,c), low ≤ min(o,c))
 
 **Versioning:**
 
-* Adapters advertise `schema_version()`; runs persist this in `run.json` for reproducibility.
+* Adapters advertise `schema_version()`; runs persist this in `run.json` for reproducibility
 
-````
+**Naming convention:**
+
+* Adapters named: `{Vendor}{AssetClass}{Frequency}{DataType}Adapter`
+* Example: `AlgoseekUSEquityDailyOHLCAdapter`, `IQFeedUSEquityMinuteOHLCAdapter`
+
+### 2.4 Multi-Dataset Support
+
+**Design goal:** Strategies can access multiple datasets (primary OHLCV + auxiliary alternative data, factors, or cross-validation sources).
+
+**Primary vs Auxiliary:**
+
+* **Primary dataset:** Drives the event loop; `on_bar()` called for each bar
+* **Auxiliary datasets:** Queried on-demand by strategy via `ctx.get_data()`
+
+**Configuration:**
+
+```yaml
+# Single dataset (backward compatible)
+data:
+  source: "data/algoseek/"
+  adapter: "algoseek_us_equity_daily_ohlc"
+  mode: adjusted
+  frequency: 1d
+
+# Multi-dataset (new in Phase 1A)
+primary:
+  name: "algoseek"
+  source: "data/algoseek/"
+  adapter: "algoseek_us_equity_daily_ohlc"
+  mode: adjusted
+  frequency: 1d
+  bar_schema:
+    ts: "TradeDate"
+    symbol: "Ticker"
+    open: "Open"
+    high: "High"
+    low: "Low"
+    close: "Close"
+    volume: "MarketHoursVolume"
+
+auxiliary:
+  - name: "news"
+    source: "data/news_sentiment.csv"
+    adapter: "csv"
+    frequency: 1d
+    schema:
+      ts: "date"
+      symbol: "ticker"
+      fields:
+        sentiment_score: float
+        article_count: int
+  
+  - name: "factors"
+    source: "data/factors.parquet"
+    adapter: "parquet"
+    frequency: 1d
+    schema:
+      ts: "date"
+      symbol: "ticker"
+      fields:
+        value_z: float
+        momentum_z: float
+
+alignment:
+  strategy: forward_fill    # forward_fill | drop | error
+  max_lookback_days: 5      # Max forward-fill window
+  require_primary: true     # Must have primary data
+```
+
+**Context API for multi-dataset:**
+
+```python
+# In strategy on_bar() method
+def on_bar(self, bar: Bar, ctx: Context):
+    # bar is from PRIMARY dataset
+    price = bar.close
+    
+    # Query AUXILIARY datasets
+    sentiment = ctx.get_data("news", bar.symbol, bar.ts, "sentiment_score")
+    value_z = ctx.get_data("factors", bar.symbol, bar.ts, "value_z")
+    
+    # Trading logic
+    if sentiment > 0.7 and value_z > 1.5:
+        ctx.buy_market(bar.symbol, 100)
+```
+
+**Alignment strategies:**
+
+* `forward_fill`: Fill missing data from last available value (up to N days back)
+* `drop`: Skip bars without data in all datasets
+* `error`: Raise exception on missing data
+
+**Phase 1A scope:**
+
+* Multiple datasets at same frequency (e.g., all daily)
+* Primary + auxiliary configuration
+* Alignment strategies (forward_fill, drop, error)
+
+**Phase 1B scope (future):**
+
+* Mixed frequency support (daily primary + intraday auxiliary)
+* Time window queries: `ctx.get_bars("iqfeed_1m", symbol, start, end)`
+
 ---
 
 ## 3. Dataset Alignment (Algoseek **Standard Adjusted** OHLC)
 
 **Assumption:** Vendor bars are **total‑return adjusted** — both **dividends and splits** embedded via cumulative factors. Implications:
 
-- **Long dividends:** **Do not** post separate long cash dividends; already in price path.  
-- **Short dividends:** **Do** post **negative cash** on **ex‑date** for symbols held short when the adjustment reason indicates a cash dividend.
-- **Splits / scrip / rights:** Already reflected in adjusted prices. P1 does not mutate share counts; lot/share CA mechanics are P2.
+* **Long dividends:** **Do not** post separate long cash dividends; already in price path.
+* **Short dividends:** **Do** post **negative cash** on **ex‑date** for symbols held short when `AdjustmentEvent.event_type` indicates a cash dividend. Dividend amount derived from adjustment metadata.
+* **Splits / scrip / rights:** Already reflected in adjusted prices. P1 does not mutate share counts; lot/share CA mechanics are P2.
 
-### 3.1 Canonical `Bar`
+**How adjustment events are used:**
+
+* **Bar (OHLCV):** Used by execution engine for trading decisions and fills
+* **AdjustmentEvent:** Used by ledger for short dividend debits; stored for audit trail and performance attribution
+* Adapters emit both streams separately: `read_bars()` and `read_adjustments()`
+
+### 3.1 Canonical `Bar` (JSON representation)
+
 ```json
 {
   "ts": "YYYY‑MM‑DD[THH:MM]",
@@ -109,27 +258,68 @@ class DataAdapter(Protocol):
   "high": 198.5000,
   "low": 195.8000,
   "close": 197.9100,
-  "volume": 32456789,
-  "adj_reason": "DIV CashDiv|SD Subdiv|…",          // nullable
-  "px_factor": 1.2345,                               // cumulative, optional
-  "vol_factor": 0.8123                               // cumulative, optional
+  "volume": 32456789
 }
-````
+```
+
+**Note:** Adjustment metadata (dividends, splits) stored separately in `AdjustmentEvent`:
+
+```json
+{
+  "ts": "2023-02-10",
+  "symbol": "AAPL",
+  "event_type": "CashDiv",
+  "px_factor": 1.2345,
+  "vol_factor": 0.8123,
+  "metadata": {
+    "dividend_amount": 0.24,
+    "currency": "USD"
+  }
+}
+```
 
 **Precision:** Prices serialized at `data.decimals.price` (default 4). Indicator math uses float64; ledger uses Decimal.
 
 ### 3.2 Data Config
 
+**Single dataset (simple):**
+
 ```yaml
 data:
-  mode: standard_adjusted          # total‑return adjusted prices
+  source: "data/algoseek/"
+  adapter: "algoseek_us_equity_daily_ohlc"
+  mode: adjusted                   # adjusted | unadjusted | split_adjusted
   frequency: 1d                    # 1m|5m|15m|1h|1d
   timezone: America/New_York
-  column_map: {ts: trade_date, symbol: ticker}
   strict_frequency: true           # raise if mismatch
   decimals: {price: 4, cash: 4}
-  source_tag: "algoseek-standard-adjusted"
+  
+  # Schema mapping (vendor columns → canonical Bar fields)
+  bar_schema:
+    ts: "TradeDate"
+    symbol: "Ticker"
+    open: "Open"
+    high: "High"
+    low: "Low"
+    close: "Close"
+    volume: "MarketHoursVolume"
+  
+  # Adjustment metadata (optional)
+  adjustment_schema:
+    ts: "TradeDate"
+    symbol: "Ticker"
+    event_type: "AdjustmentReason"
+    px_factor: "CumulativePriceFactor"
+    vol_factor: "CumulativeVolumeFactor"
+  
+  validation:
+    epsilon: 0.0
+    ohlc_policy: strict_raise      # strict_raise | warn_skip_bar | warn_use_close_only
 ```
+
+**Multi-dataset (advanced):**
+
+See §2.4 for multi-dataset configuration with primary + auxiliary datasets.
 
 ### 3.3 Integrity Checks
 
@@ -226,7 +416,7 @@ fills:
 
 **Governance:** The team **pins conservative** as default. Switching `limit_mode`/`stop_mode` to `optimistic` requires code review sign‑off and a change log entry in the repository.
 
-### 4.4 Volume Participation & Partial Fills (ENFORCED) & Partial Fills (ENFORCED)
+### 4.4 Volume Participation & Partial Fills (ENFORCED)
 
 * Max shares fill per bar per order side: `cap = max_participation × bar.volume`.
 * If requested qty > `cap`, engine **partially fills** up to `cap` and **queues residual** forward for up to `queue_bars` bars; residual expires afterward.
@@ -267,7 +457,7 @@ trading:
 
 ## 7. Event Loop (Canonical)
 
-``` python
+```
 for bar in dataset:
   emit(bar)
   strategy.on_bar(bar)                   # submit orders (strategy_ts = bar.ts)
@@ -386,8 +576,6 @@ One JSON object per line containing strategy debug data.
 
 ## 12. Testing Strategy (P1)
 
-Testing must focus on functionality, we don,'t care about coverage. Keep it simple. 
-
 ### 12.1 Fixture Definition (authoritative)
 
 * Dataset: **Parquet**, partitioned by **`SecId`**, under `./data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample`.
@@ -470,7 +658,7 @@ Testing must focus on functionality, we don,'t care about coverage. Keep it simp
 
 ## 17. Appendix — JSON Schemas (selected)
 
-### 17.1 `Bar` (simplified)
+### 17.1 `Bar` (OHLCV only)
 
 ```json
 {
@@ -484,21 +672,36 @@ Testing must focus on functionality, we don,'t care about coverage. Keep it simp
     "high": {"type": "number"},
     "low": {"type": "number"},
     "close": {"type": "number"},
-    "volume": {"type": "integer", "minimum": 0},
-    "adj_reason": {"type": ["string", "null"]},
-    "px_factor": {"type": ["number", "null"]},
-    "vol_factor": {"type": ["number", "null"]}
+    "volume": {"type": "integer", "minimum": 0}
   }
 }
 ```
 
-### 17.2 `fills.csv` columns
+### 17.2 `AdjustmentEvent` (optional metadata)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["ts", "symbol", "event_type", "px_factor", "vol_factor"],
+  "properties": {
+    "ts": {"type": "string", "pattern": "^\d{4}-\d{2}-\d{2}$"},
+    "symbol": {"type": "string"},
+    "event_type": {"type": "string", "enum": ["CashDiv", "Split", "StockDiv", "SpinOff"]},
+    "px_factor": {"type": "number"},
+    "vol_factor": {"type": "number"},
+    "metadata": {"type": "object"}
+  }
+}
+```
+
+### 17.3 `fills.csv` columns
 
 ``` text
 fill_id,order_id,execution_ts,symbol,side,qty,price,slip_bps,fees,participation,partial_index
 ```
 
-### 17.3 `orders.csv` columns
+### 17.4 `orders.csv` columns
 
 ``` text
 order_id,strategy_ts,symbol,side,qty,type,limit,stop,tif,state,remaining
@@ -556,7 +759,201 @@ F004,O126,2022-11-14,MSFT,BUY,75,245.30,0,0.50,0.00,0
 * **Rule:** 6,000 fill on bar t; 4,000 carried to t+1 (and filled if cap allows).
 * **fills.csv**
 
-``` text
+```  text
 F005,O127,2020-09-10,AMZN,BUY,6000,3101.20,0,3.00,0.10,0
 F006,O127,2020-09-11,AMZN,BUY,4000,3110.50,0,2.00,0.07,1
 ```
+
+---
+
+## 19. Distribution & Usage (Installable Package + CLI)
+
+### 19.1 Installation
+
+* **PyPI name:** `qtrader`
+* **Requires:** Python 3.13+
+* **Install:**
+
+  * `pip install qtrader`
+  * or `uv pip install qtrader`
+* **SemVer:** Public API follows semantic versioning. Breaking changes bump **major** version.
+
+### 19.2 Public Python API (stable in v1.x)
+
+The end‑user **does not** modify `qtrader` internals. They import the public API, write strategies, and run backtests.
+
+**Primary symbols:**
+
+```python
+from qtrader import Strategy, Context, Backtest, load_config, run_backtest
+```
+
+**Strategy contract (P1):**
+
+```python
+class Strategy:
+    """
+    Base strategy class. User strategies inherit from this.
+    
+    Strategy file is self-contained: includes both trading logic and config.
+    """
+    # Optional: Strategy configuration (Pydantic model)
+    config: Optional[BaseModel] = None
+    
+    def on_start(self, ctx: Context) -> None: ...     # optional
+    def on_bar(self, bar: Bar, ctx: Context) -> None: ...  # required
+    def on_fill(self, fill, ctx: Context) -> None: ...# optional
+    def on_end(self, ctx: Context) -> None: ...       # optional
+```
+
+**Context API (extended for multi-dataset):**
+
+```python
+class Context:
+    # Trading API
+    def buy_market(self, symbol: str, qty: int) -> None: ...
+    def sell_market(self, symbol: str, qty: int) -> None: ...
+    def buy_limit(self, symbol: str, qty: int, limit: Decimal) -> None: ...
+    def sell_limit(self, symbol: str, qty: int, limit: Decimal) -> None: ...
+    def buy_stop(self, symbol: str, qty: int, stop: Decimal) -> None: ...
+    def sell_stop(self, symbol: str, qty: int, stop: Decimal) -> None: ...
+    def buy_moc(self, symbol: str, qty: int) -> None: ...
+    def sell_moc(self, symbol: str, qty: int) -> None: ...
+    
+    # Position/Portfolio API
+    def get_position(self, symbol: str) -> int: ...
+    def get_cash(self) -> Decimal: ...
+    def get_equity(self) -> Decimal: ...
+    
+    # Multi-dataset API (Phase 1A)
+    def get_data(self, dataset: str, symbol: str, ts: datetime, field: str, default: Any = None) -> Any: ...
+    def get_bars(self, dataset: str, symbol: str, start: datetime, end: datetime) -> List[Bar]: ...
+    def has_data(self, dataset: str, symbol: str, ts: datetime) -> bool: ...
+    def list_datasets(self) -> List[str]: ...
+    def get_dataset_info(self, dataset: str) -> dict: ...
+```
+
+**Self-contained strategy example:**
+
+```python
+# strategies/sentiment_sma.py
+from qtrader import Strategy, Context
+from qtrader.models.bar import Bar
+from pydantic import BaseModel, Field
+from decimal import Decimal
+
+class SentimentSMAConfig(BaseModel):
+    """Strategy configuration with defaults."""
+    fast_period: int = Field(default=20, description="Fast SMA period")
+    slow_period: int = Field(default=50, description="Slow SMA period")
+    sentiment_threshold: float = Field(default=0.7, description="Min sentiment score")
+    position_size: int = Field(default=100, description="Shares per trade")
+
+class SentimentSMA(Strategy):
+    """SMA crossover with sentiment filter."""
+    
+    # Default config (can be overridden via CLI --set)
+    config = SentimentSMAConfig()
+    
+    def __init__(self, config: SentimentSMAConfig = None):
+        self.config = config or self.config
+    
+    def on_bar(self, bar: Bar, ctx: Context):
+        # Get sentiment from auxiliary dataset
+        sentiment = ctx.get_data("news", bar.symbol, bar.ts, "sentiment_score", default=0.5)
+        
+        # Only trade if sentiment is positive
+        if sentiment < self.config.sentiment_threshold:
+            return
+        
+        # SMA crossover logic
+        fast = ctx.ind.sma(bar.symbol, self.config.fast_period)
+        slow = ctx.ind.sma(bar.symbol, self.config.slow_period)
+        
+        if ctx.just_crossed_above(fast, slow):
+            ctx.buy_market(bar.symbol, self.config.position_size)
+        elif ctx.just_crossed_below(fast, slow):
+            ctx.sell_market(bar.symbol, self.config.position_size)
+```
+
+**Config precedence:** `CLI --set` overrides > YAML file > package defaults.
+
+### 19.3 Command Line Interface (CLI)
+
+**Main entrypoint:** `qtrader`
+
+**Design principle:** Strategy files are **self-contained** (code + config). Data config YAML is **system configuration only** (data sources, adapters, validation).
+
+* **Backtest:**
+
+```bash
+qtrader backtest \
+  --strategy strategies/sentiment_sma.py \
+  --data configs/multi_dataset.yaml \
+  --out ./runs/exp1 \
+  --set fast_period=10 --set sentiment_threshold=0.8
+```
+
+* `--strategy PATH`: Path to self-contained strategy Python file (required)
+* `--data PATH`: Path to data configuration YAML (optional, uses defaults if omitted)
+* `--out PATH`: Output directory for results (required)
+* `--set KEY=VALUE`: Override strategy config parameters (optional, multiple allowed)
+
+**Key design decisions:**
+
+* Strategy file is self-contained: trading logic + default configuration
+* Data config YAML contains only system settings: data sources, adapters, validation
+* No need to specify `module:ClassName` - CLI auto-discovers Strategy class
+* Single dataset or multi-dataset transparent to CLI (based on config structure)
+
+**Examples:**
+
+```bash
+# Basic usage (uses default data config)
+qtrader backtest --strategy strategies/buy_hold.py --out results/run1/
+
+# With data config
+qtrader backtest \
+  --strategy strategies/sma_cross.py \
+  --data configs/algoseek_daily.yaml \
+  --out results/sma/
+
+# With parameter overrides (for tuning)
+qtrader backtest \
+  --strategy strategies/sentiment_sma.py \
+  --data configs/multi_dataset.yaml \
+  --out results/sentiment_fast/ \
+  --set fast_period=10 \
+  --set slow_period=30 \
+  --set sentiment_threshold=0.8
+
+# Multi-dataset: price + sentiment + factors
+qtrader backtest \
+  --strategy strategies/factor_composite.py \
+  --data configs/multi_dataset_factors.yaml \
+  --out results/factors/
+```
+
+* Exit code **0** on success; non‑zero on validation/fill errors
+
+* **Validate data (no trading):**
+
+```bash
+qtrader validate-data --data configs/algoseek_daily.yaml
+```
+
+* Runs dataset integrity checks (§3.3/§3.4) and reports policy actions
+* Validates OHLC relationships, frequency, monotonic timestamps
+* Reports malformed bars according to `ohlc_policy`
+
+### 19.4 Strategy Discovery & Packaging
+
+* Users may keep strategies in any repo. The CLI imports with `--strategy` using Python’s module path.
+* For teams, publish internal strategy packages (e.g., `pip install bank_qi_strats`) and reference `--strategy bank_qi_strats.alpha:MyAlpha`.
+
+### 19.5 API Stability & Support
+
+* Only the **public symbols** documented above are stable in v1.x. Internal modules under `qtrader.engine.*` are not part of the public API.
+* Deprecations are announced one minor version in advance.
+
+---
