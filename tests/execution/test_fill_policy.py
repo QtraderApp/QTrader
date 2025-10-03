@@ -115,8 +115,8 @@ def test_market_order_needs_next_bar(fill_policy, sample_bar):
     assert "No next bar available" in decision.reason
 
 
-def test_limit_order_not_implemented(fill_policy, sample_bar):
-    """Limit orders not supported in Stage 3."""
+def test_limit_buy_fills_when_touched(fill_policy, sample_bar):
+    """Limit Buy fills when price touches limit (Stage 4)."""
     order = Order(
         order_id="order-1",
         strategy_ts=sample_bar.ts,
@@ -128,8 +128,11 @@ def test_limit_order_not_implemented(fill_policy, sample_bar):
         limit_price=Decimal("150.00"),
     )
 
+    # sample_bar: low=149, close=151, so limit at 150 is touched
     decision = fill_policy.evaluate_order(order, sample_bar, next_bar=None)
-    assert decision.should_fill is False
+    assert decision.should_fill is True
+    # Conservative: fill at min(limit, close) = min(150, 151) = 150
+    assert decision.fill_price == Decimal("150.00")
 
 
 def test_zero_slippage_moc(sample_bar):

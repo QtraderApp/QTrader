@@ -10,7 +10,7 @@ from qtrader.execution.commission import CommissionCalculator
 from qtrader.execution.config import ExecutionConfig
 from qtrader.execution.fill_policy import FillDecision, FillPolicy
 from qtrader.models.bar import Bar
-from qtrader.models.order import Fill, OrderBase, OrderState
+from qtrader.models.order import Fill, OrderBase, OrderState, TimeInForce
 from qtrader.models.portfolio import Portfolio
 
 logger = structlog.get_logger(__name__)
@@ -54,11 +54,17 @@ class ExecutionEngine:
             per_share=self.config.per_share,
             ticket_min=self.config.ticket_min,
         )
-        self.fill_policy = FillPolicy(moc_slip_bps=self.config.moc_slip_bps)
+        self.fill_policy = FillPolicy(
+            moc_slip_bps=self.config.moc_slip_bps,
+            stop_slip_bps=self.config.stop_slip_bps,
+            limit_mode=self.config.limit_mode,
+            stop_mode=self.config.stop_mode,
+        )
 
         # Order tracking
         self.pending_orders: Dict[str, OrderBase] = {}  # order_id -> Order
         self.filled_orders: Dict[str, OrderBase] = {}  # order_id -> Order
+        self.expired_orders: Dict[str, OrderBase] = {}  # order_id -> Order
         self.all_fills: List[Fill] = []
 
         # Bar tracking (for Market orders that need next bar)
@@ -87,6 +93,10 @@ class ExecutionEngine:
         if order.state != OrderState.SUBMITTED:
             order = order.with_state(OrderState.SUBMITTED)
 
+        # Set submission_bar_ts for DAY orders (for expiration tracking)
+        if order.tif == TimeInForce.DAY and order.submission_bar_ts is None and self.current_bar is not None:
+            order = order._replace(submission_bar_ts=self.current_bar.ts)
+
         self.pending_orders[order.order_id] = order
 
         logger.info(
@@ -96,15 +106,17 @@ class ExecutionEngine:
             side=order.side.value,
             qty=order.qty,
             order_type=order.order_type.value,
+            tif=order.tif.value,
         )
 
-    def on_bar(self, bar: Bar, next_bar: Optional[Bar] = None) -> List[Fill]:
+    def on_bar(self, bar: Bar, next_bar: Optional[Bar] = None, is_close_only: bool = False) -> List[Fill]:
         """
         Process bar and generate fills.
 
         Args:
             bar: Current bar to process
             next_bar: Next bar (needed for Market orders)
+            is_close_only: If True, skip limit/stop evaluation (malformed OHLC bar)
 
         Returns:
             List of fills generated on this bar
@@ -121,19 +133,47 @@ class ExecutionEngine:
             ts=bar.ts.isoformat(),
             close=float(bar.close),
             pending_orders=len(self.pending_orders),
+            is_close_only=is_close_only,
         )
 
         # Evaluate pending orders for this symbol
         fills = []
         orders_to_remove = []
+        orders_to_expire = []
 
         for order_id, order in list(self.pending_orders.items()):
             # Only evaluate orders for this symbol
             if order.symbol != bar.symbol:
                 continue
 
+            # Check DAY order expiration
+            # DAY orders expire at end of day (after submission bar has passed)
+            # For intraday bars: expires when date changes
+            # For daily bars: expires after 1 bar (next day)
+            if order.tif == TimeInForce.DAY and order.submission_bar_ts is not None:
+                # Get submission date and current date
+                submission_date = order.submission_bar_ts.date()
+                current_date = bar.ts.date()
+
+                # Expire if we're past the submission date
+                if current_date > submission_date:
+                    orders_to_expire.append(order_id)
+                    updated_order = order.with_state(OrderState.EXPIRED)
+                    self.expired_orders[order_id] = updated_order
+
+                    logger.info(
+                        "execution_engine.order_expired",
+                        order_id=order_id,
+                        symbol=order.symbol,
+                        order_type=order.order_type.value,
+                        submission_date=submission_date.isoformat(),
+                        current_date=current_date.isoformat(),
+                        reason="DAY order expired (new day)",
+                    )
+                    continue
+
             # Evaluate order
-            decision = self.fill_policy.evaluate_order(order, bar, next_bar)
+            decision = self.fill_policy.evaluate_order(order, bar, next_bar, is_close_only)
 
             if decision.should_fill:
                 # Generate fill
@@ -161,6 +201,10 @@ class ExecutionEngine:
 
         # Remove filled orders from pending
         for order_id in orders_to_remove:
+            del self.pending_orders[order_id]
+
+        # Remove expired orders from pending
+        for order_id in orders_to_expire:
             del self.pending_orders[order_id]
 
         return fills
@@ -191,8 +235,10 @@ class ExecutionEngine:
         # Calculate slippage in bps
         if order.order_type.value == "MOC":
             slippage_bps = self.config.moc_slip_bps
+        elif order.order_type.value == "STOP":
+            slippage_bps = self.config.stop_slip_bps
         else:
-            slippage_bps = 0  # Market orders have no slippage
+            slippage_bps = 0  # Market/Limit orders have no slippage
 
         # Create fill
         fill = Fill(

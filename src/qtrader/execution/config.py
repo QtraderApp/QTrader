@@ -13,6 +13,11 @@ class ExecutionConfig(NamedTuple):
 
     # Slippage settings (basis points)
     moc_slip_bps: int = 5  # MOC slippage in bps (default 5 bps)
+    stop_slip_bps: int = 5  # Stop order slippage in bps (default 5 bps)
+
+    # Fill mode settings (Stage 4)
+    limit_mode: str = "conservative"  # conservative | optimistic
+    stop_mode: str = "conservative"  # conservative | optimistic
 
     # Borrow cost settings
     borrow_rate_annual: Decimal = Decimal("0.03")  # 3% annual borrow cost for shorts
@@ -29,6 +34,12 @@ class ExecutionConfig(NamedTuple):
             raise ValueError(f"ticket_min must be >= 0, got {self.ticket_min}")
         if self.moc_slip_bps < 0:
             raise ValueError(f"moc_slip_bps must be >= 0, got {self.moc_slip_bps}")
+        if self.stop_slip_bps < 0:
+            raise ValueError(f"stop_slip_bps must be >= 0, got {self.stop_slip_bps}")
+        if self.limit_mode not in ("conservative", "optimistic"):
+            raise ValueError(f"limit_mode must be 'conservative' or 'optimistic', got {self.limit_mode}")
+        if self.stop_mode not in ("conservative", "optimistic"):
+            raise ValueError(f"stop_mode must be 'conservative' or 'optimistic', got {self.stop_mode}")
         if self.borrow_rate_annual < Decimal("0"):
             raise ValueError(f"borrow_rate_annual must be >= 0, got {self.borrow_rate_annual}")
         if not (Decimal("0") < self.max_participation <= Decimal("1.0")):
