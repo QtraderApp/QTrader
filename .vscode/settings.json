@@ -1,0 +1,21 @@
+{
+    "cSpell.words": [
+        "abstractmethod",
+        "addopts",
+        "asyncio",
+        "duckdb",
+        "filterwarnings",
+        "htmlcov",
+        "isort",
+        "mdformat",
+        "mypy",
+        "pyarrow",
+        "pycache",
+        "pydantic",
+        "pytest",
+        "qtrader",
+        "repr",
+        "testpaths",
+        "venv"
+    ]
+}
