@@ -3,6 +3,7 @@
 from qtrader.models.bar import AdjustmentEvent, Bar, BarFrequency, DataMode, OHLCPolicy
 from qtrader.models.ledger import CashLedger, CashTransaction
 from qtrader.models.order import Fill, Order, OrderBase, OrderSide, OrderState, OrderType, TimeInForce
+from qtrader.models.portfolio import Portfolio
 from qtrader.models.position import Position, PositionTracker
 
 __all__ = [
@@ -26,4 +27,6 @@ __all__ = [
     # Ledger models
     "CashLedger",
     "CashTransaction",
+    # Portfolio
+    "Portfolio",
 ]
