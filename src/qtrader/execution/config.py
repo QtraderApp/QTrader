@@ -24,7 +24,8 @@ class ExecutionConfig(NamedTuple):
 
     # Participation settings (Stage 5)
     max_participation: Decimal = Decimal("0.10")  # Max 10% of bar volume
-    high_participation_warn: Decimal = Decimal("0.05")  # Warn above 5%
+    queue_bars: int = 3  # Number of bars to keep residuals before expiration
+    allow_high_participation: bool = False  # Allow max_participation > 0.20
 
     def __post_init__(self):
         """Validate configuration."""
@@ -44,7 +45,5 @@ class ExecutionConfig(NamedTuple):
             raise ValueError(f"borrow_rate_annual must be >= 0, got {self.borrow_rate_annual}")
         if not (Decimal("0") < self.max_participation <= Decimal("1.0")):
             raise ValueError(f"max_participation must be (0, 1], got {self.max_participation}")
-        if not (Decimal("0") < self.high_participation_warn <= self.max_participation):
-            raise ValueError(
-                f"high_participation_warn must be (0, max_participation], got {self.high_participation_warn}"
-            )
+        if self.queue_bars < 1:
+            raise ValueError(f"queue_bars must be >= 1, got {self.queue_bars}")
