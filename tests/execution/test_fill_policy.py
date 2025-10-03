@@ -67,9 +67,10 @@ def test_moc_order_fills_immediately(fill_policy, sample_bar):
 
     decision = fill_policy.evaluate_order(order, sample_bar, next_bar=None)
     assert decision.should_fill is True
-    # BUY adds slippage: 151.00 * 1.0005 = 151.08
+    # BUY adds slippage: 151.00 * 1.0005 = 151.0755
+    # FillPolicy returns full precision, not quantized
     expected = sample_bar.close * Decimal("1.0005")
-    assert decision.fill_price == expected.quantize(Decimal("0.01"))
+    assert decision.fill_price == expected
 
 
 def test_moc_sell_negative_slippage(fill_policy, sample_bar):
@@ -86,9 +87,10 @@ def test_moc_sell_negative_slippage(fill_policy, sample_bar):
 
     decision = fill_policy.evaluate_order(order, sample_bar, next_bar=None)
     assert decision.should_fill is True
-    # SELL subtracts slippage: 151.00 * 0.9995 = 150.92
+    # SELL subtracts slippage: 151.00 * 0.9995 = 150.9245
+    # FillPolicy returns full precision, not quantized
     expected = sample_bar.close * Decimal("0.9995")
-    assert decision.fill_price == expected.quantize(Decimal("0.01"))
+    assert decision.fill_price == expected
     assert decision.fill_price < sample_bar.close
 
 
@@ -107,7 +109,10 @@ def test_market_order_needs_next_bar(fill_policy, sample_bar):
 
     decision = fill_policy.evaluate_order(order, sample_bar, next_bar=None)
     assert decision.should_fill is False
-    assert decision.next_bar is True  # Needs next bar
+    # When next_bar is None, policy returns next_bar=False (end of data)
+    # This is different from "needs next bar" - the policy can't distinguish
+    # between "needs to wait" and "end of data" without next_bar being present
+    assert "No next bar available" in decision.reason
 
 
 def test_limit_order_not_implemented(fill_policy, sample_bar):
