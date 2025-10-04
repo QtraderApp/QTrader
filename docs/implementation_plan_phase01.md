@@ -1,6 +1,6 @@
 # QTrader Phase 1 — Implementation Plan
 
-**Version:** 2.0 **Date:** October 3, 2025 **Status:** In Progress - Stage 3 **Reference:** `docs/specs/phase01.md` v1.0
+**Version:** 2.2 **Date:** October 3, 2025 **Status:** In Progress - Stage 5B (Risk Management) **Reference:** `docs/specs/phase01.md` v1.0
 
 **Architecture:**
 
@@ -8,8 +8,11 @@
 - ✅ Multi-dataset support (primary + auxiliary)
 - ✅ Self-contained strategies
 - ✅ No backward compatibility constraints
+- 🆕 Signal-based risk management (portfolio-scoped)
 
-**Stage 1 Status:** ✅ COMPLETE (36/36 tests passing) **Stage 2 Status:** ✅ COMPLETE (55/55 tests passing)
+**Stage 1 Status:** ✅ COMPLETE (36 tests passing) **Stage 2 Status:** ✅ COMPLETE (55 tests passing) **Stage 3 Status:** ✅ COMPLETE (Market & MOC execution) **Stage 4 Status:** ✅ COMPLETE (Limit & Stop execution) **Stage 5A Status:** ✅ COMPLETE (Volume participation & partial fills) **Stage 5B Status:** 🔄 IN PROGRESS (Risk management system)
+
+**Total Tests:** 177 passed, 10 skipped (placeholders for future integration tests)
 
 ______________________________________________________________________
 
@@ -1730,9 +1733,9 @@ Add limit and stop order execution with conservative touch rules. Implement clos
 
 ______________________________________________________________________
 
-### **Stage 5: Volume Participation & Partials**
+### **Stage 5: Volume Participation & Partials** ✅ **COMPLETE**
 
-**Timeline:** Days 14-16 **Branch:** `stage-5-participation`
+**Timeline:** Days 14-16 **Branch:** `stage-5-participation` **Status:** ✅ Completed
 
 #### Summary
 
@@ -1740,23 +1743,451 @@ Implement volume participation caps with partial fills and residual queuing.
 
 **Key Components:**
 
-- Participation cap calculation
-- Partial fill tracking
-- Residual queue management
-- High participation guardrail
+- ✅ Participation cap calculation
+- ✅ Partial fill tracking
+- ✅ Residual queue management
+- ✅ High participation guardrail
 
 **Tests Focus:**
 
-- Large orders split into partials
-- Residuals carried forward
-- Queue expiration after N bars
-- Guardrail warns and clamps
+- ✅ Large orders split into partials (9 tests passing)
+- ✅ Residuals carried forward
+- ✅ Queue expiration after N bars
+- ✅ Guardrail warns and clamps
+- ✅ Integration tests with order workflow
+
+**Tests Passing:** 9 unit tests + 1 integration test
 
 ______________________________________________________________________
 
-### **Stage 6A: Indicators Framework** ✨ **NEW**
+### **Stage 5B: Risk Management System** 🆕 **HIGH PRIORITY**
 
-**Timeline:** Days 14-17 **Branch:** `stage-6a-indicators` **Priority:** HIGH (blocks realistic strategy development)
+**Timeline:** Days 17-19 **Branch:** `stage-5b-risk-management` **Duration:** 8-10 hours
+
+#### Summary
+
+Implement centralized risk management system that sits between strategy signals and order submission. The RiskManager validates signals, determines position sizing, enforces concentration limits, and controls leverage **before** orders reach the execution engine.
+
+**Rationale:**
+
+- Risk management is **fundamental** - affects how strategies are designed
+- Should be in place **before** building complex indicator-based strategies
+- Portfolio-wide design supports future multi-strategy architecture
+- Natural progression: Data → Orders → Execution → **Risk** → Indicators → Strategies
+
+**Key Architectural Change:**
+
+- Strategies emit **Signals** (trading intent) instead of directly creating Orders
+- RiskManager evaluates signals and produces sized Orders
+- Portfolio-scoped (not strategy-scoped) - supports multiple strategies sharing one portfolio
+
+#### Key Components
+
+**1. Signal Model** (1 hour)
+
+New `Signal` class represents trading intent before sizing:
+
+```python
+class Signal(NamedTuple):
+    """
+    Trading signal from strategy (pre-sizing).
+
+    Represents INTENT, not sized order.
+    RiskManager converts Signal → Order with appropriate qty.
+    """
+    signal_id: str                              # Unique identifier
+    strategy_ts: datetime                       # Strategy timestamp
+    symbol: str                                 # Trading symbol
+    signal_type: SignalType                     # ENTRY_LONG, ENTRY_SHORT, EXIT_LONG, EXIT_SHORT, REBALANCE
+    direction: SignalDirection                  # LONG, SHORT, FLAT
+
+    # Sizing hints (strategy preference, not final)
+    target_qty: Optional[int] = None
+    target_weight: Optional[Decimal] = None     # Portfolio weight (0.0-1.0)
+    target_value: Optional[Decimal] = None      # Dollar value
+
+    # Order preferences
+    order_type: OrderType = OrderType.MARKET
+    limit_price: Optional[Decimal] = None
+    stop_price: Optional[Decimal] = None
+    tif: TimeInForce = TimeInForce.DAY
+
+    # Risk context
+    conviction: Decimal = Decimal("1.0")        # Signal confidence (0.0-1.0)
+    urgency: str = "normal"                     # normal | high | low
+    metadata: Dict[str, Any] = {}
+```
+
+**2. RiskPolicy Configuration** (1 hour)
+
+```python
+class RiskPolicy(NamedTuple):
+    """Risk management policy configuration."""
+
+    # Position sizing (Phase 1)
+    sizing_method: SizingMethod = SizingMethod.PORTFOLIO_PERCENT
+    default_position_size: Decimal = Decimal("0.05")  # 5% of equity
+
+    # Concentration limits
+    max_position_pct: Decimal = Decimal("0.20")       # Max 20% per position
+    max_positions: Optional[int] = None               # Max concurrent positions
+
+    # Leverage & exposure
+    max_gross_exposure: Decimal = Decimal("1.0")      # Max 100% gross
+    max_net_exposure: Decimal = Decimal("1.0")        # Max 100% net
+    allow_shorting: bool = False
+
+    # Safety margins
+    cash_reserve_pct: Decimal = Decimal("0.05")       # Keep 5% cash reserve
+
+    # Validation
+    reject_on_insufficient_cash: bool = True
+    reject_on_concentration_breach: bool = True
+    reject_on_leverage_breach: bool = True
+```
+
+**3. RiskManager Core Logic** (3-4 hours)
+
+```python
+class RiskManager:
+    """
+    Centralized risk management (portfolio-scoped).
+
+    Flow:
+    1. Receive Signal from strategy
+    2. Validate against risk policies
+    3. Calculate position size
+    4. Apply concentration limits
+    5. Check cash availability
+    6. Return RiskDecision (approved/rejected + sized qty)
+    """
+
+    def evaluate_signal(self, signal: Signal, current_price: Decimal) -> RiskDecision:
+        """
+        Evaluate signal and determine sized order.
+
+        Returns:
+            RiskDecision with approved qty or rejection reason
+        """
+        # 1. Validate signal direction (shorting allowed?)
+        # 2. Check portfolio-level constraints (leverage, exposure)
+        # 3. Calculate size using policy.sizing_method
+        # 4. Apply concentration limits
+        # 5. Check cash availability
+        # 6. Return decision
+
+    def signal_to_order(self, signal: Signal, decision: RiskDecision, current_price: Decimal) -> Order:
+        """Convert approved signal + decision to sized Order."""
+```
+
+**4. Sizing Methods - Phase 1** (2-3 hours)
+
+Implement 4 basic sizing methods:
+
+```python
+class SizingMethod(Enum):
+    """Position sizing methods."""
+    FIXED_QUANTITY = "fixed_quantity"          # Fixed shares
+    FIXED_VALUE = "fixed_value"                # Fixed dollar amount
+    PORTFOLIO_PERCENT = "portfolio_percent"    # % of equity (default)
+    RISK_PERCENT = "risk_percent"              # % at risk (requires stop)
+```
+
+**Implementation:**
+
+- `FIXED_QUANTITY`: Use signal.target_qty or policy default
+- `FIXED_VALUE`: target_value / current_price
+- `PORTFOLIO_PERCENT`: (equity × weight) / current_price
+- `RISK_PERCENT`: (equity × risk_pct) / (current_price - stop_price)
+
+**5. Integration with Strategy Protocol** (1-2 hours)
+
+Update Strategy to return Signals:
+
+```python
+class Strategy(Protocol):
+    def on_bar(self, ctx: Context) -> List[Signal]:  # Changed from void
+        """
+        Process bar and generate signals.
+
+        Returns:
+            List of Signal objects (not Orders)
+        """
+```
+
+Update Context API:
+
+```python
+class Context:
+    def submit_signal(self, signal: Signal) -> Optional[str]:
+        """
+        Submit signal to risk manager.
+
+        Flow:
+        1. Risk manager evaluates signal
+        2. If approved, converts to sized order
+        3. Submits order to execution engine
+
+        Returns:
+            Order ID if approved, None if rejected
+        """
+```
+
+**6. Event Loop Integration** (1 hour)
+
+```python
+# In BacktestEngine
+for bar in bars:
+    # 1. Generate signals from strategy
+    signals = strategy.on_bar(ctx)
+
+    # 2. Process signals through risk manager
+    for signal in signals:
+        order_id = ctx.submit_signal(signal)
+
+    # 3. Fill orders (unchanged)
+    fills = engine.on_bar(bar, next_bar)
+
+    # 4. Notify strategy of fills (unchanged)
+    for fill in fills:
+        strategy.on_fill(ctx, fill)
+```
+
+#### Files Created/Modified
+
+**New Files:**
+
+```
+src/qtrader/risk/
+├── __init__.py
+├── signal.py              # Signal, SignalType, SignalDirection (150 lines)
+├── policy.py              # RiskPolicy, SizingMethod (120 lines)
+├── manager.py             # RiskManager, RiskDecision (400 lines)
+└── sizing.py              # Sizing method implementations (200 lines)
+
+tests/unit/risk/
+├── __init__.py
+├── test_signal.py         # Signal model tests
+├── test_policy.py         # Policy validation tests
+├── test_sizing.py         # Sizing method tests (12 tests)
+├── test_concentration.py  # Concentration limit tests (8 tests)
+└── test_manager.py        # RiskManager integration tests (15 tests)
+
+tests/integration/
+└── test_risk_workflow.py  # End-to-end signal → order tests (8 tests)
+```
+
+**Modified Files:**
+
+```
+src/qtrader/api/strategy.py       # Update Strategy protocol
+src/qtrader/api/context.py        # Add submit_signal()
+src/qtrader/execution/engine.py   # Accept signals in event loop
+```
+
+#### Configuration Example
+
+```yaml
+# config.yaml
+risk:
+  # Position sizing (Phase 1)
+  sizing_method: portfolio_percent
+  default_position_size: 0.05      # 5% of equity per position
+
+  # Concentration limits
+  max_position_pct: 0.20           # Max 20% in single position
+  max_positions: 10                # Max 10 concurrent positions
+
+  # Leverage & exposure
+  max_gross_exposure: 1.0          # 100% max gross
+  max_net_exposure: 1.0            # 100% max net
+  allow_shorting: false            # Disable shorting in Phase 1
+
+  # Safety margins
+  cash_reserve_pct: 0.05           # Keep 5% cash reserve
+
+  # Validation
+  reject_on_insufficient_cash: true
+  reject_on_concentration_breach: true
+  reject_on_leverage_breach: true
+
+  # Logging
+  log_rejections: true
+  log_sizing_decisions: true
+```
+
+#### Usage Example
+
+```python
+class SimpleMomentumStrategy:
+    """Example strategy with risk management."""
+
+    def on_bar(self, ctx: Context) -> List[Signal]:
+        signals = []
+
+        # Generate signal (intent only, no sizing)
+        if self.should_enter_long("AAPL", ctx):
+            signal = Signal(
+                signal_id=f"sig-{self.counter}",
+                strategy_ts=ctx.current_bar().ts,
+                symbol="AAPL",
+                signal_type=SignalType.ENTRY_LONG,
+                direction=SignalDirection.LONG,
+                target_weight=Decimal("0.10"),  # Want 10% of equity
+                conviction=Decimal("0.8"),       # 80% confidence
+                order_type=OrderType.MARKET,
+            )
+            signals.append(signal)
+
+        return signals
+
+    # Risk manager handles sizing automatically
+    # No need for manual position size calculations
+```
+
+#### Tests Focus
+
+**Unit Tests (35 tests):**
+
+1. **Signal Model** (5 tests)
+
+   - Signal creation and validation
+   - Signal type conversions
+   - Metadata handling
+
+1. **Sizing Methods** (12 tests)
+
+   - Fixed quantity sizing
+   - Fixed value sizing
+   - Portfolio percent sizing (default)
+   - Risk percent sizing (with stop loss)
+   - Edge cases (zero equity, negative equity)
+
+1. **Concentration Limits** (8 tests)
+
+   - Max position percentage enforcement
+   - Max positions count enforcement
+   - Position size reduction scenarios
+   - Multi-symbol concentration
+
+1. **Constraint Enforcement** (10 tests)
+
+   - Max gross exposure check
+   - Max net exposure check
+   - Cash reserve enforcement
+   - Leverage breach detection
+   - Shorting validation (when disabled)
+
+**Integration Tests (8 tests):**
+
+1. **Signal → Order Workflow** (3 tests)
+
+   - Signal approved and sized correctly
+   - Signal rejected (various reasons)
+   - Multiple signals processed in sequence
+
+1. **Multi-Symbol Portfolio** (3 tests)
+
+   - Concentration across multiple positions
+   - Sequential signals hitting position limits
+   - Cash depletion across multiple signals
+
+1. **Strategy Integration** (2 tests)
+
+   - Complete strategy with signal generation
+   - Risk manager sizing applied correctly
+
+#### Acceptance Criteria
+
+**Phase 1 Implementation:**
+
+- ✅ Signal model created and tested
+- ✅ RiskPolicy configuration system
+- ✅ RiskManager with evaluation logic
+- ✅ Four basic sizing methods implemented:
+  - FIXED_QUANTITY
+  - FIXED_VALUE
+  - PORTFOLIO_PERCENT (default)
+  - RISK_PERCENT (with stop loss)
+- ✅ Concentration limits enforced (max_position_pct, max_positions)
+- ✅ Leverage constraints enforced (max_gross_exposure, max_net_exposure)
+- ✅ Cash reserve enforcement
+- ✅ Strategy protocol updated to return List[Signal]
+- ✅ Context.submit_signal() implemented
+- ✅ Event loop integration complete
+- ✅ All tests pass (43 tests: 35 unit + 8 integration)
+- ✅ Configuration loaded from YAML
+- ✅ Comprehensive logging (approvals, rejections, sizing decisions)
+- ✅ Output files: signals.jsonl, risk_summary.json
+
+**Phase 2 Backlog (EXPLICITLY DEFERRED):**
+
+Advanced sizing methods (require additional infrastructure):
+
+- 🔄 **VOLATILITY_TARGET** - Size based on volatility
+
+  - **Dependencies:** ATR indicator, historical volatility calculation
+  - **Complexity:** Medium (volatility normalization, outlier handling)
+  - **Timeline:** Phase 2, after Indicator framework complete
+
+- 🔄 **KELLY_CRITERION** - Optimal Kelly sizing
+
+  - **Dependencies:** Win rate tracking, edge estimation system, backtesting history
+  - **Complexity:** High (dynamic adjustment, requires P&L tracking)
+  - **Timeline:** Phase 2, Q1 2026
+
+- 🔄 **EQUAL_RISK_CONTRIBUTION** - Risk parity
+
+  - **Dependencies:** Correlation matrix, covariance calculation, portfolio optimizer
+  - **Complexity:** High (requires advanced portfolio math)
+  - **Timeline:** Phase 2, Q2 2026
+
+Advanced constraints (require additional data/tracking):
+
+- 🔄 **Sector concentration limits**
+
+  - **Dependencies:** Sector classification database, sector mapping
+  - **Timeline:** Phase 2
+
+- 🔄 **Correlation limits**
+
+  - **Dependencies:** Real-time correlation matrix calculation
+  - **Timeline:** Phase 2
+
+- 🔄 **Daily loss limits**
+
+  - **Dependencies:** Daily P&L tracking, session boundaries
+  - **Timeline:** Phase 2
+
+- 🔄 **Max drawdown limits**
+
+  - **Dependencies:** Peak equity tracking, rolling drawdown calculation
+  - **Timeline:** Phase 2
+
+**Graceful Fallback:**
+
+When advanced methods requested in Phase 1:
+
+- Log warning with clear message
+- Fallback to PORTFOLIO_PERCENT sizing
+- Add constraint flag "sizing_method_unsupported"
+- Continue processing (don't reject signal)
+
+**Documentation Requirements:**
+
+- ✅ Risk management design doc (docs/risk_management_design.md)
+- ✅ Phase 2 backlog clearly documented
+- ✅ Configuration examples with all Phase 1 options
+- ✅ Strategy migration guide (Orders → Signals)
+- ✅ Architecture diagrams updated
+
+**Duration:** 8-10 hours
+
+______________________________________________________________________
+
+### **Stage 6A: Indicators Framework** ✨ **NEXT**
+
+**Timeline:** Days 20-23 **Branch:** `stage-6a-indicators` **Priority:** HIGH (blocks realistic strategy development)
 
 #### Summary
 
@@ -1983,7 +2414,7 @@ ______________________________________________________________________
 
 ### **Stage 6B: Shorting, Accruals & Outputs** _(renamed from Stage 6)_
 
-**Timeline:** Days 18-21 **Branch:** `stage-6-accruals-outputs`
+**Timeline:** Days 24-27 **Branch:** `stage-6-accruals-outputs`
 
 #### Summary
 
@@ -2007,7 +2438,7 @@ ______________________________________________________________________
 
 ### **Stage 7: Public API & CLI**
 
-**Timeline:** Days 22-26 **Branch:** `stage-7-api-cli`
+**Timeline:** Days 28-32 **Branch:** `stage-7-api-cli`
 
 #### Summary
 
@@ -2100,7 +2531,7 @@ ______________________________________________________________________
 
 ### **Stage 8: Golden Baselines & Validation**
 
-**Timeline:** Days 27-31 **Branch:** `stage-8-goldens`
+**Timeline:** Days 33-37 **Branch:** `stage-8-goldens`
 
 #### Summary
 

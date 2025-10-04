@@ -1038,16 +1038,456 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## 15. Glossary (P1)
+## 15. Risk Management (Phase 1)
+
+### 15.1 Overview
+
+The **Risk Management System** sits between strategy signal generation and order submission, acting as a centralized gatekeeper that validates signals, determines position sizing, enforces concentration limits, and controls leverage.
+
+**Key Principle:** *No order reaches the ExecutionEngine without RiskManager approval.*
+
+**Architecture Flow:**
+
+```
+Strategy (generates Signal)
+    ↓
+RiskManager (validates & sizes)
+    ↓
+Order (sized & validated)
+    ↓
+ExecutionEngine (fills order)
+    ↓
+Portfolio (updated state)
+```
+
+**Scope:**
+
+- **Portfolio-scoped:** RiskManager operates at portfolio level, not strategy level
+- **Multi-strategy ready:** Future support for multiple strategies sharing one portfolio
+- **Read-only portfolio access:** RiskManager queries but does not modify Portfolio
+- **Policy-driven:** All risk rules configured via RiskPolicy
+
+### 15.2 Signal Model
+
+Strategies emit **Signals** (trading intent) instead of directly creating Orders:
+
+```python
+class SignalType(Enum):
+    """Signal types."""
+    ENTRY_LONG = "entry_long"       # Open or add to long position
+    ENTRY_SHORT = "entry_short"     # Open or add to short position
+    EXIT_LONG = "exit_long"         # Close or reduce long position
+    EXIT_SHORT = "exit_short"       # Close or reduce short position
+    REBALANCE = "rebalance"         # Adjust to target weight
+
+class SignalDirection(Enum):
+    """Signal direction."""
+    LONG = "long"
+    SHORT = "short"
+    FLAT = "flat"
+
+class Signal(NamedTuple):
+    """
+    Trading signal from strategy (pre-sizing).
+
+    This represents INTENT, not sized order.
+    RiskManager converts Signal → Order with appropriate qty.
+    """
+    signal_id: str                              # Unique signal identifier
+    strategy_ts: datetime                       # Strategy timestamp (bar.ts)
+    symbol: str                                 # Trading symbol
+    signal_type: SignalType                     # Entry, exit, rebalance
+    direction: SignalDirection                  # Long, short, or flat
+
+    # Sizing hints (strategy preference, not final)
+    target_qty: Optional[int] = None            # Desired quantity (if known)
+    target_weight: Optional[Decimal] = None     # Desired portfolio weight (0.0-1.0)
+    target_value: Optional[Decimal] = None      # Desired dollar value
+
+    # Order preferences
+    order_type: OrderType = OrderType.MARKET
+    limit_price: Optional[Decimal] = None
+    stop_price: Optional[Decimal] = None
+    tif: TimeInForce = TimeInForce.DAY
+
+    # Risk context
+    conviction: Decimal = Decimal("1.0")        # Signal confidence (0.0-1.0)
+    urgency: str = "normal"                     # normal | high | low
+    metadata: Dict[str, Any] = {}               # Strategy-specific data
+```
+
+**Design Rationale:**
+
+- Strategies focus on **alpha generation** (what to trade)
+- RiskManager focuses on **position sizing** (how much to trade)
+- Separation of concerns enables independent testing and policy changes
+- Signals are **stateless** - can be logged, replayed, analyzed separately
+
+### 15.3 Risk Policy
+
+Risk policies define constraints and sizing rules:
+
+```python
+class SizingMethod(Enum):
+    """Position sizing methods (Phase 1)."""
+    FIXED_QUANTITY = "fixed_quantity"          # Fixed number of shares
+    FIXED_VALUE = "fixed_value"                # Fixed dollar amount
+    PORTFOLIO_PERCENT = "portfolio_percent"    # % of equity (default)
+    RISK_PERCENT = "risk_percent"              # % of equity at risk (requires stop)
+
+class RiskPolicy(NamedTuple):
+    """Risk management policy configuration."""
+
+    # Position sizing
+    sizing_method: SizingMethod = SizingMethod.PORTFOLIO_PERCENT
+    default_position_size: Decimal = Decimal("0.05")  # 5% of equity per position
+
+    # Concentration limits
+    max_position_pct: Decimal = Decimal("0.20")       # Max 20% in single position
+    max_positions: Optional[int] = None               # Max number of concurrent positions
+
+    # Leverage & exposure
+    max_gross_exposure: Decimal = Decimal("1.0")      # Max 100% gross (long + abs(short))
+    max_net_exposure: Decimal = Decimal("1.0")        # Max 100% net (long - abs(short))
+    allow_shorting: bool = False                       # Enable short selling
+
+    # Safety margins
+    cash_reserve_pct: Decimal = Decimal("0.05")       # Keep 5% cash reserve
+    margin_buffer_pct: Decimal = Decimal("0.10")      # 10% margin buffer (unused in P1)
+
+    # Validation
+    reject_on_insufficient_cash: bool = True
+    reject_on_concentration_breach: bool = True
+    reject_on_leverage_breach: bool = True
+
+    # Logging
+    log_rejections: bool = True
+    log_sizing_decisions: bool = True
+```
+
+**Configuration Example:**
+
+```yaml
+risk:
+  # Position sizing
+  sizing_method: portfolio_percent
+  default_position_size: 0.05      # 5% of equity per position
+
+  # Concentration limits
+  max_position_pct: 0.20           # Max 20% in single position
+  max_positions: 10                # Max 10 concurrent positions
+
+  # Leverage & exposure
+  max_gross_exposure: 1.0          # 100% max gross
+  max_net_exposure: 1.0            # 100% max net
+  allow_shorting: false            # Disable shorting
+
+  # Safety margins
+  cash_reserve_pct: 0.05           # Keep 5% cash reserve
+
+  # Validation
+  reject_on_insufficient_cash: true
+  reject_on_concentration_breach: true
+  reject_on_leverage_breach: true
+```
+
+### 15.4 Position Sizing Methods (Phase 1)
+
+**1. FIXED_QUANTITY**
+
+Fixed number of shares per trade:
+
+```python
+sized_qty = signal.target_qty or int(policy.default_position_size)
+```
+
+**Use case:** Testing, fixed lot strategies
+
+**2. FIXED_VALUE**
+
+Fixed dollar value per position:
+
+```python
+target_value = signal.target_value or (equity * policy.default_position_size)
+sized_qty = int(target_value / current_price)
+```
+
+**Use case:** Equal dollar weighting
+
+**3. PORTFOLIO_PERCENT** (default)
+
+Percentage of current equity:
+
+```python
+weight = signal.target_weight or policy.default_position_size  # e.g., 0.05 = 5%
+equity = portfolio.get_equity()
+target_value = equity * weight
+sized_qty = int(target_value / current_price)
+```
+
+**Use case:** Most strategies (default)
+
+**4. RISK_PERCENT**
+
+Percentage of equity at risk (requires stop loss):
+
+```python
+if not signal.stop_price:
+    # Fallback to PORTFOLIO_PERCENT with warning
+    return calculate_portfolio_percent(signal, current_price)
+
+risk_per_share = abs(current_price - signal.stop_price)
+risk_pct = signal.target_weight or policy.default_position_size  # e.g., 0.02 = 2% risk
+dollar_risk = portfolio.get_equity() * risk_pct
+sized_qty = int(dollar_risk / risk_per_share)
+```
+
+**Use case:** Risk-based position sizing with defined stops
+
+**Example:**
+
+- Equity: $100,000
+- Current price: $50
+- Stop price: $48
+- Risk: 2% of equity = $2,000
+- Risk per share: $50 - $48 = $2
+- Position size: $2,000 / $2 = 1,000 shares
+- Position value: $50,000 (50% of equity, but only $2,000 at risk)
+
+### 15.5 Risk Evaluation Flow
+
+RiskManager evaluates each signal:
+
+```python
+def evaluate_signal(signal: Signal, current_price: Decimal) -> RiskDecision:
+    """
+    Evaluate signal and determine sized order.
+
+    Flow:
+    1. Validate signal direction (short allowed?)
+    2. Check portfolio-level constraints (leverage, exposure)
+    3. Calculate position size using policy.sizing_method
+    4. Apply concentration limits
+    5. Check cash availability
+    6. Return RiskDecision (approved/rejected + sized qty)
+    """
+```
+
+**Step-by-step:**
+
+1. **Direction Validation**
+
+   - If `signal.direction == SHORT` and `policy.allow_shorting == False`: **REJECT**
+
+1. **Portfolio Constraints**
+
+   - Calculate current gross exposure: `long_mv + abs(short_mv)`
+   - Check: `gross_exposure / equity <= policy.max_gross_exposure`
+   - Calculate current net exposure: `abs(long_mv - abs(short_mv))`
+   - Check: `net_exposure / equity <= policy.max_net_exposure`
+   - If breach and `policy.reject_on_leverage_breach == True`: **REJECT**
+
+1. **Position Sizing**
+
+   - Apply `policy.sizing_method` to calculate `target_qty`
+   - Use signal hints (`target_qty`, `target_weight`, `target_value`) if provided
+
+1. **Concentration Limits**
+
+   - Calculate new position value: `abs(new_qty * current_price)`
+   - Check: `new_position_value / equity <= policy.max_position_pct`
+   - If breach: **reduce** qty to `max_qty = (equity * max_position_pct) / current_price`
+   - Count current positions, check against `policy.max_positions`
+   - If at limit and opening new position: **REJECT**
+
+1. **Cash Availability**
+
+   - Calculate required cash: `qty * current_price + estimated_commission`
+   - Calculate available cash: `portfolio.cash - (portfolio.cash * policy.cash_reserve_pct)`
+   - If insufficient and `policy.reject_on_insufficient_cash == True`: **REJECT**
+   - Otherwise: **reduce** qty to affordable amount
+
+1. **Return Decision**
+
+   ```python
+   return RiskDecision(
+       approved=True,
+       signal_id=signal.signal_id,
+       sized_qty=approved_qty,
+       sizing_method_used="portfolio_percent",
+       constraints_applied=["max_position_pct", "cash_limited"],
+   )
+   ```
+
+### 15.6 Strategy Integration
+
+**Old (Phase 1, Stages 1-5):**
+
+```python
+class Strategy:
+    def on_bar(self, ctx: Context) -> None:
+        # Strategy directly creates and submits orders
+        if self.should_buy("AAPL", ctx):
+            qty = self.calculate_size(ctx)  # Manual sizing
+            ctx.submit_order(
+                symbol="AAPL",
+                side=OrderSide.BUY,
+                qty=qty,
+                order_type=OrderType.MARKET,
+            )
+```
+
+**New (Phase 1, Stage 5B onward):**
+
+```python
+class Strategy:
+    def on_bar(self, ctx: Context) -> List[Signal]:
+        # Strategy emits signals (intent only)
+        signals = []
+
+        if self.should_buy("AAPL", ctx):
+            signal = Signal(
+                signal_id=f"sig-{self.counter}",
+                strategy_ts=ctx.current_bar().ts,
+                symbol="AAPL",
+                signal_type=SignalType.ENTRY_LONG,
+                direction=SignalDirection.LONG,
+                target_weight=Decimal("0.10"),  # Want 10% of equity
+                conviction=Decimal("0.8"),       # 80% confidence
+            )
+            signals.append(signal)
+
+        return signals
+
+    # Risk manager handles sizing automatically
+```
+
+**Context API:**
+
+```python
+class Context:
+    def submit_signal(self, signal: Signal) -> Optional[str]:
+        """
+        Submit signal to risk manager for evaluation.
+
+        Flow:
+        1. Risk manager evaluates signal
+        2. If approved, converts to sized order
+        3. Submits order to execution engine
+
+        Returns:
+            Order ID if approved and submitted, None if rejected
+        """
+        current_price = self.current_bar().close
+
+        # Risk evaluation
+        decision = self.risk.evaluate_signal(signal, current_price)
+
+        if not decision.approved:
+            logger.info("context.signal_rejected",
+                       signal_id=signal.signal_id,
+                       reason=decision.rejection_reason)
+            return None
+
+        # Convert to order
+        order = self.risk.signal_to_order(signal, decision, current_price)
+        self.engine.submit_order(order, self.current_bar().ts)
+
+        return order.order_id
+```
+
+### 15.7 Event Loop Integration
+
+```python
+# Modified event loop (in BacktestEngine)
+for bar in bars:
+    # 1. Update prices
+    engine.update_prices({bar.symbol: bar.close})
+
+    # 2. Generate signals from strategy
+    signals = strategy.on_bar(ctx)
+
+    # 3. Process signals through risk manager
+    for signal in signals:
+        order_id = ctx.submit_signal(signal)
+        if order_id:
+            logger.debug("signal_processed", signal_id=signal.signal_id, order_id=order_id)
+        else:
+            logger.debug("signal_rejected", signal_id=signal.signal_id)
+
+    # 4. Fill orders (unchanged)
+    fills = engine.on_bar(bar, next_bar)
+
+    # 5. Notify strategy of fills (unchanged)
+    for fill in fills:
+        strategy.on_fill(ctx, fill)
+```
+
+### 15.8 Output Artifacts
+
+**signals.jsonl** (new):
+
+```jsonl
+{"signal_id": "sig-1", "ts": "2023-01-03T09:30:00-05:00", "symbol": "AAPL", "signal_type": "entry_long", "direction": "long", "target_weight": 0.10, "conviction": 0.8, "approved": true, "sized_qty": 500, "order_id": "ord-sig-1", "constraints": ["max_position_pct"]}
+{"signal_id": "sig-2", "ts": "2023-01-04T09:30:00-05:00", "symbol": "MSFT", "signal_type": "entry_long", "direction": "long", "target_weight": 0.10, "conviction": 0.7, "approved": false, "rejection_reason": "concentration_limit_breach"}
+```
+
+**risk_summary.json** (new):
+
+```json
+{
+  "total_signals": 150,
+  "approved": 120,
+  "rejected": 30,
+  "approval_rate": 0.80,
+  "rejection_reasons": {
+    "concentration_limit_breach": 15,
+    "insufficient_cash": 10,
+    "gross_exposure_breach": 5
+  },
+  "sizing_statistics": {
+    "avg_position_size_pct": 0.048,
+    "max_position_size_pct": 0.15,
+    "min_position_size_pct": 0.01
+  }
+}
+```
+
+### 15.9 Phase 2 Enhancements (Deferred)
+
+**Advanced Sizing Methods:**
+
+- **VOLATILITY_TARGET:** Size inversely proportional to volatility (requires ATR indicator)
+- **KELLY_CRITERION:** Optimal Kelly sizing (requires win rate estimates, edge calculation)
+- **EQUAL_RISK_CONTRIBUTION:** Risk parity across positions (requires correlation matrix)
+
+**Advanced Constraints:**
+
+- **Sector concentration limits:** Require sector classification database
+- **Correlation limits:** Require real-time correlation matrix
+- **Daily loss limits:** Require daily P&L tracking
+- **Max drawdown limits:** Require peak equity tracking
+
+**Multi-Strategy Features:**
+
+- Signal prioritization (by conviction, urgency)
+- Fair allocation algorithms (when multiple strategies want same symbol)
+- Strategy-specific risk budgets (sub-policies)
+
+______________________________________________________________________
+
+## 16. Glossary (P1)
 
 - **Adjusted price (total‑return):** Price series reflecting both splits and cash dividends.
 - **Ex‑date:** First date trading without dividend entitlement; shorts owe dividend here.
 - **MOC:** Market‑on‑Close; executes in closing auction.
 - **Participation cap:** Fractional cap of market volume an order can consume in a bar.
+- **Signal:** Trading intent from strategy before position sizing (Phase 1, Stage 5B+).
+- **Risk decision:** RiskManager evaluation result (approved/rejected + sized quantity).
 
 ______________________________________________________________________
 
-## 16. Phase‑2 Backlog (not in P1)
+## 17. Phase‑2 Backlog (not in P1)
 
 - GTC/OPG/OPD/stop‑limit/pegged orders; multi‑venue microstructure.
 - Broker emulation; smart routing; impact models.
@@ -1055,6 +1495,9 @@ ______________________________________________________________________
 - Lot‑aware inventory and CA share mutations.
 - Extended analytics/tear sheets; drawdown stats; turnover; exposure analytics.
 - FX/multi‑currency support.
+- Advanced risk sizing (volatility target, Kelly criterion, risk parity).
+- Multi-strategy orchestration with signal prioritization.
+- Dynamic risk adjustment based on market regime.
 
 ______________________________________________________________________
 
