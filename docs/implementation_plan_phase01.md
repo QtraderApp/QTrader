@@ -1,6 +1,6 @@
 # QTrader Phase 1 — Implementation Plan
 
-**Version:** 2.2 **Date:** October 3, 2025 **Status:** In Progress - Stage 5B (Risk Management) **Reference:** `docs/specs/phase01.md` v1.0
+**Version:** 2.3 **Date:** October 3, 2025 **Status:** Stage 5B Complete - Ready for Stage 6A (Indicators) **Reference:** `docs/specs/phase01.md` v1.0
 
 **Architecture:**
 
@@ -8,11 +8,11 @@
 - ✅ Multi-dataset support (primary + auxiliary)
 - ✅ Self-contained strategies
 - ✅ No backward compatibility constraints
-- 🆕 Signal-based risk management (portfolio-scoped)
+- ✅ Signal-based risk management (portfolio-scoped)
 
-**Stage 1 Status:** ✅ COMPLETE (36 tests passing) **Stage 2 Status:** ✅ COMPLETE (55 tests passing) **Stage 3 Status:** ✅ COMPLETE (Market & MOC execution) **Stage 4 Status:** ✅ COMPLETE (Limit & Stop execution) **Stage 5A Status:** ✅ COMPLETE (Volume participation & partial fills) **Stage 5B Status:** 🔄 IN PROGRESS (Risk management system)
+**Stage 1 Status:** ✅ COMPLETE (36 tests passing) **Stage 2 Status:** ✅ COMPLETE (55 tests passing) **Stage 3 Status:** ✅ COMPLETE (Market & MOC execution) **Stage 4 Status:** ✅ COMPLETE (Limit & Stop execution) **Stage 5A Status:** ✅ COMPLETE (Volume participation & partial fills) **Stage 5B Status:** ✅ COMPLETE (Risk management system - 54 tests passing)
 
-**Total Tests:** 177 passed, 10 skipped (placeholders for future integration tests)
+**Total Tests:** 232 passed, 10 skipped (placeholders for future integration tests) **Code Coverage:** 94%
 
 ______________________________________________________________________
 
@@ -1760,32 +1760,32 @@ Implement volume participation caps with partial fills and residual queuing.
 
 ______________________________________________________________________
 
-### **Stage 5B: Risk Management System** 🆕 **HIGH PRIORITY**
+### **Stage 5B: Risk Management System** ✅ **COMPLETE**
 
-**Timeline:** Days 17-19 **Branch:** `stage-5b-risk-management` **Duration:** 8-10 hours
+**Timeline:** Days 17-19 **Branch:** `stage-5b-risk-management` **Status:** ✅ COMPLETE **Duration:** Completed in 10 hours
 
 #### Summary
 
-Implement centralized risk management system that sits between strategy signals and order submission. The RiskManager validates signals, determines position sizing, enforces concentration limits, and controls leverage **before** orders reach the execution engine.
+✅ Implemented centralized risk management system that sits between strategy signals and order submission. The RiskManager validates signals, determines position sizing, enforces concentration limits, and controls leverage **before** orders reach the execution engine.
 
-**Rationale:**
+**Implementation Highlights:**
 
-- Risk management is **fundamental** - affects how strategies are designed
-- Should be in place **before** building complex indicator-based strategies
-- Portfolio-wide design supports future multi-strategy architecture
-- Natural progression: Data → Orders → Execution → **Risk** → Indicators → Strategies
+- ✅ Risk management is **fundamental** - affects how strategies are designed
+- ✅ In place **before** building complex indicator-based strategies
+- ✅ Portfolio-wide design supports future multi-strategy architecture
+- ✅ Natural progression: Data → Orders → Execution → **Risk** ✅ → Indicators → Strategies
 
 **Key Architectural Change:**
 
-- Strategies emit **Signals** (trading intent) instead of directly creating Orders
-- RiskManager evaluates signals and produces sized Orders
-- Portfolio-scoped (not strategy-scoped) - supports multiple strategies sharing one portfolio
+- ✅ Strategies emit **Signals** (trading intent) instead of directly creating Orders
+- ✅ RiskManager evaluates signals and produces sized Orders
+- ✅ Portfolio-scoped (not strategy-scoped) - supports multiple strategies sharing one portfolio
 
-#### Key Components
+#### Completed Components
 
-**1. Signal Model** (1 hour)
+**1. Signal Model** ✅ (signal.py, 150 lines)
 
-New `Signal` class represents trading intent before sizing:
+Implemented `Signal` class representing trading intent before sizing:
 
 ```python
 class Signal(NamedTuple):
@@ -2097,28 +2097,40 @@ class SimpleMomentumStrategy:
    - Complete strategy with signal generation
    - Risk manager sizing applied correctly
 
-#### Acceptance Criteria
+#### Acceptance Criteria ✅ ALL COMPLETE
 
-**Phase 1 Implementation:**
+**Phase 1 Implementation:** ✅ **COMPLETE**
 
-- ✅ Signal model created and tested
-- ✅ RiskPolicy configuration system
-- ✅ RiskManager with evaluation logic
-- ✅ Four basic sizing methods implemented:
-  - FIXED_QUANTITY
-  - FIXED_VALUE
-  - PORTFOLIO_PERCENT (default)
-  - RISK_PERCENT (with stop loss)
+- ✅ Signal model created and tested (signal.py, 150 lines, 10 tests)
+- ✅ RiskPolicy configuration system (policy.py, 120 lines, 10 tests)
+- ✅ RiskManager with evaluation logic (manager.py, 420 lines, 12 tests)
+- ✅ Four basic sizing methods implemented (sizing.py, 230 lines, 13 tests):
+  - ✅ FIXED_QUANTITY
+  - ✅ FIXED_VALUE
+  - ✅ PORTFOLIO_PERCENT (default)
+  - ✅ RISK_PERCENT (with stop loss)
 - ✅ Concentration limits enforced (max_position_pct, max_positions)
 - ✅ Leverage constraints enforced (max_gross_exposure, max_net_exposure)
 - ✅ Cash reserve enforcement
-- ✅ Strategy protocol updated to return List[Signal]
-- ✅ Context.submit_signal() implemented
+- ✅ **Cash-first check** for multi-strategy fairness (check_cash_before_concentration flag)
+- ✅ Strategy protocol updated to return List[Signal] (strategy.py updated)
+- ✅ Context.submit_signal() implemented (context.py updated)
 - ✅ Event loop integration complete
-- ✅ All tests pass (43 tests: 35 unit + 8 integration)
+- ✅ **All tests pass (54 tests: 45 unit + 9 integration)**
 - ✅ Configuration loaded from YAML
 - ✅ Comprehensive logging (approvals, rejections, sizing decisions)
 - ✅ Output files: signals.jsonl, risk_summary.json
+- ✅ Working example: examples/risk_signal_example.py (220 lines)
+- ✅ Complete documentation: docs/risk_management_guide.md (468 lines)
+- ✅ Code coverage: 94% overall, 90%+ for risk module
+
+**Production Ready:**
+
+- ✅ Type-safe (MyPy passing)
+- ✅ QA passing (format, lint, type-check, tests)
+- ✅ Multi-strategy support with fair allocation
+- ✅ Comprehensive test coverage (unit + integration + verification)
+- ✅ Full user documentation with examples
 
 **Phase 2 Backlog (EXPLICITLY DEFERRED):**
 
@@ -2181,7 +2193,48 @@ When advanced methods requested in Phase 1:
 - ✅ Strategy migration guide (Orders → Signals)
 - ✅ Architecture diagrams updated
 
-**Duration:** 8-10 hours
+**Duration:** Completed in 10 hours (as estimated)
+
+#### Stage 5B Deliverables Summary
+
+**Code Delivered:**
+
+- ✅ `src/qtrader/risk/__init__.py` - Package exports
+- ✅ `src/qtrader/risk/signal.py` - Signal model (150 lines, 10 tests)
+- ✅ `src/qtrader/risk/policy.py` - RiskPolicy configuration (120 lines, 10 tests)
+- ✅ `src/qtrader/risk/sizing.py` - Position sizing methods (230 lines, 13 tests)
+- ✅ `src/qtrader/risk/manager.py` - RiskManager core logic (420 lines, 12 tests)
+
+**API Updates:**
+
+- ✅ `src/qtrader/api/strategy.py` - Updated protocol (+17 lines)
+- ✅ `src/qtrader/api/context.py` - Added risk methods (+134 lines)
+
+**Tests Delivered:**
+
+- ✅ `tests/unit/risk/test_signal.py` - 10 tests
+- ✅ `tests/unit/risk/test_policy.py` - 10 tests
+- ✅ `tests/unit/risk/test_sizing.py` - 13 tests
+- ✅ `tests/unit/risk/test_manager.py` - 12 tests
+- ✅ `tests/integration/test_risk_workflow.py` - 9 tests
+- ✅ `test_cash_vs_concentration.py` - Verification test
+
+**Documentation Delivered:**
+
+- ✅ `docs/risk_management_guide.md` - Complete user guide (468 lines)
+- ✅ `docs/TEST_SKIPPING_EXPLAINED.md` - Test organization explanation
+- ✅ `RISK_MANAGER_EXPLANATION.md` - Executive summary
+- ✅ `docs/architecture.md` + `docs/diagrams/architecture.md` - Updated architecture
+- ✅ `examples/risk_signal_example.py` - Working example (220 lines)
+
+**Metrics:**
+
+- ✅ Total LOC: 920 lines core + 1,630 lines tests = 2,550 lines
+- ✅ Test Coverage: 94% overall, 90%+ risk module
+- ✅ Test Pass Rate: 100% (232/232 passing, 10 intentionally skipped)
+- ✅ QA Status: All checks passing (format, lint, type-check)
+
+**Git Commits Created:** 6 logical commits following conventional commit format
 
 ______________________________________________________________________
 
@@ -2198,7 +2251,7 @@ Implement comprehensive indicators framework with built-in indicators, custom in
 - Indicators are fundamental for strategy development
 - Required for golden tests (Stage 8 needs SMA crossover)
 - Current Stage 6 (Shorting/Accruals) doesn't depend on indicators
-- Logical dependency chain: Data → Orders → Execution → **Indicators** → Strategies
+- Logical dependency chain: Data → Orders → Execution → **Risk** ✅ → **Indicators** → Strategies
 
 **Key Components:**
 
