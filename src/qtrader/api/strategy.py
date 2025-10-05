@@ -13,10 +13,40 @@ class Strategy(Protocol):
 
     Phase 2: Strategies now return Signal objects instead of submitting orders directly.
     The RiskManager evaluates signals and creates appropriately sized orders.
+
+    Phase 3: Added on_init() hook for custom indicator registration before warmup.
     """
 
+    def on_init(self, ctx) -> None:
+        """
+        Called once before warmup (if enabled) or first bar.
+
+        Use this to register custom indicators that need to be included
+        in warmup period lookback calculation.
+
+        Optional hook.
+
+        Args:
+            ctx: Context for indicator registration
+
+        Example:
+            def on_init(self, ctx):
+                ctx.ind.register("momentum", CustomMomentum(period=20))
+        """
+        pass
+
     def on_start(self, ctx) -> None:
-        """Called once before first bar. Optional."""
+        """
+        Called once after warmup completes (if enabled) or before first bar.
+
+        When warmup is enabled, all indicators will have valid values
+        when this is called.
+
+        Optional hook.
+
+        Args:
+            ctx: Context for setup operations
+        """
         pass
 
     def on_bar(self, bar, ctx) -> Optional[List[Signal]]:
