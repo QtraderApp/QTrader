@@ -1,7 +1,7 @@
 """Execution engine configuration."""
 
 from decimal import Decimal
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 
 class ExecutionConfig(NamedTuple):
@@ -27,6 +27,10 @@ class ExecutionConfig(NamedTuple):
     queue_bars: int = 3  # Number of bars to keep residuals before expiration
     allow_high_participation: bool = False  # Allow max_participation > 0.20
 
+    # Warmup settings (Stage 6A)
+    warmup: bool = False  # Enable warmup phase for indicators
+    warmup_bars: Optional[int] = None  # Number of warmup bars (None = auto-detect)
+
     def __post_init__(self):
         """Validate configuration."""
         if self.per_share < Decimal("0"):
@@ -47,3 +51,5 @@ class ExecutionConfig(NamedTuple):
             raise ValueError(f"max_participation must be (0, 1], got {self.max_participation}")
         if self.queue_bars < 1:
             raise ValueError(f"queue_bars must be >= 1, got {self.queue_bars}")
+        # Note: warmup_bars validation omitted - NamedTuple doesn't call __post_init__
+        # Validation can be added in warmup processor if needed
