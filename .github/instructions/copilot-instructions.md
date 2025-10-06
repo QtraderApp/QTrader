@@ -47,7 +47,15 @@ Each code contribution or review must ensure:
 - [x] Test coverage (when applicable)
 - [x] Use strict typing for function signatures
 
-Reference documentation:
+## Commit Message Standards
+
+- Follow instruction in .github/prompts/commit.prompt.md
+
+## Testing Standards
+
+- Follow guidelines in .github/prompts/unittest.prompt.md
+
+## Reference documentation:
 
 - PEP 8: https://peps.python.org/pep-0008/
 - Google Python Style Guide: https://google.github.io/styleguide/pyguide.html

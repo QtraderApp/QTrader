@@ -5,6 +5,8 @@ Demonstrates:
 - Using built-in indicators (SMA)
 - Indicator tracking for crossover detection
 - Signal-based trading with risk management
+- Strategy configuration pattern
+- New Instrument-based data configuration
 """
 
 from datetime import datetime
@@ -12,7 +14,34 @@ from typing import List, Optional
 
 from qtrader.api import Context, Strategy
 from qtrader.models.bar import Bar
+from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.risk import Signal, SignalDirection, SignalType
+
+# Strategy configuration (can be overridden via CLI --set)
+config = {
+    "fast_period": 20,
+    "slow_period": 50,
+}
+
+# Backtest configuration (portfolio, execution, and data settings)
+backtest_config = {
+    # Data configuration - uses Instrument abstraction
+    # The Instrument pattern separates logical instrument specification
+    # from physical data location (configured in config/data_sources.yaml)
+    "instruments": [
+        Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK),
+    ],
+    # Portfolio configuration
+    "initial_cash": 100000.0,
+    "position_size": 0.05,  # 5% of portfolio per position
+    "max_position_pct": 0.10,
+    "allow_shorting": False,
+    # Execution configuration
+    "max_participation": 0.10,
+    # Warmup configuration
+    "warmup": True,  # Auto-detect warmup period from indicators
+    "warmup_bars": None,  # None = auto-detect, or specify explicit count
+}
 
 
 class SMACrossover(Strategy):

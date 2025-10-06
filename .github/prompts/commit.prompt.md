@@ -1,5 +1,7 @@
 Review the codebase changes and create logically separated commits based on the scope of work:
 
+1. Run make qa to ensure code quality checks pass, solving any issues if necessary.
+
 1. Analyze changes using version control status/diff
 
 1. Group modifications by their functional purpose:
