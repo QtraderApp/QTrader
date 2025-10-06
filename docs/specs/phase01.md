@@ -131,103 +131,123 @@ class DataAdapter(Protocol):
 - Adapters named: `{Vendor}{AssetClass}{Frequency}{DataType}Adapter`
 - Example: `AlgoseekUSEquityDailyOHLCAdapter`, `IQFeedUSEquityMinuteOHLCAdapter`
 
-### 2.4 Multi-Dataset Support
+### 2.4 Instrument Abstraction & Data Sources
 
-**Design goal:** Strategies can access multiple datasets (primary OHLCV + auxiliary alternative data, factors, or cross-validation sources).
+**Design goal:** Decouple logical instruments from physical data sources, enabling strategies to work with multiple asset types and data sources without exposing implementation details.
 
-**Primary vs Auxiliary:**
-
-- **Primary dataset:** Drives the event loop; `on_bar()` called for each bar
-- **Auxiliary datasets:** Queried on-demand by strategy via `ctx.get_data()`
-
-**Configuration:**
-
-```yaml
-# Single dataset (backward compatible)
-data:
-  source: "data/algoseek/"
-  adapter: "algoseek_us_equity_daily_ohlc"
-  mode: adjusted
-  frequency: 1d
-
-# Multi-dataset (new in Phase 1A)
-primary:
-  name: "algoseek"
-  source: "data/algoseek/"
-  adapter: "algoseek_us_equity_daily_ohlc"
-  mode: adjusted
-  frequency: 1d
-  bar_schema:
-    ts: "TradeDate"
-    symbol: "Ticker"
-    open: "Open"
-    high: "High"
-    low: "Low"
-    close: "Close"
-    volume: "MarketHoursVolume"
-
-auxiliary:
-  - name: "news"
-    source: "data/news_sentiment.csv"
-    adapter: "csv"
-    frequency: 1d
-    schema:
-      ts: "date"
-      symbol: "ticker"
-      fields:
-        sentiment_score: float
-        article_count: int
-
-  - name: "factors"
-    source: "data/factors.parquet"
-    adapter: "parquet"
-    frequency: 1d
-    schema:
-      ts: "date"
-      symbol: "ticker"
-      fields:
-        value_z: float
-        momentum_z: float
-
-alignment:
-  strategy: forward_fill    # forward_fill | drop | error
-  max_lookback_days: 5      # Max forward-fill window
-  require_primary: true     # Must have primary data
-```
-
-**Context API for multi-dataset:**
+**Instrument Model:**
 
 ```python
-# In strategy on_bar() method
-def on_bar(self, bar: Bar, ctx: Context):
-    # bar is from PRIMARY dataset
-    price = bar.close
+class InstrumentType(Enum):
+    """Asset class classification."""
+    EQUITY = "equity"
+    CRYPTO = "crypto"
+    FUTURE = "future"
+    FOREX = "forex"
+    SIGNAL = "signal"  # Alternative data
 
-    # Query AUXILIARY datasets
-    sentiment = ctx.get_data("news", bar.symbol, bar.ts, "sentiment_score")
-    value_z = ctx.get_data("factors", bar.symbol, bar.ts, "value_z")
+class DataSource(Enum):
+    """Logical data source (mapped to adapter in config)."""
+    DATABASE = "database"
+    ALGOSEEK = "algoseek"
+    IQFEED = "iqfeed"
+    BINANCE = "binance"
+    CSV_FILE = "csv_file"
+    API = "api"
 
-    # Trading logic
-    if sentiment > 0.7 and value_z > 1.5:
-        ctx.buy_market(bar.symbol, 100)
+class Instrument(NamedTuple):
+    """Logical instrument specification."""
+    symbol: str
+    instrument_type: InstrumentType
+    data_source: DataSource
+    frequency: Optional[str] = None  # e.g., "1d", "1m" (None = use global default)
+    metadata: Dict[str, Any] = {}    # Custom attributes
 ```
 
-**Alignment strategies:**
+**Strategy Configuration (New Pattern):**
 
-- `forward_fill`: Fill missing data from last available value (up to N days back)
-- `drop`: Skip bars without data in all datasets
-- `error`: Raise exception on missing data
+```python
+# Strategy file: examples/sma_crossover_strategy.py
+from qtrader.models.instrument import Instrument, InstrumentType, DataSource
 
-**Phase 1A scope:**
+backtest_config = {
+    # Instruments (replaces data_paths + symbols)
+    "instruments": [
+        Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK),
+        Instrument("MSFT", InstrumentType.EQUITY, DataSource.ALGOSEEK),
+        Instrument("BTCUSD", InstrumentType.CRYPTO, DataSource.BINANCE),
+    ],
 
-- Multiple datasets at same frequency (e.g., all daily)
-- Primary + auxiliary configuration
-- Alignment strategies (forward_fill, drop, error)
+    # Global defaults
+    "frequency": "1d",  # Default for all instruments (can be overridden per-instrument)
+    "start_date": "2020-01-01",
+    "end_date": "2023-12-31",
 
-**Phase 1B scope (future):**
+    # Portfolio, execution, warmup settings...
+}
+```
 
-- Mixed frequency support (daily primary + intraday auxiliary)
-- Time window queries: `ctx.get_bars("iqfeed_1m", symbol, start, end)`
+**Data Source Mapping (data_sources.yaml):**
+
+```yaml
+# System-wide data source configuration
+# Location: ~/.qtrader/data_sources.yaml or ./config/data_sources.yaml
+
+data_sources:
+  algoseek:
+    adapter: algoseek_parquet
+    root_path: "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample"
+    mode: standard_adjusted
+    path_template: "{root_path}/SecId={secid}/*.parquet"
+    symbol_map: "data/equity_security_master_sample.csv"  # symbol -> secid lookup
+
+  database:
+    adapter: postgres_adapter
+    connection_string: "${DB_CONNECTION_STRING}"  # Environment variable
+    schema: "market_data"
+
+  iqfeed:
+    adapter: iqfeed_api
+    api_key: "${IQFEED_API_KEY}"
+
+  binance:
+    adapter: binance_api
+    api_key: "${BINANCE_API_KEY}"
+    base_url: "https://api.binance.com"
+```
+
+**DataSourceResolver (New Component):**
+
+```python
+class DataSourceResolver:
+    """Maps logical Instrument to physical data adapter."""
+
+    def __init__(self, config_path: str = "~/.qtrader/data_sources.yaml"):
+        self.sources = self._load_config(config_path)
+
+    def resolve(self, instrument: Instrument) -> DataAdapter:
+        """Get adapter for instrument's data source."""
+        source_config = self.sources[instrument.data_source.value]
+        adapter_class = self._get_adapter_class(source_config["adapter"])
+        return adapter_class(source_config, instrument)
+```
+
+**Benefits:**
+
+- ✅ No file paths in strategy code
+- ✅ Mix equity/crypto/signals in same backtest
+- ✅ Environment-specific config (dev/prod)
+- ✅ Easy to swap data sources (testing vs production)
+- ✅ Symbol metadata in one place
+- ✅ Frequency per-instrument with global default
+
+**Migration Path:**
+
+Phase 1: No backward compatibility needed (pre-production)
+
+- Remove `data_paths` and `symbols` from config
+- All strategies use `instruments` list
+- Adapters refactored to accept `Instrument`
 
 ______________________________________________________________________
 
@@ -279,44 +299,23 @@ ______________________________________________________________________
 
 ### 3.2 Data Config
 
-**Single dataset (simple):**
+**Instrument-based configuration (current approach):**
 
-```yaml
-data:
-  source: "data/algoseek/"
-  adapter: "algoseek_us_equity_daily_ohlc"
-  mode: adjusted                   # adjusted | unadjusted | split_adjusted
-  frequency: 1d                    # 1m|5m|15m|1h|1d
-  timezone: America/New_York
-  strict_frequency: true           # raise if mismatch
-  decimals: {price: 4, cash: 4}
-
-  # Schema mapping (vendor columns → canonical Bar fields)
-  bar_schema:
-    ts: "TradeDate"
-    symbol: "Ticker"
-    open: "Open"
-    high: "High"
-    low: "Low"
-    close: "Close"
-    volume: "MarketHoursVolume"
-
-  # Adjustment metadata (optional)
-  adjustment_schema:
-    ts: "TradeDate"
-    symbol: "Ticker"
-    event_type: "AdjustmentReason"
-    px_factor: "CumulativePriceFactor"
-    vol_factor: "CumulativeVolumeFactor"
-
-  validation:
-    epsilon: 0.0
-    ohlc_policy: strict_raise      # strict_raise | warn_skip_bar | warn_use_close_only
+```python
+# In strategy file
+backtest_config = {
+    "instruments": [
+        Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK),
+    ],
+    "frequency": "1d",
+    "start_date": "2020-01-01",
+    "end_date": "2023-12-31",
+}
 ```
 
-**Multi-dataset (advanced):**
+**Data source mapping (data_sources.yaml):**
 
-See §2.4 for multi-dataset configuration with primary + auxiliary datasets.
+See §2.4 for complete data source configuration and mapping.
 
 ### 3.3 Integrity Checks
 

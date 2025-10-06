@@ -457,25 +457,98 @@ ______________________________________________________________________
 
 ## 5. Future Stages (7-8)
 
-### Stage 7: Public API & CLI (Planned)
+### Stage 6C: Instrument Abstraction & Data Source Resolver (In Progress)
 
-**Duration:** 5 days | **Priority:** HIGH
+**Duration:** 2-3 weeks | **Priority:** HIGH | **Status:** Planning Complete
+
+**Objective:** Replace file path-based configuration with Instrument abstraction for better scalability and multi-source support.
 
 **Key Components:**
 
-- Strategy base class and protocol
-- Context with order submission API
-- Context debug API (debug_state, debug_orders, debug_fills)
-- Backtest runner (full run + step-by-step mode)
-- CLI implementation
-- Config file loading (YAML)
+1. **Instrument Model** (`src/qtrader/models/instrument.py`)
 
-**Debugging Features:**
+   - Instrument class (symbol, type, source, frequency, metadata)
+   - InstrumentType enum (EQUITY, CRYPTO, FUTURE, FOREX, SIGNAL)
+   - DataSource enum (ALGOSEEK, DATABASE, IQFEED, BINANCE, CSV_FILE, API)
 
-- Standard Python debugging (pdb, VS Code, PyCharm)
-- Interactive backtesting with `Backtest.next_bar()`
-- Debug output files (bars.csv, indicators.csv, portfolio_snapshots.csv)
-- Structured logging with levels
+1. **DataSourceResolver** (`src/qtrader/adapters/resolver.py`)
+
+   - Load data_sources.yaml configuration
+   - Map DataSource enum to adapter classes
+   - Instantiate adapters with instrument context
+   - Environment variable substitution (${VAR})
+
+1. **Adapter Refactoring**
+
+   - Update AlgoseekParquetAdapter to accept Instrument
+   - Update CSVAdapter to accept Instrument
+   - Remove hardcoded path logic from adapters
+   - Symbol → SecId lookup via security master
+
+1. **Configuration Changes**
+
+   - Create data_sources.yaml (system-wide config)
+   - Update strategy config pattern (use instruments list)
+   - Remove data_paths and symbols from backtest_config
+   - Add frequency per-instrument with global default
+
+1. **CLI Updates**
+
+   - Load data_sources.yaml at startup
+   - Pass Instrument objects to backtest runner
+   - Update \_load_data_files() helper
+   - Update config extraction helpers
+
+1. **Testing**
+
+   - Update 1-2 integration tests to use Instrument pattern
+   - Update example strategies
+   - Test multi-source scenarios
+   - Test environment variable substitution
+
+**Implementation Plan:**
+
+- ✅ Phase 0: Documentation updated (spec + implementation plan)
+- ⏳ Phase 1: Create Instrument model and enums (2 days)
+- ⏳ Phase 2: Create DataSourceResolver (2 days)
+- ⏳ Phase 3: Refactor adapters (3 days)
+- ⏳ Phase 4: Update backtest runner (2 days)
+- ⏳ Phase 5: Update CLI and examples (2 days)
+- ⏳ Phase 6: Testing and validation (3 days)
+
+**No Backward Compatibility:** Project is pre-production; clean break from data_paths pattern.
+
+**Files to Modify:**
+
+- `src/qtrader/models/instrument.py` (NEW)
+- `src/qtrader/adapters/resolver.py` (NEW)
+- `src/qtrader/adapters/algoseek_parquet.py` (REFACTOR)
+- `src/qtrader/adapters/csv_adapter.py` (REFACTOR)
+- `src/qtrader/api/backtest.py` (UPDATE)
+- `src/qtrader/cli.py` (UPDATE)
+- `examples/sma_crossover_strategy.py` (UPDATE)
+- `config/data_sources.yaml` (NEW)
+- `tests/integration/test_backtest_full_execution.py` (UPDATE 1-2 tests)
+
+### Stage 7: Public API & CLI (Planned)
+
+**Duration:** 5 days | **Priority:** HIGH | **Status:** 90% Complete
+
+**Note:** Stage 7 core implementation and CLI are complete. Remaining work includes optional debugging features after Stage 6C.
+
+**Completed:**
+
+- ✅ Strategy base class and protocol
+- ✅ Context with order submission API
+- ✅ Backtest runner (full run mode)
+- ✅ CLI implementation (self-contained strategy pattern)
+- ✅ Config extraction and override system
+
+**Remaining (Optional):**
+
+- ⏳ Interactive debugging with `Backtest.next_bar()`
+- ⏳ Debug output files (indicators.csv, bars.csv)
+- ⏳ YAML config file loading
 
 ______________________________________________________________________
 
