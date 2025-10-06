@@ -1,6 +1,5 @@
 """Protocol for data adapters that normalize vendor data to canonical Bar."""
 
-from pathlib import Path
 from typing import Iterator, Protocol
 
 from qtrader.config.data_config import DataConfig
@@ -19,8 +18,8 @@ class DataAdapter(Protocol):
     New vendor = new DataAdapter + schema config + unit tests; engine unchanged.
     """
 
-    def can_read(self, source: Path) -> bool:
-        """Check if this adapter can read from the given source."""
+    def can_read(self) -> bool:
+        """Check if this adapter can read from the configured source."""
         ...
 
     def schema_version(self) -> str:
@@ -40,11 +39,14 @@ class DataAdapter(Protocol):
         """
         ...
 
-    def read_bars(self, source: Path, config: DataConfig) -> Iterator[Bar]:
+    def read_bars(self, config: DataConfig) -> Iterator[Bar]:
         """
         Read and normalize data to canonical Bar objects.
 
         Pipeline: Read RawRecord → Map columns → Convert types → Validate → Emit Bar
+
+        Args:
+            config: Data configuration including bar schema and timezone
 
         Yields:
             Bar objects with:
@@ -54,13 +56,17 @@ class DataAdapter(Protocol):
         """
         ...
 
-    def read_adjustments(self, source: Path, config: DataConfig) -> Iterator[AdjustmentEvent]:
+    def read_adjustments(self, config: DataConfig) -> Iterator[AdjustmentEvent]:
         """
         Read adjustment metadata (optional).
 
-        Returns empty iterator if:
-        - Data is unadjusted with no adjustment table
-        - Vendor doesn't provide adjustment metadata
+        Args:
+            config: Data configuration including adjustment schema
+
+        Returns:
+            Empty iterator if:
+            - Data is unadjusted with no adjustment table
+            - Vendor doesn't provide adjustment metadata
 
         Yields:
             AdjustmentEvent objects with corporate action details

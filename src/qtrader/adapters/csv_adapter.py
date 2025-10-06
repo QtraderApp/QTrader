@@ -2,7 +2,7 @@
 
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Dict, Iterator
 
 import pandas as pd
 import pytz
@@ -10,6 +10,7 @@ import pytz
 from qtrader.config.data_config import DataConfig
 from qtrader.config.logging_config import LoggerFactory
 from qtrader.models.bar import AdjustmentEvent, Bar, DataMode
+from qtrader.models.instrument import Instrument
 
 logger = LoggerFactory.get_logger()
 
@@ -20,18 +21,56 @@ class CSVAdapter:
 
     Can read single CSV file or directory with multiple CSVs.
     Useful for security master data or testing with exported CSV samples.
+    Uses Instrument to determine symbol and constructs file paths.
 
     Data Mode: Configurable (depends on CSV source)
+
+    Configuration (from data_sources.yaml):
+        root_path: Base directory for CSV files
+
+    Usage:
+        config = {"root_path": "data/csv"}
+        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.CSV_FILE)
+        adapter = CSVAdapter(config, instrument)
+        bars = adapter.read_bars(data_config)
     """
 
     SCHEMA_VERSION = "csv-v1.0"
 
-    def can_read(self, source: Path) -> bool:
-        """Check if source is a CSV file or directory with CSVs."""
-        if source.is_file() and source.suffix == ".csv":
+    def __init__(self, config: Dict[str, Any], instrument: Instrument):
+        """
+        Initialize adapter for specific instrument.
+
+        Args:
+            config: Configuration dict from data_sources.yaml
+            instrument: Logical instrument specification
+
+        Raises:
+            ValueError: If required config fields missing
+        """
+        self.config = config
+        self.instrument = instrument
+
+        # Validate required config fields
+        if "root_path" not in config:
+            raise ValueError("Missing required config field: root_path")
+
+        # Build data path (root_path + symbol.csv)
+        root = Path(config["root_path"])
+        self.data_path = root / f"{instrument.symbol}.csv"
+
+        logger.info(
+            "csv_adapter.initialized",
+            symbol=instrument.symbol,
+            data_path=str(self.data_path),
+        )
+
+    def can_read(self) -> bool:
+        """Check if data path is a CSV file or directory with CSVs."""
+        if self.data_path.is_file() and self.data_path.suffix == ".csv":
             return True
-        if source.is_dir():
-            return any(source.glob("*.csv"))
+        if self.data_path.is_dir():
+            return any(self.data_path.glob("*.csv"))
         return False
 
     def schema_version(self) -> str:
@@ -44,8 +83,16 @@ class CSVAdapter:
         # Default to adjusted; can be overridden in config
         return DataMode.ADJUSTED
 
-    def read_bars(self, source: Path, config: DataConfig) -> Iterator[Bar]:
-        """Read CSV files and yield Bar objects (OHLCV only)."""
+    def read_bars(self, config: DataConfig) -> Iterator[Bar]:
+        """
+        Read CSV files for this instrument and yield Bar objects.
+
+        Args:
+            config: DataConfig with schema mappings
+
+        Yields:
+            Bar objects in timestamp order
+        """
         # Bar schema mapping
         bar_schema = config.bar_schema
 
@@ -55,12 +102,12 @@ class CSVAdapter:
 
         # Determine CSV files to read
         csv_files = []
-        if source.is_file():
-            csv_files = [source]
+        if self.data_path.is_file():
+            csv_files = [self.data_path]
         else:
-            csv_files = sorted(source.glob("*.csv"))
+            csv_files = sorted(self.data_path.glob("*.csv"))
 
-        logger.info("csv_adapter.reading_bars", file_count=len(csv_files))
+        logger.info("csv_adapter.reading_bars", symbol=self.instrument.symbol, file_count=len(csv_files))
 
         bar_count = 0
         for csv_file in csv_files:
@@ -76,9 +123,10 @@ class CSVAdapter:
                 close_d = Decimal(str(row[bar_schema.close])).quantize(quantizer, ROUND_HALF_UP)
 
                 bar_count += 1
+                # Use instrument symbol (not CSV column which might differ)
                 yield Bar(
                     ts=ts,
-                    symbol=row[bar_schema.symbol],
+                    symbol=self.instrument.symbol,
                     open=open_d,
                     high=high_d,
                     low=low_d,
@@ -86,28 +134,36 @@ class CSVAdapter:
                     volume=int(row[bar_schema.volume]),
                 )
 
-        logger.info("csv_adapter.bars_completed", bar_count=bar_count)
+        logger.info("csv_adapter.bars_completed", symbol=self.instrument.symbol, bar_count=bar_count)
 
-    def read_adjustments(self, source: Path, config: DataConfig) -> Iterator[AdjustmentEvent]:
+    def read_adjustments(self, config: DataConfig) -> Iterator[AdjustmentEvent]:
         """
-        Read adjustment metadata from CSV (if available).
+        Read adjustment metadata from CSV for this instrument (if available).
+
+        Args:
+            config: DataConfig with adjustment schema
+
+        Yields:
+            AdjustmentEvent objects
 
         Returns empty if adjustment_schema not configured.
         """
         if config.adjustment_schema is None:
-            logger.info("csv_adapter.no_adjustment_schema", msg="Skipping adjustment metadata")
+            logger.info(
+                "csv_adapter.no_adjustment_schema", symbol=self.instrument.symbol, msg="Skipping adjustment metadata"
+            )
             return
 
         adj_schema = config.adjustment_schema
         tz = pytz.timezone(config.timezone)
 
         csv_files = []
-        if source.is_file():
-            csv_files = [source]
+        if self.data_path.is_file():
+            csv_files = [self.data_path]
         else:
-            csv_files = sorted(source.glob("*.csv"))
+            csv_files = sorted(self.data_path.glob("*.csv"))
 
-        logger.info("csv_adapter.reading_adjustments", file_count=len(csv_files))
+        logger.info("csv_adapter.reading_adjustments", symbol=self.instrument.symbol, file_count=len(csv_files))
 
         adj_count = 0
         for csv_file in csv_files:
@@ -135,13 +191,14 @@ class CSVAdapter:
                             metadata[field] = row[field]
 
                 adj_count += 1
+                # Use instrument symbol (not CSV column)
                 yield AdjustmentEvent(
                     ts=ts,
-                    symbol=row[adj_schema.symbol],
+                    symbol=self.instrument.symbol,
                     event_type=row[adj_schema.event_type],
                     px_factor=px_factor,
                     vol_factor=vol_factor,
                     metadata=metadata,
                 )
 
-        logger.info("csv_adapter.adjustments_completed", adj_count=adj_count)
+        logger.info("csv_adapter.adjustments_completed", symbol=self.instrument.symbol, adj_count=adj_count)
