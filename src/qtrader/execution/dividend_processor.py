@@ -198,7 +198,8 @@ class DividendProcessor:
                     ts=event.ts,
                 )
                 result["processed"] = True
-                result["total_debit"] = abs(position.qty) * dividend_amount
+                total_debit = float(abs(position.qty) * dividend_amount)
+                result["total_debit"] = total_debit
                 result["reason"] = "success_short"
 
                 logger.info(
@@ -207,7 +208,7 @@ class DividendProcessor:
                     date=event.ts.isoformat(),
                     dividend_per_share=float(dividend_amount),
                     position_qty=position.qty,
-                    total_debit=float(result["total_debit"]),
+                    total_debit=total_debit,
                 )
             elif position.qty > 0:
                 # LONG: Receive dividend (credit)
@@ -217,7 +218,8 @@ class DividendProcessor:
                     ts=event.ts,
                 )
                 result["processed"] = True
-                result["total_credit"] = position.qty * dividend_amount
+                total_credit = float(position.qty * dividend_amount)
+                result["total_credit"] = total_credit
                 result["reason"] = "success_long"
 
                 logger.info(
@@ -226,7 +228,7 @@ class DividendProcessor:
                     date=event.ts.isoformat(),
                     dividend_per_share=float(dividend_amount),
                     position_qty=position.qty,
-                    total_credit=float(result["total_credit"]),
+                    total_credit=total_credit,
                 )
 
         except Exception as e:
@@ -248,10 +250,13 @@ class DividendProcessor:
         """
         Calculate dividend amount from adjustment event.
 
+        For AlgoSeek data with AdjustmentFactor:
+            dividend_per_share = close_price * (1 - adjustment_factor)
+
         Tries multiple methods to find close prices:
-        1. close_prices dict (if provided)
-        2. event.metadata['close_before']
-        3. event.metadata['close_after'] with px_factor
+        1. AlgoSeek AdjustmentFactor (preferred for AlgoSeek data)
+        2. close_prices dict (if provided)
+        3. event.metadata['close_before'] + event.metadata['close_after']
 
         Args:
             event: Adjustment event with price factors
@@ -262,7 +267,28 @@ class DividendProcessor:
         """
         symbol = event.symbol
 
-        # Try to get close_before from provided dict
+        # Method 1: AlgoSeek AdjustmentFactor (preferred)
+        # For dividends, AdjustmentFactor < 1.0 (e.g., 0.9957 for a dividend)
+        # dividend = close * (1 - adjustment_factor)
+        if "AdjustmentFactor" in event.metadata:
+            adjustment_factor = Decimal(str(event.metadata["AdjustmentFactor"]))
+
+            # Get close price from close_prices dict if provided
+            if close_prices and symbol in close_prices:
+                close_price = close_prices[symbol]
+                dividend = close_price * (Decimal("1") - adjustment_factor)
+
+                if dividend > Decimal("0"):
+                    logger.debug(
+                        "dividend_processor.calculated_from_adjustment_factor",
+                        symbol=symbol,
+                        close_price=float(close_price),
+                        adjustment_factor=float(adjustment_factor),
+                        dividend=float(dividend),
+                    )
+                    return dividend
+
+        # Method 2: Try to get close_before from provided dict
         close_before = None
         if close_prices and symbol in close_prices:
             close_before = close_prices[symbol]
@@ -276,13 +302,14 @@ class DividendProcessor:
         if "close_after" in event.metadata:
             close_after = Decimal(str(event.metadata["close_after"]))
 
-        # Need both prices to calculate
+        # Method 3: Need both prices to calculate using traditional method
         if close_before is None or close_after is None:
             logger.warning(
                 "dividend_processor.missing_prices",
                 symbol=symbol,
                 has_close_before=close_before is not None,
                 has_close_after=close_after is not None,
+                has_adjustment_factor="AdjustmentFactor" in event.metadata,
             )
             return None
 
