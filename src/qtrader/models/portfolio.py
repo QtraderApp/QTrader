@@ -118,12 +118,12 @@ class Portfolio:
 
         # Update position tracker (uses side, qty, price)
         old_position = self.positions.get_position(symbol)
-        old_qty = old_position.qty if old_position else 0
+        old_qty = old_position.qty
 
         self.positions.update_position(symbol, side, qty, fill_price)
 
         new_position = self.positions.get_position(symbol)
-        new_qty = new_position.qty if new_position else 0
+        new_qty = new_position.qty
 
         # Log position transitions (especially long→short or short→long)
         if old_qty > 0 and new_qty < 0:
@@ -149,7 +149,7 @@ class Portfolio:
                 "portfolio.position_closed",
                 symbol=symbol,
                 old_qty=old_qty,
-                realized_pnl=float(new_position.realized_pnl) if new_position else 0.0,
+                realized_pnl=float(new_position.realized_pnl),
             )
 
         # Track current price for this symbol
@@ -165,7 +165,7 @@ class Portfolio:
             cash_impact=float(net_cash_impact),
             cash_balance=float(self.cash.get_balance()),
             position_qty=new_qty,
-            position_avg_price=float(new_position.avg_price) if new_position else 0.0,
+            position_avg_price=float(new_position.avg_price),
         )
 
     def apply_short_dividend(
@@ -183,7 +183,7 @@ class Portfolio:
             ts: Ex-dividend date timestamp
         """
         position = self.positions.get_position(symbol)
-        if position and position.qty < 0:
+        if position.qty < 0:
             dividend_owed = abs(position.qty) * dividend_per_share
             self.cash.debit(
                 amount=dividend_owed,
@@ -214,7 +214,7 @@ class Portfolio:
             ts: Ex-dividend date timestamp
         """
         position = self.positions.get_position(symbol)
-        if position and position.qty > 0:
+        if position.qty > 0:
             dividend_received = position.qty * dividend_per_share
             self.cash.credit(
                 amount=dividend_received,
