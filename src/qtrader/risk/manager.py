@@ -279,6 +279,7 @@ class RiskManager:
             limit_price=signal.limit_price,
             stop_price=signal.stop_price,
             tif=signal.tif,
+            signal_price=current_price,  # Store signal price for deviation checks
         )
 
         logger.debug(

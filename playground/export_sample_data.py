@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 # Data directory configuration
 DATA_DIR = Path("/home/javier/Data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet")
-OUTPUT_DIR = Path("./data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample")
-TICKERS = ["AAPL", "MSFT", "AMZN"]
-START_DATE = "2019-01-01"
+OUTPUT_DIR = Path("./data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample-complete")
+TICKERS = ["AAPL"]
+START_DATE = "2000-01-01"
 END_DATE = "2023-12-31"
 
 

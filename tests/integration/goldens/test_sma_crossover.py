@@ -1,5 +1,5 @@
 """
-Golden baseline test for Buy-and-Hold strategy.
+Golden baseline test for SMA Crossover strategy.
 
 This test ensures deterministic behavior by comparing backtest results
 against a previously generated golden file.
@@ -144,9 +144,9 @@ def assert_close(actual: float, expected: float, rel_tol: float = 1e-6, abs_tol:
         assert rel_diff < rel_tol, f"Expected {expected}, got {actual} (rel_diff={rel_diff:.2%})"
 
 
-def test_buy_and_hold_matches_golden():
-    """Verify buy-and-hold results match golden file exactly."""
-    golden = load_golden("buy_and_hold")
+def test_sma_crossover_matches_golden():
+    """Verify SMA crossover results match golden file exactly."""
+    golden = load_golden("sma_crossover")
     results = load_strategy_and_run(golden)
 
     # Compare key metrics
@@ -177,5 +177,5 @@ def test_buy_and_hold_matches_golden():
 
 if __name__ == "__main__":
     # Allow running test directly for debugging
-    test_buy_and_hold_matches_golden()
-    print("✅ Buy-and-hold golden test passed!")
+    test_sma_crossover_matches_golden()
+    print("✅ SMA crossover golden test passed!")

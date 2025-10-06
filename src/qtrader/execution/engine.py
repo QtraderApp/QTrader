@@ -238,6 +238,29 @@ class ExecutionEngine:
             decision = self.fill_policy.evaluate_order(order, bar, next_bar, is_close_only)
 
             if decision.should_fill:
+                # Check fill price deviation safeguard (if enabled)
+                if order.signal_price is not None and self.config.max_fill_price_deviation_pct is not None:
+                    deviation_check = self._check_fill_price_deviation(
+                        order, decision.fill_price, self.config.max_fill_price_deviation_pct
+                    )
+                    if not deviation_check[0]:
+                        # Reject fill due to excessive price deviation
+                        logger.warning(
+                            "execution_engine.fill_rejected_price_deviation",
+                            order_id=order_id,
+                            symbol=order.symbol,
+                            signal_price=float(order.signal_price),
+                            fill_price=float(decision.fill_price),
+                            deviation_pct=deviation_check[2],
+                            max_allowed_pct=float(self.config.max_fill_price_deviation_pct),
+                            reason=deviation_check[1],
+                        )
+                        # Cancel the order
+                        orders_to_remove.append(order_id)
+                        updated_order = order.with_state(OrderState.CANCELED)
+                        self.expired_orders[order_id] = updated_order
+                        continue
+
                 # Calculate participation cap (Stage 5)
                 participation_cap = self._calculate_participation_cap(bar, order.side)
 
@@ -494,6 +517,39 @@ class ExecutionEngine:
         )
 
         return remaining_cap
+
+    def _check_fill_price_deviation(
+        self, order: OrderBase, fill_price: Decimal, max_deviation_pct: Decimal
+    ) -> tuple[bool, str, float]:
+        """
+        Check if fill price deviates too much from signal price.
+
+        Args:
+            order: Order with signal_price
+            fill_price: Proposed fill price
+            max_deviation_pct: Maximum allowed deviation (e.g., 0.10 = 10%)
+
+        Returns:
+            Tuple of (approved, reason, deviation_pct)
+            - approved: True if within tolerance, False if excessive deviation
+            - reason: Explanation
+            - deviation_pct: Actual deviation as percentage (e.g., 0.15 = 15%)
+        """
+        if order.signal_price is None:
+            return (True, "No signal price to check", 0.0)
+
+        # Calculate absolute deviation percentage
+        deviation = abs(fill_price - order.signal_price) / order.signal_price
+        deviation_pct = float(deviation)
+
+        if deviation > max_deviation_pct:
+            return (
+                False,
+                f"Fill price deviates {deviation_pct:.2%} from signal price (max {float(max_deviation_pct):.2%})",
+                deviation_pct,
+            )
+
+        return (True, "Fill price within tolerance", deviation_pct)
 
     def _update_participation(self, bar: Bar, side: OrderSide, filled_qty: int) -> None:
         """

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SAMPLE_PARQUET_DIR = REPO_ROOT / "data" / "us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample"
+SAMPLE_PARQUET_DIR = REPO_ROOT / "data" / "us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample-complete"
 OUTPUT_CSV_DIR = REPO_ROOT / "data" / "csv"
 
 

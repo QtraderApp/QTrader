@@ -59,6 +59,7 @@ class OrderBase(NamedTuple):
     avg_fill_price: Optional[Decimal] = None  # Average fill price across all slices
     submission_bar_ts: Optional[datetime] = None  # Bar timestamp when submitted
     expiry_bar_ts: Optional[datetime] = None  # When order expires (for DAY orders)
+    signal_price: Optional[Decimal] = None  # Price when signal was generated (for deviation checks)
 
     def with_state(self, new_state: OrderState) -> "OrderBase":
         """Create new order with updated state."""
@@ -129,6 +130,7 @@ def Order(
     avg_fill_price: Optional[Decimal] = None,
     submission_bar_ts: Optional[datetime] = None,
     expiry_bar_ts: Optional[datetime] = None,
+    signal_price: Optional[Decimal] = None,
 ) -> OrderBase:
     """
     Create an immutable order with validation.
@@ -152,6 +154,7 @@ def Order(
         avg_fill_price: Average fill price across all slices
         submission_bar_ts: Bar timestamp when submitted
         expiry_bar_ts: When order expires
+        signal_price: Price when signal was generated (for deviation checks)
 
     Returns:
         Validated Order instance
@@ -202,6 +205,7 @@ def Order(
         avg_fill_price=avg_fill_price,
         submission_bar_ts=submission_bar_ts,
         expiry_bar_ts=expiry_bar_ts,
+        signal_price=signal_price,
     )
 
 

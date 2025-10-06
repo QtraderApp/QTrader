@@ -27,6 +27,11 @@ class ExecutionConfig(NamedTuple):
     queue_bars: int = 3  # Number of bars to keep residuals before expiration
     allow_high_participation: bool = False  # Allow max_participation > 0.20
 
+    # Fill price safeguards
+    max_fill_price_deviation_pct: Optional[Decimal] = Decimal(
+        "0.10"
+    )  # Cancel order if fill price deviates >10% from signal price (None = disabled)
+
     # Warmup settings (Stage 6A)
     warmup: bool = False  # Enable warmup phase for indicators
     warmup_bars: Optional[int] = None  # Number of warmup bars (None = auto-detect)

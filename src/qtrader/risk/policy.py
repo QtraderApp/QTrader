@@ -48,6 +48,7 @@ class RiskPolicy(NamedTuple):
         max_net_exposure: Maximum net exposure (default 1.0 = 100%)
         allow_shorting: Allow short positions (default False)
         cash_reserve_pct: Minimum cash reserve as % of equity (default 0.05 = 5%)
+        max_fill_price_deviation_pct: Reject orders if fill price deviates >X% from signal price (default 0.10 = 10%, None = disabled)
         reject_on_insufficient_cash: Reject signals if insufficient cash (default True)
         reject_on_concentration_breach: Reject signals if concentration limits breached (default True)
         reject_on_leverage_breach: Reject signals if leverage limits breached (default True)
@@ -69,6 +70,11 @@ class RiskPolicy(NamedTuple):
 
     # Safety margins
     cash_reserve_pct: Decimal = Decimal("0.05")
+
+    # Fill price safeguards
+    max_fill_price_deviation_pct: Optional[Decimal] = Decimal(
+        "0.10"
+    )  # Reject if fill price deviates >10% from signal price
 
     # Validation
     reject_on_insufficient_cash: bool = True

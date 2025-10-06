@@ -81,15 +81,15 @@ class WarmupDetector:
         """
         # Try common attribute names
         if hasattr(indicator, "period"):
-            return indicator.period
+            return int(indicator.period)
 
         # For MACD, use slow period + signal period
         if hasattr(indicator, "slow") and hasattr(indicator, "signal_period"):
-            return indicator.slow + indicator.signal_period
+            return int(indicator.slow) + int(indicator.signal_period)
 
         # For indicators with multiple periods, use the maximum
         if hasattr(indicator, "periods") and isinstance(indicator.periods, (list, tuple)):
-            return max(indicator.periods)
+            return int(max(indicator.periods))
 
         # Default to 0 if we can't determine
         return 0
