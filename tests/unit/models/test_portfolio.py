@@ -177,7 +177,7 @@ def test_portfolio_short_dividend(portfolio):
 
 
 def test_portfolio_no_dividend_when_long(portfolio):
-    """No dividend debit when position is long."""
+    """No dividend debit when position is long (apply_short_dividend)."""
     ts = datetime(2023, 1, 15, 9, 30, tzinfo=timezone.utc)
 
     # Create long position
@@ -203,6 +203,119 @@ def test_portfolio_no_dividend_when_long(portfolio):
 
     # Cash should be unchanged
     assert portfolio.cash.get_balance() == initial_cash
+
+
+def test_portfolio_long_dividend(portfolio):
+    """Long positions should receive dividend credits."""
+    ts = datetime(2023, 1, 15, 9, 30, tzinfo=timezone.utc)
+
+    # Create long position: 200 shares @ $150
+    portfolio.apply_fill(
+        symbol="MSFT",
+        side=OrderSide.BUY,
+        qty=200,
+        fill_price=Decimal("400.00"),
+        commission=Decimal("1.50"),
+        ts=ts,
+        order_id="order-1",
+        fill_id="fill-1",
+    )
+
+    initial_cash = portfolio.cash.get_balance()
+
+    # Apply dividend: 200 shares * $0.50/share = $100 credit
+    portfolio.apply_long_dividend(
+        symbol="MSFT",
+        dividend_per_share=Decimal("0.50"),
+        ts=ts,
+    )
+
+    # Should credit cash (200 shares * $0.50/share = $100)
+    expected_cash = initial_cash + Decimal("100.00")
+    assert portfolio.cash.get_balance() == expected_cash
+
+    # Verify transaction recorded
+    transactions = portfolio.cash.get_transactions()
+    dividend_txns = [t for t in transactions if t.transaction_type == "DIVIDEND_RECEIVED"]
+    assert len(dividend_txns) == 1
+    assert dividend_txns[0].amount == Decimal("100.00")
+    assert "MSFT" in dividend_txns[0].description
+    assert "200 shares" in dividend_txns[0].description
+
+
+def test_portfolio_long_dividend_requires_long_position(portfolio):
+    """Long dividend should only apply when position is net long."""
+    ts = datetime(2023, 1, 15, 9, 30, tzinfo=timezone.utc)
+
+    # Create short position
+    portfolio.apply_fill(
+        symbol="AAPL",
+        side=OrderSide.SELL,
+        qty=100,
+        fill_price=Decimal("150.00"),
+        commission=Decimal("1.00"),
+        ts=ts,
+        order_id="order-1",
+        fill_id="fill-1",
+    )
+
+    initial_cash = portfolio.cash.get_balance()
+
+    # Apply long dividend (should be no-op for short)
+    portfolio.apply_long_dividend(
+        symbol="AAPL",
+        dividend_per_share=Decimal("0.50"),
+        ts=ts,
+    )
+
+    # Cash should be unchanged
+    assert portfolio.cash.get_balance() == initial_cash
+
+
+def test_portfolio_long_dividend_no_position(portfolio):
+    """Long dividend should be no-op when no position exists."""
+    ts = datetime(2023, 1, 15, 9, 30, tzinfo=timezone.utc)
+
+    initial_cash = portfolio.cash.get_balance()
+
+    # Apply dividend with no position (should be no-op)
+    portfolio.apply_long_dividend(
+        symbol="AAPL",
+        dividend_per_share=Decimal("0.50"),
+        ts=ts,
+    )
+
+    # Cash should be unchanged
+    assert portfolio.cash.get_balance() == initial_cash
+
+
+def test_portfolio_long_dividend_partial_position(portfolio):
+    """Long dividend should handle partial positions correctly."""
+    ts = datetime(2023, 1, 15, 9, 30, tzinfo=timezone.utc)
+
+    # Create position with 50 shares
+    portfolio.apply_fill(
+        symbol="AAPL",
+        side=OrderSide.BUY,
+        qty=50,
+        fill_price=Decimal("180.00"),
+        commission=Decimal("0.75"),
+        ts=ts,
+        order_id="order-1",
+        fill_id="fill-1",
+    )
+
+    initial_cash = portfolio.cash.get_balance()
+
+    # Apply dividend: 50 shares * $0.45/share = $22.50 credit
+    portfolio.apply_long_dividend(
+        symbol="AAPL",
+        dividend_per_share=Decimal("0.45"),
+        ts=ts,
+    )
+
+    expected_cash = initial_cash + Decimal("22.50")
+    assert portfolio.cash.get_balance() == expected_cash
 
 
 def test_portfolio_borrow_cost(portfolio):

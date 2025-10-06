@@ -199,6 +199,37 @@ class Portfolio:
                 dividend_owed=float(dividend_owed),
             )
 
+    def apply_long_dividend(
+        self,
+        symbol: str,
+        dividend_per_share: Decimal,
+        ts: datetime,
+    ) -> None:
+        """
+        Credit cash for long dividend (only if net long).
+
+        Args:
+            symbol: Trading symbol
+            dividend_per_share: Dividend amount per share
+            ts: Ex-dividend date timestamp
+        """
+        position = self.positions.get_position(symbol)
+        if position and position.qty > 0:
+            dividend_received = position.qty * dividend_per_share
+            self.cash.credit(
+                amount=dividend_received,
+                timestamp=ts.isoformat(),
+                transaction_type="DIVIDEND_RECEIVED",
+                description=f"Long dividend on {symbol}: {position.qty} shares @ ${dividend_per_share}/share",
+            )
+            logger.info(
+                "portfolio.long_dividend",
+                symbol=symbol,
+                qty=position.qty,
+                dividend_per_share=float(dividend_per_share),
+                dividend_received=float(dividend_received),
+            )
+
     def apply_borrow_cost(
         self,
         borrow_rate_annual: Decimal,

@@ -142,8 +142,8 @@ class TestDividendProcessor:
         assert processor.skipped_count == 1
         assert processor.processed_count == 0
 
-    def test_process_ex_date_long_position_skipped(self, portfolio, sample_dividend_event):
-        """Test that long positions are skipped (no dividend debit)."""
+    def test_process_ex_date_long_position_processed(self, portfolio, sample_dividend_event):
+        """Test that long positions receive dividend credit."""
         # Add long position
         portfolio.apply_fill(
             symbol="AAPL",
@@ -156,16 +156,23 @@ class TestDividendProcessor:
             fill_id="fill-1",
         )
 
+        initial_cash = portfolio.cash.get_balance()
+
         events = {"AAPL": [sample_dividend_event]}
         processor = DividendProcessor(portfolio, events)
 
         results = processor.process_ex_date(datetime(2023, 2, 10))
 
         assert len(results) == 1
-        assert results[0]["processed"] is False
-        assert results[0]["reason"] == "not_short"
+        assert results[0]["processed"] is True
+        assert results[0]["reason"] == "success_long"
         assert results[0]["position_qty"] == Decimal("100")
-        assert processor.skipped_count == 1
+        assert results[0]["dividend_amount"] == Decimal("0.23")
+        assert results[0]["total_credit"] == Decimal("23.00")  # 100 shares * $0.23
+
+        # Check cash was credited
+        assert portfolio.cash.get_balance() == initial_cash + Decimal("23.00")
+        assert processor.processed_count == 1
 
     def test_process_ex_date_short_position_processed(self, portfolio, sample_dividend_event):
         """Test dividend processing for short position."""
@@ -190,7 +197,7 @@ class TestDividendProcessor:
 
         assert len(results) == 1
         assert results[0]["processed"] is True
-        assert results[0]["reason"] == "success"
+        assert results[0]["reason"] == "success_short"
         assert results[0]["position_qty"] == Decimal("-100")
         assert results[0]["dividend_amount"] == Decimal("0.23")
         assert results[0]["total_debit"] == Decimal("23.00")  # 100 shares * $0.23
@@ -501,3 +508,163 @@ class TestDividendProcessor:
         assert len(results2) == 1
         assert processor.processed_count == 2
         assert processor.skipped_count == 1
+
+    def test_process_long_position_receives_dividend(self, portfolio):
+        """Test that long positions receive dividend credits."""
+        # Add long position
+        portfolio.apply_fill(
+            symbol="AAPL",
+            side=OrderSide.BUY,
+            qty=200,
+            fill_price=Decimal("150.00"),
+            commission=Decimal("0"),
+            ts=datetime(2023, 2, 9, 9, 30, tzinfo=timezone.utc),
+            order_id="order-1",
+            fill_id="fill-1",
+        )
+
+        initial_cash = portfolio.cash.get_balance()
+
+        # Dividend event
+        event = AdjustmentEvent(
+            ts=datetime(2023, 2, 10),
+            symbol="AAPL",
+            event_type="CashDiv",
+            px_factor=Decimal("1.001508"),
+            vol_factor=Decimal("1.0"),
+            metadata={"close_before": "152.55", "close_after": "152.32"},
+        )
+
+        events = {"AAPL": [event]}
+        processor = DividendProcessor(portfolio, events)
+
+        results = processor.process_ex_date(datetime(2023, 2, 10))
+
+        assert len(results) == 1
+        assert results[0]["processed"] is True
+        assert results[0]["reason"] == "success_long"
+        assert results[0]["position_qty"] == 200
+        assert "total_credit" in results[0]
+
+        # Cash should increase (dividend received)
+        assert portfolio.cash.get_balance() > initial_cash
+        assert processor.processed_count == 1
+        assert processor.skipped_count == 0
+
+    def test_process_mixed_portfolio_long_and_short(self, portfolio):
+        """Test processing dividends for mixed long/short positions."""
+        ts = datetime(2023, 2, 9, 9, 30, tzinfo=timezone.utc)
+
+        # Add long AAPL position
+        portfolio.apply_fill(
+            symbol="AAPL",
+            side=OrderSide.BUY,
+            qty=100,
+            fill_price=Decimal("180.00"),
+            commission=Decimal("0"),
+            ts=ts,
+            order_id="order-1",
+            fill_id="fill-1",
+        )
+
+        # Add short MSFT position
+        portfolio.apply_fill(
+            symbol="MSFT",
+            side=OrderSide.SELL,
+            qty=50,
+            fill_price=Decimal("400.00"),
+            commission=Decimal("0"),
+            ts=ts,
+            order_id="order-2",
+            fill_id="fill-2",
+        )
+
+        initial_cash = portfolio.cash.get_balance()
+
+        # Same ex-date for both
+        date = datetime(2023, 2, 10)
+        events = {
+            "AAPL": [
+                AdjustmentEvent(
+                    ts=date,
+                    symbol="AAPL",
+                    event_type="CashDiv",
+                    px_factor=Decimal("1.0025"),  # ~$0.45/share
+                    vol_factor=Decimal("1.0"),
+                    metadata={"close_before": "180.00", "close_after": "179.55"},
+                )
+            ],
+            "MSFT": [
+                AdjustmentEvent(
+                    ts=date,
+                    symbol="MSFT",
+                    event_type="CashDiv",
+                    px_factor=Decimal("1.00125"),  # ~$0.50/share
+                    vol_factor=Decimal("1.0"),
+                    metadata={"close_before": "400.00", "close_after": "399.50"},
+                )
+            ],
+        }
+
+        processor = DividendProcessor(portfolio, events)
+        results = processor.process_ex_date(date)
+
+        assert len(results) == 2
+        assert processor.processed_count == 2
+        assert processor.skipped_count == 0
+
+        # Find AAPL and MSFT results
+        aapl_result = next(r for r in results if r["symbol"] == "AAPL")
+        msft_result = next(r for r in results if r["symbol"] == "MSFT")
+
+        # AAPL (long) should receive credit
+        assert aapl_result["processed"] is True
+        assert aapl_result["reason"] == "success_long"
+        assert "total_credit" in aapl_result
+
+        # MSFT (short) should pay debit
+        assert msft_result["processed"] is True
+        assert msft_result["reason"] == "success_short"
+        assert "total_debit" in msft_result
+
+        # Net cash change: +AAPL credit - MSFT debit
+        # Should be positive if AAPL dividend > MSFT dividend
+        final_cash = portfolio.cash.get_balance()
+        assert final_cash != initial_cash  # Cash should have changed
+
+    def test_process_long_position_logging(self, portfolio):
+        """Test that long dividend processing includes correct log fields."""
+        # Add long position
+        portfolio.apply_fill(
+            symbol="MSFT",
+            side=OrderSide.BUY,
+            qty=50,
+            fill_price=Decimal("400.00"),
+            commission=Decimal("0"),
+            ts=datetime(2023, 2, 9, 9, 30, tzinfo=timezone.utc),
+            order_id="order-1",
+            fill_id="fill-1",
+        )
+
+        event = AdjustmentEvent(
+            ts=datetime(2023, 2, 10),
+            symbol="MSFT",
+            event_type="CashDiv",
+            px_factor=Decimal("1.00125"),
+            vol_factor=Decimal("1.0"),
+            metadata={"close_before": "400.00", "close_after": "399.50"},
+        )
+
+        events = {"MSFT": [event]}
+        processor = DividendProcessor(portfolio, events)
+
+        results = processor.process_ex_date(datetime(2023, 2, 10))
+
+        assert len(results) == 1
+        result = results[0]
+        assert result["symbol"] == "MSFT"
+        assert result["processed"] is True
+        assert result["position_qty"] == 50  # Long position
+        assert result["dividend_amount"] is not None
+        assert result["total_credit"] > Decimal("0")
+        assert result["reason"] == "success_long"

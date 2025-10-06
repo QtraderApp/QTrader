@@ -1,7 +1,9 @@
 """
 Dividend processor for handling ex-date processing during backtests.
 
-This module processes dividend events and applies them to short positions.
+This module processes dividend events and applies them to both long and short positions:
+- Long positions: Credit cash (dividend income)
+- Short positions: Debit cash (dividend cost)
 """
 
 from datetime import datetime
@@ -23,7 +25,8 @@ class DividendProcessor:
     Responsibilities:
     - Index adjustment events by ex-date
     - Calculate dividend amounts from adjustment factors
-    - Apply dividends to short positions
+    - Apply dividends to long positions (credit cash)
+    - Apply dividends to short positions (debit cash)
     - Track dividend processing statistics
 
     Example:
@@ -95,8 +98,8 @@ class DividendProcessor:
 
         For each dividend event on this date:
         1. Calculate dividend amount from adjustment factors
-        2. Check if portfolio has short position
-        3. Apply dividend debit to short positions
+        2. Check if portfolio has long or short position
+        3. Apply dividend credit to long positions or debit to short positions
         4. Track processing results
 
         Args:
@@ -171,17 +174,6 @@ class DividendProcessor:
 
         result["position_qty"] = position.qty
 
-        # Only process short positions
-        if position.qty > 0:
-            result["reason"] = "not_short"
-            logger.debug(
-                "dividend_processor.skip_long_position",
-                symbol=event.symbol,
-                qty=position.qty,
-                date=event.ts.isoformat(),
-            )
-            return result
-
         # Calculate dividend amount
         dividend_amount = self._calculate_dividend(event, close_prices)
         if dividend_amount is None or dividend_amount <= Decimal("0"):
@@ -196,26 +188,46 @@ class DividendProcessor:
 
         result["dividend_amount"] = dividend_amount
 
-        # Apply dividend to short position
+        # Apply dividend based on position direction
         try:
-            self.portfolio.apply_short_dividend(
-                symbol=event.symbol,
-                dividend_per_share=dividend_amount,
-                ts=event.ts,
-            )
+            if position.qty < 0:
+                # SHORT: Pay dividend (debit)
+                self.portfolio.apply_short_dividend(
+                    symbol=event.symbol,
+                    dividend_per_share=dividend_amount,
+                    ts=event.ts,
+                )
+                result["processed"] = True
+                result["total_debit"] = abs(position.qty) * dividend_amount
+                result["reason"] = "success_short"
 
-            result["processed"] = True
-            result["total_debit"] = abs(position.qty) * dividend_amount
-            result["reason"] = "success"
+                logger.info(
+                    "dividend_processor.applied_short",
+                    symbol=event.symbol,
+                    date=event.ts.isoformat(),
+                    dividend_per_share=float(dividend_amount),
+                    position_qty=position.qty,
+                    total_debit=float(result["total_debit"]),
+                )
+            elif position.qty > 0:
+                # LONG: Receive dividend (credit)
+                self.portfolio.apply_long_dividend(
+                    symbol=event.symbol,
+                    dividend_per_share=dividend_amount,
+                    ts=event.ts,
+                )
+                result["processed"] = True
+                result["total_credit"] = position.qty * dividend_amount
+                result["reason"] = "success_long"
 
-            logger.info(
-                "dividend_processor.applied",
-                symbol=event.symbol,
-                date=event.ts.isoformat(),
-                dividend_per_share=float(dividend_amount),
-                position_qty=position.qty,
-                total_debit=float(result["total_debit"]),
-            )
+                logger.info(
+                    "dividend_processor.applied_long",
+                    symbol=event.symbol,
+                    date=event.ts.isoformat(),
+                    dividend_per_share=float(dividend_amount),
+                    position_qty=position.qty,
+                    total_credit=float(result["total_credit"]),
+                )
 
         except Exception as e:
             result["reason"] = f"error: {str(e)}"

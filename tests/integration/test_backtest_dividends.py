@@ -384,9 +384,9 @@ class TestBacktestDividends:
         assert stats["total_symbols"] == 2
         assert stats["total_events"] == 2
         assert stats["unique_ex_dates"] == 1
-        assert stats["processed_count"] == 1  # Only AAPL (short)
-        assert stats["skipped_count"] == 1  # MSFT (long)
-        assert stats["success_rate"] == 0.5
+        assert stats["processed_count"] == 2  # Both AAPL (short) and MSFT (long)
+        assert stats["skipped_count"] == 0  # No longer skipping long positions
+        assert stats["success_rate"] == 1.0
 
     def test_short_after_ex_date_no_dividend(self, config, strategy, context, portfolio):
         """Test that positions opened AFTER ex-date don't pay dividends."""
