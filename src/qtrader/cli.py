@@ -5,7 +5,7 @@ import sys
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import click
 import structlog
@@ -13,6 +13,7 @@ import structlog
 from qtrader.adapters.resolver import DataSourceResolver
 from qtrader.api.backtest import Backtest
 from qtrader.api.context import Context
+from qtrader.config.system_config import get_config
 from qtrader.execution.config import ExecutionConfig
 from qtrader.models.instrument import Instrument
 from qtrader.models.portfolio import Portfolio
@@ -213,6 +214,15 @@ def backtest(
     try:
         bars = _load_data_from_instruments(instruments, verbose)
         click.echo(f"\n✓ Data loaded: {len(bars)} bars")
+
+        # Load adjustment events (dividends, splits) for each instrument
+        adjustment_events = _load_adjustments_from_instruments(instruments, verbose)
+        if adjustment_events:
+            total_adjustments = sum(len(events) for events in adjustment_events.values())
+            click.echo(f"✓ Adjustments loaded: {total_adjustments} events")
+        else:
+            click.echo("ℹ No adjustment events loaded")
+            adjustment_events = None
     except Exception as e:
         click.echo(f"✗ Failed to load data: {e}", err=True)
         if verbose:
@@ -224,11 +234,26 @@ def backtest(
     # Extract symbol list from instruments
     symbol_list = [inst.symbol for inst in instruments]
 
+    # Load system configuration
+    sys_config = get_config()
+
     # Create output directory (default if not specified)
     if out is None:
-        # Default: ./backtest_results/<strategy_name>_<timestamp>
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = f"./backtest_results/{strategy_path.stem}_{timestamp}"
+        # Use system config for default results directory and format
+        if sys_config.output.use_timestamps:
+            timestamp = datetime.now().strftime(sys_config.output.timestamp_format)
+            strategy_name = strategy_path.stem
+
+            if sys_config.output.organize_by_date:
+                # Format: results_dir/YYYY-MM-DD/strategy_name_timestamp/
+                date_dir = datetime.now().strftime("%Y-%m-%d")
+                out = f"{sys_config.output.default_results_dir}/{date_dir}/{strategy_name}_{timestamp}"
+            else:
+                # Format: results_dir/strategy_name_timestamp/
+                out = f"{sys_config.output.default_results_dir}/{strategy_name}_{timestamp}"
+        else:
+            # No timestamp
+            out = f"{sys_config.output.default_results_dir}/{strategy_path.stem}"
 
     output_path = Path(out)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -247,11 +272,18 @@ def backtest(
     ctx = Context(portfolio=portfolio, risk_manager=risk_manager)
 
     # Configure execution
+    max_fill_price_dev = backtest_config.get("max_fill_price_deviation_pct")
+    if max_fill_price_dev is not None and not isinstance(max_fill_price_dev, Decimal):
+        max_fill_price_dev = Decimal(str(max_fill_price_dev))
+    elif max_fill_price_dev is None:
+        max_fill_price_dev = Decimal("0.10")  # Default 10%
+
     exec_config = ExecutionConfig(
         warmup=backtest_config.get("warmup", False),
         warmup_bars=backtest_config.get("warmup_bars"),
         max_participation=backtest_config.get("max_participation", Decimal("0.10")),
         allow_high_participation=False,
+        max_fill_price_deviation_pct=max_fill_price_dev,
     )
 
     # Initialize strategy with configuration
@@ -283,6 +315,7 @@ def backtest(
             bars=bars,
             symbols=symbol_list,
             out_dir=output_path,
+            adjustment_events=adjustment_events,
         )
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
@@ -306,12 +339,12 @@ def backtest(
         pnl_pct = (pnl / initial_cash) * 100
         click.echo(f"\nP&L: ${pnl:,.2f} ({pnl_pct:+.2f}%)")
 
-        # Debug output
-        if debug:
-            _export_debug_files(backtest_obj, output_path)
-            click.echo(f"\n✓ Debug files exported to {output_path}")
-
-        click.echo(f"\nResults saved to: {output_path}")
+        # Export files based on system config or debug flag
+        if debug or any(sys_config.output.generate_files.values()):
+            _export_output_files(backtest_obj, output_path, metadata, backtest_config, sys_config)
+            click.echo(f"\n✓ Output files saved to {output_path}")
+        else:
+            click.echo(f"\nResults saved to: {output_path}")
 
     except Exception as e:
         click.echo(f"\n✗ Backtest failed: {e}", err=True)
@@ -622,6 +655,63 @@ def _load_data_from_instruments(instruments: List[Instrument], verbose: bool = F
     return bars
 
 
+def _load_adjustments_from_instruments(instruments: list, verbose: bool = False):
+    """
+    Load adjustment events (dividends, splits) from instruments using DataSourceResolver.
+
+    Args:
+        instruments: List of Instrument objects
+        verbose: Enable verbose logging
+
+    Returns:
+        Dict mapping symbol -> list of AdjustmentEvent objects, or None if no adjustments
+    """
+    from qtrader.config.data_config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig
+
+    all_adjustments: Dict[str, List[Any]] = {}
+    resolver = DataSourceResolver()
+
+    # Create adjustment schema config for Algoseek data
+    adj_schema = AdjustmentSchemaConfig(
+        ts="TradeDate",
+        symbol="Ticker",
+        event_type="AdjustmentReason",
+        px_factor="CumulativePriceFactor",
+        vol_factor="CumulativeVolumeFactor",
+        metadata_fields=["AdjustmentFactor"],  # Capture individual adjustment factor
+    )
+    # Need bar_schema even though we're only reading adjustments
+    bar_schema = BarSchemaConfig(
+        ts="TradeDate", symbol="Ticker", open="Open", high="High", low="Low", close="Close", volume="MarketHoursVolume"
+    )
+    config = DataConfig(bar_schema=bar_schema, adjustment_schema=adj_schema)
+
+    for instrument in instruments:
+        if verbose:
+            logger.info("loading_adjustments", instrument=str(instrument))
+
+        # Resolve instrument to adapter
+        adapter = resolver.resolve(instrument)
+
+        # Load adjustments from adapter
+        try:
+            adjustments = list(adapter.read_adjustments(config))
+            if adjustments:
+                # Index by symbol
+                symbol = instrument.symbol
+                if symbol not in all_adjustments:
+                    all_adjustments[symbol] = []
+                all_adjustments[symbol].extend(adjustments)
+        except (AttributeError, NotImplementedError):
+            # Adapter doesn't support adjustments
+            if verbose:
+                logger.debug("adapter_no_adjustments", adapter=type(adapter).__name__)
+            continue
+
+    # Return None if no adjustments found
+    return all_adjustments if all_adjustments else None
+
+
 def _load_data_files(data_paths: tuple, symbols: list, verbose: bool = False):
     """
     DEPRECATED: Legacy function for loading data from file paths.
@@ -640,6 +730,165 @@ def _load_data_files(data_paths: tuple, symbols: list, verbose: bool = False):
     raise NotImplementedError(
         "Legacy data loading not supported. Please use Instrument objects in backtest_config instead of data_paths."
     )
+
+
+def _export_output_files(
+    backtest_obj: Backtest,
+    output_dir: Path,
+    metadata: Dict[str, Any],
+    backtest_config: Dict[str, Any],
+    sys_config,
+):
+    """
+    Export backtest output files based on system configuration.
+
+    Args:
+        backtest_obj: Backtest instance with results
+        output_dir: Directory to write files
+        metadata: Backtest metadata dict
+        backtest_config: Strategy backtest configuration
+        sys_config: System configuration with generate_files settings
+    """
+    import csv
+    import json
+
+    generate = sys_config.output.generate_files
+
+    # 1. Metadata file (JSON)
+    if generate.get("metadata", True):
+        metadata_file = output_dir / "metadata.json"
+        with open(metadata_file, "w") as f:
+            json.dump(metadata, f, indent=2, default=str)
+        logger.info("exported_metadata", path=str(metadata_file))
+
+    # 2. Fills file (CSV)
+    if generate.get("fills", True) and backtest_obj.all_fills:
+        fills_file = output_dir / "fills.csv"
+        with open(fills_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "fill_id",
+                    "order_id",
+                    "timestamp",
+                    "symbol",
+                    "side",
+                    "qty",
+                    "price",
+                    "fees",
+                    "slippage_bps",
+                ]
+            )
+
+            for fill in backtest_obj.all_fills:
+                writer.writerow(
+                    [
+                        fill.fill_id,
+                        fill.order_id,
+                        fill.execution_ts,
+                        fill.symbol,
+                        fill.side.name,
+                        fill.qty,
+                        fill.price,
+                        fill.fees,
+                        fill.slippage_bps,
+                    ]
+                )
+
+        logger.info("exported_fills", path=str(fills_file), count=len(backtest_obj.all_fills))
+
+    # 3. Portfolio snapshots file (CSV)
+    if generate.get("portfolio", True) and backtest_obj.portfolio_snapshots:
+        snapshots_file = output_dir / "portfolio.csv"
+        with open(snapshots_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "timestamp",
+                    "symbol",
+                    # Bar OHLC data
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    # Adjustment factors
+                    "cumulative_price_factor",
+                    "cumulative_volume_factor",
+                    "adjustment_factor",
+                    "adjustment_reason",
+                    # Fill information
+                    "signal",
+                    "order_id",
+                    "order_type",
+                    "fill_qty",
+                    "fill_price",
+                    "commission",
+                    # Cash flow tracking
+                    "initial_cash",
+                    "cash_debits",
+                    "cash_credits",
+                    "end_cash",
+                    # Portfolio tracking
+                    "initial_portfolio_value",
+                    "daily_mtm",
+                    "end_portfolio_value",
+                    # Position details
+                    "position_qty",
+                    "position_avg_cost",
+                    # Account summary
+                    "total_value",
+                    "num_positions",
+                ]
+            )
+
+            for snapshot in backtest_obj.portfolio_snapshots:
+                writer.writerow(
+                    [
+                        snapshot["timestamp"],
+                        snapshot.get("symbol", ""),
+                        # Bar OHLC data
+                        snapshot.get("open", 0.0),
+                        snapshot.get("high", 0.0),
+                        snapshot.get("low", 0.0),
+                        snapshot.get("close", 0.0),
+                        snapshot.get("volume", 0),
+                        # Adjustment factors
+                        snapshot.get("cumulative_price_factor", ""),
+                        snapshot.get("cumulative_volume_factor", ""),
+                        snapshot.get("adjustment_factor", ""),
+                        snapshot.get("adjustment_reason", ""),
+                        # Fill information
+                        snapshot.get("signal", ""),
+                        snapshot.get("order_id", ""),
+                        snapshot.get("order_type", ""),
+                        snapshot.get("fill_qty", 0),
+                        snapshot.get("fill_price", 0.0),
+                        snapshot.get("commission", 0.0),
+                        # Cash flow tracking
+                        snapshot.get("initial_cash", 0.0),
+                        snapshot.get("cash_debits", 0.0),
+                        snapshot.get("cash_credits", 0.0),
+                        snapshot.get("end_cash", 0.0),
+                        # Portfolio tracking
+                        snapshot.get("initial_portfolio_value", 0.0),
+                        snapshot.get("daily_mtm", 0.0),
+                        snapshot.get("end_portfolio_value", 0.0),
+                        # Position details
+                        snapshot.get("position_qty", 0),
+                        snapshot.get("position_avg_cost", 0.0),
+                        # Account summary
+                        snapshot.get("total_value", 0.0),
+                        snapshot.get("num_positions", 0),
+                    ]
+                )
+
+        logger.info("exported_portfolio", path=str(snapshots_file), count=len(backtest_obj.portfolio_snapshots))
+
+    # TODO: Implement remaining file types based on generate_files config:
+    # - trades.csv (generate["trades"])
+    # - positions.csv (generate["positions"])
+    # - equity_curve.csv (generate["equity_curve"])
 
 
 def _export_debug_files(backtest_obj: Backtest, output_dir: Path):
