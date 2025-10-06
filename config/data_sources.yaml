@@ -1,0 +1,43 @@
+# QTrader Data Sources Configuration
+#
+# Maps logical data sources (used in Instrument) to physical adapters.
+# Supports environment variable substitution using ${VAR_NAME} syntax.
+#
+# Configuration precedence:
+#   1. Explicit path provided to DataSourceResolver
+#   2. ./config/data_sources.yaml (project-relative)
+#   3. ~/.qtrader/data_sources.yaml (user home)
+
+data_sources:
+  # Algoseek Parquet (local files)
+  algoseek:
+    adapter: algoseek_parquet
+    root_path: "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample"
+    mode: standard_adjusted
+    path_template: "{root_path}/SecId={secid}/*.parquet"
+    symbol_map: "data/equity_security_master_sample.csv"
+
+  # CSV files (simple format)
+  csv_file:
+    adapter: csv_adapter
+    root_path: "data/csv"
+
+  # Database (PostgreSQL example - requires environment variables)
+  # database:
+  #   adapter: postgres_adapter
+  #   connection_string: "${DB_CONNECTION_STRING}"
+  #   schema: "market_data"
+  #   table: "bars_daily"
+
+  # IQFeed (live data API example)
+  # iqfeed:
+  #   adapter: iqfeed_api
+  #   api_key: "${IQFEED_API_KEY}"
+  #   base_url: "https://api.iqfeed.net/v1"
+
+  # Binance (crypto exchange API)
+  # binance:
+  #   adapter: binance_api
+  #   api_key: "${BINANCE_API_KEY}"
+  #   api_secret: "${BINANCE_API_SECRET}"
+  #   base_url: "https://api.binance.com"
