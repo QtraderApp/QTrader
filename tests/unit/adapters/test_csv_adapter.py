@@ -8,12 +8,27 @@ import pytest
 from qtrader.adapters.csv_adapter import CSVAdapter
 from qtrader.config.data_config import BarSchemaConfig, DataConfig
 from qtrader.models.bar import DataMode
+from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 
 
 @pytest.fixture
 def csv_path():
     """Path to CSV sample data."""
     return Path("data/csv")
+
+
+@pytest.fixture
+def adapter_config(csv_path):
+    """Configuration for CSV adapter."""
+    return {
+        "root_path": str(csv_path),
+    }
+
+
+@pytest.fixture
+def instrument_aapl():
+    """AAPL instrument for testing."""
+    return Instrument("AAPL", InstrumentType.EQUITY, DataSource.CSV_FILE)
 
 
 @pytest.fixture
@@ -40,43 +55,45 @@ def data_config(bar_schema):
     )
 
 
-def test_csv_adapter_can_read_directory(csv_path):
+def test_csv_adapter_can_read_directory(adapter_config, instrument_aapl, csv_path):
     """CSV adapter should detect CSV directory."""
     if not csv_path.exists():
         pytest.skip("CSV sample data not available")
 
-    adapter = CSVAdapter()
-    assert adapter.can_read(csv_path) is True
+    adapter = CSVAdapter(adapter_config, instrument_aapl)
+    assert adapter.can_read() is True
 
 
-def test_csv_adapter_cannot_read_missing_path():
+def test_csv_adapter_cannot_read_missing_path(instrument_aapl):
     """CSV adapter should return False for missing path."""
-    adapter = CSVAdapter()
-    assert adapter.can_read(Path("nonexistent/path")) is False
+    bad_config = {"root_path": "nonexistent/path"}
+    adapter = CSVAdapter(bad_config, instrument_aapl)
+    assert adapter.can_read() is False
 
 
-def test_csv_adapter_schema_version():
+def test_csv_adapter_schema_version(adapter_config, instrument_aapl):
     """CSV adapter should report schema version."""
-    adapter = CSVAdapter()
+    adapter = CSVAdapter(adapter_config, instrument_aapl)
     assert adapter.schema_version() == "csv-v1.0"
 
 
-def test_csv_adapter_data_mode():
+def test_csv_adapter_data_mode(adapter_config, instrument_aapl):
     """CSV adapter should declare data mode."""
-    adapter = CSVAdapter()
+    adapter = CSVAdapter(adapter_config, instrument_aapl)
     assert adapter.get_data_mode() == DataMode.ADJUSTED
 
 
-def test_csv_adapter_reads_bars(csv_path, data_config):
+def test_csv_adapter_reads_bars(adapter_config, data_config, csv_path):
     """CSV adapter should load bars from CSV files (OHLCV only)."""
     if not csv_path.exists():
         pytest.skip("CSV sample data not available")
 
-    adapter = CSVAdapter()
-    bars = list(adapter.read_bars(csv_path, data_config))
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.CSV_FILE)
+    adapter = CSVAdapter(adapter_config, instrument)
+    bars = list(adapter.read_bars(data_config))
 
-    # Should have 3 files × 1258 lines = 3774 bars
-    assert len(bars) == 3774
+    # Should have 1258 bars for AAPL
+    assert len(bars) == 1258
 
     # Check types
     first_bar = bars[0]
@@ -87,19 +104,19 @@ def test_csv_adapter_reads_bars(csv_path, data_config):
     assert not hasattr(first_bar, "adj_reason")
 
 
-def test_csv_adapter_matches_parquet_data(csv_path, data_config):
+def test_csv_adapter_matches_parquet_data(adapter_config, data_config, csv_path):
     """CSV data should match parquet data (sanity check)."""
     if not csv_path.exists():
         pytest.skip("CSV sample data not available")
 
-    adapter = CSVAdapter()
-    bars = list(adapter.read_bars(csv_path, data_config))
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.CSV_FILE)
+    adapter = CSVAdapter(adapter_config, instrument)
+    bars = list(adapter.read_bars(data_config))
 
-    # Find AAPL first bar
-    aapl_bars = [b for b in bars if b.symbol == "AAPL"]
-    assert len(aapl_bars) == 1258
+    # Should have 1258 bars for AAPL
+    assert len(bars) == 1258
 
-    first_bar = aapl_bars[0]
+    first_bar = bars[0]
     # Should match parquet data (OHLCV only)
     assert first_bar.close == Decimal("157.9200")
 
@@ -107,7 +124,7 @@ def test_csv_adapter_matches_parquet_data(csv_path, data_config):
 def test_csv_adapter_can_read_single_file(tmp_path, bar_schema):
     """CSV adapter should read a single CSV file."""
     # Create a temporary CSV file
-    csv_file = tmp_path / "test.csv"
+    csv_file = tmp_path / "TEST.csv"
     csv_file.write_text(
         "TradeDate,Ticker,Open,High,Low,Close,MarketHoursVolume\n2023-01-01,TEST,100.0,105.0,99.0,102.0,1000000\n"
     )
@@ -118,10 +135,12 @@ def test_csv_adapter_can_read_single_file(tmp_path, bar_schema):
         bar_schema=bar_schema,
     )
 
-    adapter = CSVAdapter()
-    assert adapter.can_read(csv_file) is True
+    adapter_config = {"root_path": str(tmp_path)}
+    instrument = Instrument("TEST", InstrumentType.EQUITY, DataSource.CSV_FILE)
+    adapter = CSVAdapter(adapter_config, instrument)
+    assert adapter.can_read() is True
 
-    bars = list(adapter.read_bars(csv_file, config))
+    bars = list(adapter.read_bars(config))
     assert len(bars) == 1
     assert bars[0].symbol == "TEST"
     assert bars[0].close == Decimal("102.0000")

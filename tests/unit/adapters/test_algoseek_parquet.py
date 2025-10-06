@@ -9,12 +9,30 @@ import pytest
 from qtrader.adapters.algoseek_parquet import AlgoseekParquetAdapter
 from qtrader.config.data_config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig
 from qtrader.models.bar import AdjustmentEvent, DataMode
+from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 
 
 @pytest.fixture
 def fixture_path():
     """Path to sample parquet data."""
     return Path("data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample")
+
+
+@pytest.fixture
+def adapter_config(fixture_path):
+    """Configuration for Algoseek adapter."""
+    return {
+        "root_path": str(fixture_path),
+        "mode": "standard_adjusted",
+        "path_template": "{root_path}/SecId={secid}/*.parquet",
+        "symbol_map": "data/equity_security_master_sample.csv",
+    }
+
+
+@pytest.fixture
+def instrument_aapl():
+    """AAPL instrument for testing."""
+    return Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
 
 
 @pytest.fixture
@@ -54,53 +72,65 @@ def data_config(bar_schema, adjustment_schema):
     )
 
 
-def test_adapter_can_read_fixture(fixture_path):
+def test_adapter_can_read_fixture(adapter_config, instrument_aapl):
     """Adapter should detect parquet files."""
-    adapter = AlgoseekParquetAdapter()
-    assert adapter.can_read(fixture_path) is True
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument_aapl)
+    assert adapter.can_read() is True
 
 
-def test_adapter_cannot_read_missing_path():
+def test_adapter_cannot_read_missing_path(instrument_aapl):
     """Adapter should return False for missing path."""
-    adapter = AlgoseekParquetAdapter()
-    assert adapter.can_read(Path("nonexistent/path")) is False
+    bad_config = {
+        "root_path": "nonexistent/path",
+        "mode": "standard_adjusted",
+        "path_template": "{root_path}/SecId={secid}/*.parquet",
+        "symbol_map": "data/equity_security_master_sample.csv",
+    }
+    adapter = AlgoseekParquetAdapter(bad_config, instrument_aapl)
+    assert adapter.can_read() is False
 
 
-def test_adapter_schema_version():
+def test_adapter_schema_version(adapter_config, instrument_aapl):
     """Adapter should report schema version."""
-    adapter = AlgoseekParquetAdapter()
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument_aapl)
     assert adapter.schema_version() == "algoseek-parquet-v1.0"
 
 
-def test_adapter_data_mode():
+def test_adapter_data_mode(adapter_config, instrument_aapl):
     """Adapter should declare data mode."""
-    adapter = AlgoseekParquetAdapter()
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument_aapl)
     assert adapter.get_data_mode() == DataMode.ADJUSTED
 
 
-def test_adapter_reads_fixture_bars(fixture_path, data_config):
+def test_adapter_reads_fixture_bars(adapter_config, data_config):
     """Adapter should load all bars from fixture (OHLCV only)."""
-    adapter = AlgoseekParquetAdapter()
-    bars = list(adapter.read_bars(fixture_path, data_config))
+    # Test with AAPL
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    aapl_bars = list(adapter.read_bars(data_config))
 
-    # Should have 3 symbols × 1258 days = 3774 bars
-    assert len(bars) == 3774
-
-    # Check symbols are present
-    symbols = {bar.symbol for bar in bars}
-    assert symbols == {"AAPL", "MSFT", "AMZN"}
-
-
-def test_adapter_first_bar_format(fixture_path, data_config):
-    """First bar should have correct format and types (OHLCV only)."""
-    adapter = AlgoseekParquetAdapter()
-    bars = list(adapter.read_bars(fixture_path, data_config))
-
-    # Find first AAPL bar
-    aapl_bars = [b for b in bars if b.symbol == "AAPL"]
+    # AAPL should have 1258 bars
     assert len(aapl_bars) == 1258
+    assert all(bar.symbol == "AAPL" for bar in aapl_bars)
 
-    first_bar = aapl_bars[0]
+    # Test with MSFT
+    instrument = Instrument("MSFT", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    msft_bars = list(adapter.read_bars(data_config))
+    assert len(msft_bars) == 1258
+    assert all(bar.symbol == "MSFT" for bar in msft_bars)
+
+
+def test_adapter_first_bar_format(adapter_config, data_config):
+    """First bar should have correct format and types (OHLCV only)."""
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    bars = list(adapter.read_bars(data_config))
+
+    # Should have 1258 bars for AAPL
+    assert len(bars) == 1258
+
+    first_bar = bars[0]
     assert first_bar.ts.date() == date(2019, 1, 2)
     assert first_bar.symbol == "AAPL"
     assert isinstance(first_bar.open, Decimal)
@@ -112,13 +142,14 @@ def test_adapter_first_bar_format(fixture_path, data_config):
     assert not hasattr(first_bar, "px_factor")
 
 
-def test_adapter_reads_adjustments_separately(fixture_path, data_config):
+def test_adapter_reads_adjustments_separately(adapter_config, data_config):
     """Adapter should read adjustment metadata separately from bars."""
-    adapter = AlgoseekParquetAdapter()
-    adjustments = list(adapter.read_adjustments(fixture_path, data_config))
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adjustments = list(adapter.read_adjustments(data_config))
 
-    # AAPL + MSFT have dividend events in 2019-2023
-    assert len(adjustments) >= 30
+    # AAPL has dividend events in 2019-2023
+    assert len(adjustments) >= 10
     assert all(isinstance(adj, AdjustmentEvent) for adj in adjustments)
 
     # Fixture contains CashDiv, BonusSame, Subdiv
@@ -131,25 +162,24 @@ def test_adapter_reads_adjustments_separately(fixture_path, data_config):
     assert all(isinstance(adj.px_factor, Decimal) for adj in adjustments)
 
 
-def test_adapter_bars_sorted_by_symbol_and_time(fixture_path, data_config):
-    """Bars should be sorted by symbol, then timestamp."""
-    adapter = AlgoseekParquetAdapter()
-    bars = list(adapter.read_bars(fixture_path, data_config))
+def test_adapter_bars_sorted_by_symbol_and_time(adapter_config, data_config):
+    """Bars should be sorted by timestamp (single instrument)."""
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    bars = list(adapter.read_bars(data_config))
 
-    # Check ordering
+    # Check ordering - all bars should be for AAPL, sorted by time
     for i in range(1, len(bars)):
         prev, curr = bars[i - 1], bars[i]
-        # Either symbol increases, or same symbol with increasing time
-        if prev.symbol == curr.symbol:
-            assert curr.ts > prev.ts, f"Timestamps not sorted for {curr.symbol}"
-        else:
-            assert curr.symbol > prev.symbol, "Symbols not sorted"
+        assert curr.symbol == "AAPL"
+        assert curr.ts > prev.ts, f"Timestamps not sorted for {curr.symbol}"
 
 
-def test_adapter_bar_prices_are_decimal(fixture_path, data_config):
+def test_adapter_bar_prices_are_decimal(adapter_config, data_config):
     """All bar prices should be Decimal type."""
-    adapter = AlgoseekParquetAdapter()
-    bars = list(adapter.read_bars(fixture_path, data_config))
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    bars = list(adapter.read_bars(data_config))
 
     # Check first 100 bars
     for bar in bars[:100]:
@@ -159,10 +189,11 @@ def test_adapter_bar_prices_are_decimal(fixture_path, data_config):
         assert isinstance(bar.close, Decimal), f"close not Decimal for {bar.symbol}"
 
 
-def test_adapter_bar_timestamps_are_timezone_aware(fixture_path, data_config):
+def test_adapter_bar_timestamps_are_timezone_aware(adapter_config, data_config):
     """All bar timestamps should be timezone-aware."""
-    adapter = AlgoseekParquetAdapter()
-    bars = list(adapter.read_bars(fixture_path, data_config))
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    bars = list(adapter.read_bars(data_config))
 
     # Check first 100 bars
     for bar in bars[:100]:
@@ -174,7 +205,7 @@ def test_adapter_bar_timestamps_are_timezone_aware(fixture_path, data_config):
         ], f"Wrong timezone for {bar.symbol}"
 
 
-def test_adapter_no_adjustments_without_schema(fixture_path, bar_schema):
+def test_adapter_no_adjustments_without_schema(adapter_config, bar_schema):
     """Adapter should skip adjustments if adjustment_schema is None."""
     config = DataConfig(
         timezone="America/New_York",
@@ -182,8 +213,9 @@ def test_adapter_no_adjustments_without_schema(fixture_path, bar_schema):
         bar_schema=bar_schema,
         adjustment_schema=None,  # No adjustment schema
     )
-    adapter = AlgoseekParquetAdapter()
-    adjustments = list(adapter.read_adjustments(fixture_path, config))
+    instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adjustments = list(adapter.read_adjustments(config))
 
     # Should be empty when no adjustment schema provided
     assert len(adjustments) == 0
