@@ -549,6 +549,378 @@ if "dividends" in result:
 
 ______________________________________________________________________
 
+## 🔄 STAGE 6B EXTENSION: Long Position Dividend Receipts
+
+**Status:** 🟡 Ready to Implement\
+**Start Date:** October 6, 2025\
+**Estimated Duration:** 2-3 hours\
+**Objective:** Complete total return calculations by adding dividend income tracking for LONG positions
+
+### Extension Overview
+
+**Current Limitation:** Stage 6B only tracks dividend COSTS (shorts pay dividends). Long positions do NOT receive dividend income, making total return calculations incomplete and asymmetric.
+
+**Why This Matters:**
+
+- **Total Return = Price Return + Dividend Return**
+- S&P 500: ~50% of total returns come from reinvested dividends over 50+ year periods
+- Cannot fairly compare dividend-paying vs growth stocks
+- Asymmetric model: tracks costs but not income
+
+**Solution:** Add symmetric dividend receipt handling for long positions using existing infrastructure.
+
+**Effort:** Minimal (2-3 hours)
+
+- Uses existing `CashLedger.credit()` method
+- Same `DividendCalculator` formula for both directions
+- Mirror `apply_short_dividend()` with `apply_long_dividend()`
+- Only requires: 1 new method + 1 enum + 1 conditional branch + 12 tests
+
+### Requirements & Specification
+
+#### Functional Requirements
+
+**FR1: Long Position Dividend Detection**
+
+- GIVEN a long position (qty > 0) exists at end-of-day prior to ex-date
+- WHEN ex-date is encountered during backtest
+- THEN dividend amount MUST be calculated and credited to cash
+
+**FR2: Dividend Calculation Consistency**
+
+- Use identical formula as short dividends: `dividend_per_share = close_after * (cumulative_price_factor - 1)`
+- Same calculation ensures consistency and accuracy
+
+**FR3: Cash Credit Transaction**
+
+- Credit cash ledger with: `shares * dividend_per_share`
+- Transaction type: `DIVIDEND_RECEIVED` (distinct from `DIVIDEND` for shorts)
+- Transaction timestamp: ex-date
+- Description: symbol and per-share amount
+
+**FR4: Position State Requirements**
+
+- Only process positions with `qty > 0` at ex-date timestamp
+- Positions closed before ex-date receive NO dividend
+- Positions opened after ex-date receive NO dividend
+- Partial fills: credit dividend for actual shares held
+
+**FR5: Event Type Filtering**
+
+- Process only `event_type == "cashdiv"` (cash dividends)
+- Ignore stock dividends, splits, spin-offs
+- Consistent with existing short dividend logic
+
+#### Non-Functional Requirements
+
+**NFR1: Performance** - No measurable degradation (< 5% slowdown)\
+**NFR2: Maintainability** - Code symmetry between long/short dividend methods\
+**NFR3: Testability** - 12+ comprehensive tests (unit + integration)\
+**NFR4: Data Requirements** - No new data structures needed
+
+### Implementation Plan
+
+#### Phase 1: Core Implementation (1 hour)
+
+**Step 1.1: Add DIVIDEND_RECEIVED Transaction Type** (5 minutes)
+
+File: `src/qtrader/models/ledger.py`
+
+```python
+class TransactionType(Enum):
+    """Types of cash transactions in ledger."""
+    FILL = "fill"
+    DIVIDEND = "dividend"              # For SHORT positions (cost)
+    DIVIDEND_RECEIVED = "div_received" # NEW: For LONG positions (income)
+    BORROW_COST = "borrow_cost"
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
+```
+
+**Step 1.2: Implement Portfolio.apply_long_dividend()** (20 minutes)
+
+File: `src/qtrader/models/portfolio.py` (add after line 195)
+
+```python
+def apply_long_dividend(
+    self,
+    symbol: str,
+    dividend_per_share: Decimal,
+    timestamp: datetime
+) -> None:
+    """
+    Apply dividend receipt for a LONG position.
+
+    Called when a long position is held through an ex-dividend date.
+    Credits cash with the dividend amount.
+
+    Args:
+        symbol: Security identifier
+        dividend_per_share: Dividend amount per share (always positive)
+        timestamp: Ex-dividend date
+
+    Raises:
+        ValueError: If position does not exist or quantity <= 0
+
+    Example:
+        >>> portfolio.apply_long_dividend("AAPL", Decimal("0.25"), ex_date)
+        # Position: 100 shares AAPL
+        # Cash credited: 100 * 0.25 = $25.00
+    """
+    position = self.positions.get(symbol)
+    if not position:
+        raise ValueError(f"No position exists for {symbol}")
+
+    if position.qty <= 0:
+        raise ValueError(
+            f"Cannot apply long dividend to non-long position: "
+            f"{symbol} qty={position.qty}"
+        )
+
+    total_dividend = abs(position.qty) * dividend_per_share
+
+    self.cash.credit(
+        amount=total_dividend,
+        timestamp=timestamp,
+        type=TransactionType.DIVIDEND_RECEIVED,
+        description=f"{symbol} dividend: {position.qty} shares @ ${dividend_per_share}/share"
+    )
+```
+
+**Step 1.3: Extend DividendProcessor.\_calculate_dividend()** (15 minutes)
+
+File: `src/qtrader/execution/dividend_processor.py` (modify around line 160)
+
+```python
+def _calculate_dividend(
+    self,
+    symbol: str,
+    event: AdjustmentEvent,
+    position: Position,
+    timestamp: datetime
+) -> None:
+    """Calculate and apply dividend for a position (SHORT or LONG)."""
+    # Calculate dividend per share (same formula for shorts and longs)
+    dividend_per_share = DividendCalculator.calculate_from_factors(
+        close_after=event.metadata["close_after"],
+        cumulative_price_factor=event.px_factor
+    )
+
+    # Validate calculation
+    if dividend_per_share <= 0:
+        self.logger.warning(
+            f"Invalid dividend amount for {symbol}: {dividend_per_share}"
+        )
+        return
+
+    # Apply dividend based on position direction
+    if position.qty < 0:
+        # SHORT position: PAY dividend (debit cash)
+        self.portfolio.apply_short_dividend(
+            symbol=symbol,
+            dividend_per_share=dividend_per_share,
+            timestamp=timestamp
+        )
+        self.logger.info(
+            f"Applied short dividend: {symbol} "
+            f"{position.qty} shares @ ${dividend_per_share}/share"
+        )
+
+    elif position.qty > 0:
+        # LONG position: RECEIVE dividend (credit cash)
+        self.portfolio.apply_long_dividend(
+            symbol=symbol,
+            dividend_per_share=dividend_per_share,
+            timestamp=timestamp
+        )
+        self.logger.info(
+            f"Applied long dividend: {symbol} "
+            f"{position.qty} shares @ ${dividend_per_share}/share"
+        )
+```
+
+**Step 1.4: Verification** (20 minutes)
+
+```bash
+# Check syntax
+python -m py_compile src/qtrader/models/ledger.py
+python -m py_compile src/qtrader/models/portfolio.py
+python -m py_compile src/qtrader/execution/dividend_processor.py
+
+# Verify existing tests still pass
+pytest tests/unit/models/test_portfolio.py::test_portfolio_short_dividend -v
+pytest tests/unit/execution/test_dividend_processor.py -v -k "short"
+```
+
+#### Phase 2: Unit Tests (1 hour)
+
+**Portfolio Tests** (30 minutes)
+
+File: `tests/unit/models/test_portfolio.py`
+
+1. `test_portfolio_long_dividend_credits_cash` - Basic dividend receipt
+1. `test_portfolio_long_dividend_requires_long_position` - Error on missing position
+1. `test_portfolio_long_dividend_rejects_short_position` - Error on wrong direction
+1. `test_portfolio_long_dividend_partial_position` - Partial fill handling
+
+**Processor Tests** (30 minutes)
+
+File: `tests/unit/execution/test_dividend_processor.py`
+
+1. `test_processor_calculates_long_dividend` - Long dividend application
+1. `test_processor_applies_both_long_and_short_dividends` - Mixed portfolio
+1. `test_processor_logs_long_dividend_application` - Logging verification
+
+#### Phase 3: Integration Tests (30 minutes)
+
+File: `tests/integration/test_backtest_dividends.py`
+
+1. `test_long_position_receives_dividend_on_ex_date` - Basic end-to-end
+1. `test_long_position_closed_before_ex_date_no_dividend` - Timing validation
+1. `test_long_position_opened_after_ex_date_no_dividend` - Entry timing
+1. `test_multiple_dividends_over_time_long_position` - Quarterly dividends
+1. `test_mixed_portfolio_long_and_short_dividends` - Both directions simultaneously
+
+#### Phase 4: Documentation (30 minutes)
+
+- Update this section with completion details
+- Add examples of long dividend receipts
+- Update success criteria
+
+### Examples
+
+**Example 1: Single Long Position Dividend**
+
+```python
+# Setup
+position = 200 shares MSFT @ $400/share
+cash = $10,000
+
+# Dividend event
+ex_date = 2024-08-14
+dividend = $0.50/share
+
+# Result
+cash_credit = 200 × $0.50 = $100.00
+new_cash = $10,100.00
+
+# Transaction
+Transaction(
+    type=TransactionType.DIVIDEND_RECEIVED,
+    amount=Decimal("100.00"),
+    description="MSFT dividend: 200 shares @ $0.50/share"
+)
+```
+
+**Example 2: Mixed Long/Short Portfolio**
+
+```python
+# Setup
+long_aapl = 100 shares @ $180 (LONG)
+short_msft = -50 shares @ $400 (SHORT)
+
+# Both pay dividends on same ex-date
+aapl_div = $0.45/share
+msft_div = $0.50/share
+
+# Results
+aapl_credit = +$45.00  (long receives)
+msft_debit = -$25.00   (short pays)
+net_cash = +$20.00
+```
+
+**Example 3: Position Timing Edge Cases**
+
+```python
+# Ex-date: 2024-08-14
+
+# Case A: Buy before ex-date, hold through → RECEIVE ✅
+buy_date = 2024-08-13
+result = +$50 credit (100 shares × $0.50)
+
+# Case B: Buy on ex-date → NO DIVIDEND ❌
+buy_date = 2024-08-14
+result = $0
+
+# Case C: Sell before ex-date → NO DIVIDEND ❌
+sell_date = 2024-08-13
+result = $0
+
+# Case D: Buy after ex-date → NO DIVIDEND ❌
+buy_date = 2024-08-15
+result = $0
+```
+
+### Success Criteria
+
+**Functional:**
+
+- [ ] Long positions receive dividend credits on ex-date
+- [ ] Short positions still pay dividends (no regression)
+- [ ] Closed positions receive no dividends
+- [ ] Positions opened after ex-date receive no dividends
+- [ ] Cash balance reflects both costs and income
+
+**Technical:**
+
+- [ ] All 460+ tests pass (448 existing + 12 new)
+- [ ] No performance degradation (< 5% slowdown)
+- [ ] Code coverage > 95% for new code
+- [ ] Pre-commit hooks pass
+- [ ] Transaction ledger shows both `DIVIDEND` and `DIVIDEND_RECEIVED`
+
+**Documentation:**
+
+- [ ] Implementation plan updated with completion summary
+- [ ] Code docstrings comprehensive
+- [ ] Examples demonstrate key scenarios
+
+### Commit Strategy
+
+Single atomic commit after all phases complete:
+
+```
+feat(execution): Add long position dividend receipts
+
+Complete total return calculation by adding dividend income tracking
+for long positions, symmetrically with existing short dividend costs.
+
+Changes:
+- Add TransactionType.DIVIDEND_RECEIVED for long dividend income
+- Implement Portfolio.apply_long_dividend() (mirrors apply_short_dividend)
+- Extend DividendProcessor._calculate_dividend() to handle qty > 0
+- Add 12 comprehensive tests (4 unit portfolio, 3 unit processor, 5 integration)
+
+Long positions now receive dividend credits on ex-date, enabling accurate
+total return attribution (price return + dividend return).
+
+Tests: 460 passed (+12 new), 10 skipped
+Coverage: 95%+ for all modified files
+
+Closes Stage 6B Extension
+```
+
+### Risk Assessment
+
+| Risk                                | Impact | Probability | Mitigation                         |
+| ----------------------------------- | ------ | ----------- | ---------------------------------- |
+| Break existing short dividend tests | High   | Low         | Run regression after each change   |
+| Incorrect dividend direction        | High   | Low         | Unit tests validate cash direction |
+| Double-counting dividends           | High   | Low         | Use existing duplicate prevention  |
+| Missing edge cases                  | Medium | Medium      | Comprehensive integration tests    |
+
+### Post-Implementation
+
+After completion, Stage 6B will:
+
+- ✅ Track dividend costs (shorts pay)
+- ✅ Track dividend income (longs receive)
+- ✅ Enable accurate total return calculations
+- ✅ Support mixed long/short portfolios
+- ✅ Maintain transaction-level transparency
+
+______________________________________________________________________
+
 ### What's Next: Stage 7 & Beyond
 
 #### Stage 7: Strategy Framework (Planned)
@@ -567,8 +939,10 @@ ______________________________________________________________________
 
 #### Future Enhancements (Post-MVP)
 
-- Configurable dividend payment timing
-- Support for special dividends
+- Dividend reinvestment (DRIP)
+- Tax withholding on dividends
+- Qualified vs ordinary dividends
+- Special dividends tracking
 - Tax lot accounting for shorts
 - Margin requirements for short positions
 - Stock borrow availability constraints
