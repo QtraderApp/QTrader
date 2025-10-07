@@ -198,7 +198,7 @@ class Backtest:
             logger.info("backtest.calling_on_start")
             self.strategy.on_start(ctx)
 
-        # Track bars for indexing (needed for initial snapshot and next_bar lookhead)
+        # Track bars for indexing (needed for initial snapshot and next_bar lookahead)
         bars_list = list(bars)  # Ensure we can index
 
         # Capture initial portfolio snapshot before trading begins
@@ -251,25 +251,26 @@ class Backtest:
                 # Get ALL adjustment events for this date
                 events = self.events_by_date.get(bar.ts, [])
 
-                for event in events:
-                    if event.event_type == "CashDiv":
-                        # Process cash dividend
-                        # Pass previous bar's close price for dividend calculation
-                        close_prices: Dict[str, Decimal] = {}
-                        if prev_bar and prev_bar.symbol == bar.symbol:
-                            close_prices[bar.symbol] = prev_bar.close
+                # Process all dividends for this date (once per date, not per event)
+                has_dividends = any(e.event_type == "CashDiv" for e in events)
+                if has_dividends and self.dividend_processor is not None:
+                    # Collect close prices from previous bars for all symbols
+                    close_prices: Dict[str, Decimal] = {}
+                    if prev_bar:
+                        close_prices[prev_bar.symbol] = prev_bar.close
 
-                        if self.dividend_processor is not None:
-                            dividend_results = self.dividend_processor.process_ex_date(bar.ts, close_prices)
-                            if dividend_results:
-                                logger.debug(
-                                    "backtest.dividends_processed",
-                                    date=bar.ts.isoformat(),
-                                    symbol=bar.symbol,
-                                    count=len(dividend_results),
-                                    processed=sum(1 for r in dividend_results if r["processed"]),
-                                )
-                    elif event.event_type == "Subdiv" and hasattr(self, "split_processor"):
+                    dividend_results = self.dividend_processor.process_ex_date(bar.ts, close_prices)
+                    if dividend_results:
+                        logger.debug(
+                            "backtest.dividends_processed",
+                            date=bar.ts.isoformat(),
+                            count=len(dividend_results),
+                            processed=sum(1 for r in dividend_results if r["processed"]),
+                        )
+
+                # Process splits for each event
+                for event in events:
+                    if event.event_type == "Subdiv" and hasattr(self, "split_processor"):
                         # Process stock split/reverse split
                         # metadata should have 'AdjustmentFactor' from config
                         logger.info(
