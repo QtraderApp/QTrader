@@ -9,7 +9,7 @@ import pytz
 
 from qtrader.config.data_config import DataConfig
 from qtrader.config.logging_config import LoggerFactory
-from qtrader.models.bar import AdjustmentEvent, Bar, DataMode
+from qtrader.models.bar import AdjustmentEvent, Bar, DataMode, PriceSeries
 from qtrader.models.instrument import Instrument
 
 logger = LoggerFactory.get_logger()
@@ -122,16 +122,26 @@ class CSVAdapter:
                 low_d = Decimal(str(row[bar_schema.low])).quantize(quantizer, ROUND_HALF_UP)
                 close_d = Decimal(str(row[bar_schema.close])).quantize(quantizer, ROUND_HALF_UP)
 
-                bar_count += 1
-                # Use instrument symbol (not CSV column which might differ)
-                yield Bar(
-                    ts=ts,
-                    symbol=self.instrument.symbol,
+                # TODO: CSV data is typically adjusted. Same limitation as Algoseek:
+                # All 3 series get the same values until we have unadjusted source data
+                price_series = PriceSeries(
                     open=open_d,
                     high=high_d,
                     low=low_d,
                     close=close_d,
                     volume=int(row[bar_schema.volume]),
+                )
+
+                bar_count += 1
+                # Use instrument symbol (not CSV column which might differ)
+                yield Bar(
+                    ts=ts,
+                    symbol=self.instrument.symbol,
+                    unadjusted=price_series,  # TODO: Should be true unadjusted
+                    capital_adjusted=price_series,  # TODO: Should be split-adjusted only
+                    total_return=price_series,  # Assuming CSV data is adjusted
+                    dividend=None,  # TODO: Extract if CSV has dividend columns
+                    split=None,  # TODO: Extract if CSV has split columns
                 )
 
         logger.info("csv_adapter.bars_completed", symbol=self.instrument.symbol, bar_count=bar_count)
