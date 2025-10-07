@@ -280,9 +280,9 @@ class TestBacktestFullExecution:
         # Verify snapshots were created
         assert len(backtest.portfolio_snapshots) > 0, "Should have portfolio snapshots"
 
-        # Verify snapshot structure
+        # Verify snapshot structure (new 28-field format)
         snapshot = backtest.portfolio_snapshots[0]
         assert "timestamp" in snapshot
-        assert "cash" in snapshot
-        assert "equity" in snapshot
-        assert "positions" in snapshot
+        assert "end_cash" in snapshot
+        assert "total_value" in snapshot
+        assert "num_positions" in snapshot
