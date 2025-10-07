@@ -1,4 +1,4 @@
-"""Adapter for Algoseek parquet data with Hive partitioning."""
+"""Adapter for Algoseek OHLC data (parquet format with Hive partitioning)."""
 
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -10,18 +10,18 @@ import pytz
 
 from qtrader.config.data_config import DataConfig
 from qtrader.config.logging_config import LoggerFactory
-from qtrader.models.bar import AdjustmentEvent, Bar, DataMode
+from qtrader.models.bar import AdjustmentEvent, Bar, DataMode, PriceSeries
 from qtrader.models.instrument import Instrument
 
 logger = LoggerFactory.get_logger()
 
 
-class AlgoseekParquetAdapter:
+class AlgoseekOHLCAdapter:
     """
-    Adapter for Algoseek parquet data with Hive partitioning.
+    Adapter for Algoseek OHLC data in parquet format with Hive partitioning.
 
     Reads from partitioned parquet files (SecId=*/data_0.parquet) using DuckDB.
-    Normalizes Algoseek schema to canonical Bar (OHLCV) + AdjustmentEvent metadata.
+    Normalizes Algoseek schema to canonical Bar with 3 price series.
     Uses Instrument to determine symbol and constructs file paths using SecId lookup.
 
     Data Mode: ADJUSTED (prices already total-return adjusted)
@@ -39,11 +39,11 @@ class AlgoseekParquetAdapter:
             "symbol_map": "data/equity_security_master_sample.csv"
         }
         instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-        adapter = AlgoseekParquetAdapter(config, instrument)
+        adapter = AlgoseekOHLCAdapter(config, instrument)
         bars = adapter.read_bars(data_config)
     """
 
-    SCHEMA_VERSION = "algoseek-parquet-v1.0"
+    SCHEMA_VERSION = "algoseek-ohlc-v1.0"
 
     def __init__(self, config: Dict[str, Any], instrument: Instrument):
         """
@@ -296,16 +296,30 @@ class AlgoseekParquetAdapter:
                     low_d = Decimal(str(low_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
                     close_d = Decimal(str(close_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
 
-                    bar_count += 1
-                    # Use instrument symbol (not vendor symbol which might differ)
-                    yield Bar(
-                        ts=ts,
-                        symbol=self.instrument.symbol,
+                    # TODO: Currently using total_return data for all 3 series
+                    # In future, need to:
+                    # 1. Read unadjusted data from vendor
+                    # 2. Compute capital_adjusted from split history
+                    # 3. Compute total_return from capital_adjusted + dividend history
+                    # For now: All series get the same adjusted values
+                    price_series = PriceSeries(
                         open=open_d,
                         high=high_d,
                         low=low_d,
                         close=close_d,
                         volume=int(volume),
+                    )
+
+                    bar_count += 1
+                    # Use instrument symbol (not vendor symbol which might differ)
+                    yield Bar(
+                        ts=ts,
+                        symbol=self.instrument.symbol,
+                        unadjusted=price_series,  # TODO: Should be true unadjusted
+                        capital_adjusted=price_series,  # TODO: Should be split-adjusted only
+                        total_return=price_series,  # Correct: vendor data is total return adjusted
+                        dividend=None,  # TODO: Extract from vendor data if available
+                        split=None,  # TODO: Extract from vendor data if available
                     )
                 except Exception as e:
                     logger.error(

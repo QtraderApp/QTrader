@@ -34,11 +34,15 @@ class DataSourceResolver:
     Example data_sources.yaml:
         data_sources:
           algoseek:
-            adapter: algoseek_parquet
+            adapter: algoseekOHLC
             root_path: "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample"
             mode: standard_adjusted
             path_template: "{root_path}/SecId={secid}/*.parquet"
             symbol_map: "data/equity_security_master_sample.csv"
+
+          csv_samples:
+            adapter: csv
+            root_path: "data/csv"
 
           database:
             adapter: postgres_adapter
@@ -162,7 +166,7 @@ class DataSourceResolver:
         Get adapter class by name.
 
         Args:
-            adapter_name: Adapter identifier (e.g., "algoseek_parquet").
+            adapter_name: Adapter identifier (e.g., "algoseekOHLC", "csv").
 
         Returns:
             Adapter class.
@@ -175,8 +179,8 @@ class DataSourceResolver:
 
         # Map adapter names to classes
         adapter_map = {
-            "algoseek_parquet": "qtrader.adapters.algoseek_parquet.AlgoseekParquetAdapter",
-            "csv_adapter": "qtrader.adapters.csv_adapter.CSVAdapter",
+            "algoseekOHLC": "qtrader.adapters.algoseek.AlgoseekOHLCAdapter",
+            "csv": "qtrader.adapters.csv_adapter.CSVAdapter",
             # Add more adapters as needed
         }
 
