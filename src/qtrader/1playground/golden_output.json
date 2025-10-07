@@ -1,0 +1,618 @@
+{
+  "metadata": {
+    "description": "Golden test output for price series refactoring",
+    "symbol": "AAPL",
+    "start_date": "2020-08-01",
+    "end_date": "2020-09-03",
+    "corporate_events": {
+      "dividend": {
+        "date": "2020-08-07",
+        "amount": "0.82",
+        "adjusted_amount": "0.205"
+      },
+      "split": {
+        "date": "2020-08-31",
+        "ratio": "4:1",
+        "factor": 4.0
+      }
+    }
+  },
+  "series": {
+    "unadjusted": {
+      "mode": "unadjusted",
+      "bar_count": 24,
+      "bars": [
+        {
+          "trade_datetime": "2020-08-03",
+          "open": 433.0,
+          "high": 446.54,
+          "low": 431.57,
+          "close": 435.75,
+          "volume": 74413499
+        },
+        {
+          "trade_datetime": "2020-08-04",
+          "open": 436.55,
+          "high": 443.15,
+          "low": 433.55,
+          "close": 438.66,
+          "volume": 41894427
+        },
+        {
+          "trade_datetime": "2020-08-05",
+          "open": 437.75,
+          "high": 441.53,
+          "low": 435.59,
+          "close": 440.25,
+          "volume": 28639358
+        },
+        {
+          "trade_datetime": "2020-08-06",
+          "open": 441.65,
+          "high": 457.65,
+          "low": 439.19,
+          "close": 455.61,
+          "volume": 49116593
+        },
+        {
+          "trade_datetime": "2020-08-07",
+          "open": 453.0,
+          "high": 454.7,
+          "low": 441.18,
+          "close": 444.45,
+          "volume": 46760815,
+          "dividend": "0.7999"
+        },
+        {
+          "trade_datetime": "2020-08-10",
+          "open": 450.06,
+          "high": 455.1,
+          "low": 440.0,
+          "close": 450.91,
+          "volume": 51345671
+        },
+        {
+          "trade_datetime": "2020-08-11",
+          "open": 448.0,
+          "high": 449.93,
+          "low": 436.48,
+          "close": 437.5,
+          "volume": 44542146
+        },
+        {
+          "trade_datetime": "2020-08-12",
+          "open": 441.9,
+          "high": 453.1,
+          "low": 441.19,
+          "close": 452.04,
+          "volume": 40117931
+        },
+        {
+          "trade_datetime": "2020-08-13",
+          "open": 458.0,
+          "high": 464.17,
+          "low": 455.71,
+          "close": 460.04,
+          "volume": 49012755
+        },
+        {
+          "trade_datetime": "2020-08-14",
+          "open": 458.76,
+          "high": 460.0,
+          "low": 452.18,
+          "close": 459.63,
+          "volume": 39512037
+        },
+        {
+          "trade_datetime": "2020-08-17",
+          "open": 464.0,
+          "high": 464.36,
+          "low": 455.87,
+          "close": 458.43,
+          "volume": 27759840
+        },
+        {
+          "trade_datetime": "2020-08-18",
+          "open": 457.45,
+          "high": 464.0,
+          "low": 456.05,
+          "close": 462.25,
+          "volume": 25067180
+        },
+        {
+          "trade_datetime": "2020-08-19",
+          "open": 463.97,
+          "high": 468.64,
+          "low": 462.45,
+          "close": 462.83,
+          "volume": 35241167
+        },
+        {
+          "trade_datetime": "2020-08-20",
+          "open": 463.0,
+          "high": 473.56,
+          "low": 462.95,
+          "close": 473.1,
+          "volume": 30543687
+        },
+        {
+          "trade_datetime": "2020-08-21",
+          "open": 478.06,
+          "high": 499.47,
+          "low": 476.96,
+          "close": 497.48,
+          "volume": 80578252
+        },
+        {
+          "trade_datetime": "2020-08-24",
+          "open": 515.11,
+          "high": 515.14,
+          "low": 495.75,
+          "close": 503.43,
+          "volume": 82141732
+        },
+        {
+          "trade_datetime": "2020-08-25",
+          "open": 498.8,
+          "high": 500.71,
+          "low": 492.21,
+          "close": 499.3,
+          "volume": 50783015
+        },
+        {
+          "trade_datetime": "2020-08-26",
+          "open": 504.98,
+          "high": 507.97,
+          "low": 500.35,
+          "close": 506.09,
+          "volume": 39216373
+        },
+        {
+          "trade_datetime": "2020-08-27",
+          "open": 508.5,
+          "high": 509.94,
+          "low": 495.36,
+          "close": 500.04,
+          "volume": 37393655
+        },
+        {
+          "trade_datetime": "2020-08-28",
+          "open": 504.0,
+          "high": 505.77,
+          "low": 498.31,
+          "close": 499.23,
+          "volume": 44260263
+        },
+        {
+          "trade_datetime": "2020-08-31",
+          "open": 127.67,
+          "high": 131.0,
+          "low": 126.25,
+          "close": 129.04,
+          "volume": 210249674
+        },
+        {
+          "trade_datetime": "2020-09-01",
+          "open": 132.91,
+          "high": 134.8,
+          "low": 130.53,
+          "close": 134.18,
+          "volume": 143284287
+        },
+        {
+          "trade_datetime": "2020-09-02",
+          "open": 137.58,
+          "high": 137.98,
+          "low": 127.0,
+          "close": 131.4,
+          "volume": 190875978
+        },
+        {
+          "trade_datetime": "2020-09-03",
+          "open": 126.97,
+          "high": 128.84,
+          "low": 120.5,
+          "close": 120.88,
+          "volume": 240642227
+        }
+      ]
+    },
+    "adjusted": {
+      "mode": "adjusted",
+      "bar_count": 24,
+      "bars": [
+        {
+          "trade_datetime": "2020-08-03",
+          "open": 108.25,
+          "high": 111.64,
+          "low": 107.89,
+          "close": 108.94,
+          "volume": 297653995
+        },
+        {
+          "trade_datetime": "2020-08-04",
+          "open": 109.14,
+          "high": 110.79,
+          "low": 108.39,
+          "close": 109.67,
+          "volume": 167577707
+        },
+        {
+          "trade_datetime": "2020-08-05",
+          "open": 109.44,
+          "high": 110.38,
+          "low": 108.9,
+          "close": 110.06,
+          "volume": 114557431
+        },
+        {
+          "trade_datetime": "2020-08-06",
+          "open": 110.41,
+          "high": 114.41,
+          "low": 109.8,
+          "close": 113.9,
+          "volume": 196466371
+        },
+        {
+          "trade_datetime": "2020-08-07",
+          "open": 113.25,
+          "high": 113.68,
+          "low": 110.3,
+          "close": 111.11,
+          "volume": 187043259,
+          "dividend": "0.1999750000000000428517857143"
+        },
+        {
+          "trade_datetime": "2020-08-10",
+          "open": 112.52,
+          "high": 113.78,
+          "low": 110.0,
+          "close": 112.73,
+          "volume": 205382683
+        },
+        {
+          "trade_datetime": "2020-08-11",
+          "open": 112.0,
+          "high": 112.48,
+          "low": 109.12,
+          "close": 109.38,
+          "volume": 178168583
+        },
+        {
+          "trade_datetime": "2020-08-12",
+          "open": 110.48,
+          "high": 113.28,
+          "low": 110.3,
+          "close": 113.01,
+          "volume": 160471723
+        },
+        {
+          "trade_datetime": "2020-08-13",
+          "open": 114.5,
+          "high": 116.04,
+          "low": 113.93,
+          "close": 115.01,
+          "volume": 196051019
+        },
+        {
+          "trade_datetime": "2020-08-14",
+          "open": 114.69,
+          "high": 115.0,
+          "low": 113.05,
+          "close": 114.91,
+          "volume": 158048147
+        },
+        {
+          "trade_datetime": "2020-08-17",
+          "open": 116.0,
+          "high": 116.09,
+          "low": 113.97,
+          "close": 114.61,
+          "volume": 111039359
+        },
+        {
+          "trade_datetime": "2020-08-18",
+          "open": 114.36,
+          "high": 116.0,
+          "low": 114.01,
+          "close": 115.56,
+          "volume": 100268719
+        },
+        {
+          "trade_datetime": "2020-08-19",
+          "open": 115.99,
+          "high": 117.16,
+          "low": 115.61,
+          "close": 115.71,
+          "volume": 140964667
+        },
+        {
+          "trade_datetime": "2020-08-20",
+          "open": 115.75,
+          "high": 118.39,
+          "low": 115.74,
+          "close": 118.28,
+          "volume": 122174747
+        },
+        {
+          "trade_datetime": "2020-08-21",
+          "open": 119.52,
+          "high": 124.87,
+          "low": 119.24,
+          "close": 124.37,
+          "volume": 322313007
+        },
+        {
+          "trade_datetime": "2020-08-24",
+          "open": 128.78,
+          "high": 128.79,
+          "low": 123.94,
+          "close": 125.86,
+          "volume": 328566927
+        },
+        {
+          "trade_datetime": "2020-08-25",
+          "open": 124.7,
+          "high": 125.18,
+          "low": 123.05,
+          "close": 124.83,
+          "volume": 203132059
+        },
+        {
+          "trade_datetime": "2020-08-26",
+          "open": 126.25,
+          "high": 126.99,
+          "low": 125.09,
+          "close": 126.52,
+          "volume": 156865491
+        },
+        {
+          "trade_datetime": "2020-08-27",
+          "open": 127.13,
+          "high": 127.49,
+          "low": 123.84,
+          "close": 125.01,
+          "volume": 149574619
+        },
+        {
+          "trade_datetime": "2020-08-28",
+          "open": 126.0,
+          "high": 126.44,
+          "low": 124.58,
+          "close": 124.81,
+          "volume": 177041051
+        },
+        {
+          "trade_datetime": "2020-08-31",
+          "open": 127.67,
+          "high": 131.0,
+          "low": 126.25,
+          "close": 129.04,
+          "volume": 210249674
+        },
+        {
+          "trade_datetime": "2020-09-01",
+          "open": 132.91,
+          "high": 134.8,
+          "low": 130.53,
+          "close": 134.18,
+          "volume": 143284287
+        },
+        {
+          "trade_datetime": "2020-09-02",
+          "open": 137.58,
+          "high": 137.98,
+          "low": 127.0,
+          "close": 131.4,
+          "volume": 190875978
+        },
+        {
+          "trade_datetime": "2020-09-03",
+          "open": 126.97,
+          "high": 128.84,
+          "low": 120.5,
+          "close": 120.88,
+          "volume": 240642227
+        }
+      ]
+    },
+    "total_return": {
+      "mode": "total_return",
+      "bar_count": 24,
+      "bars": [
+        {
+          "trade_datetime": "2020-08-03",
+          "open": 433.0,
+          "high": 446.54,
+          "low": 431.57,
+          "close": 435.75,
+          "volume": 74413499
+        },
+        {
+          "trade_datetime": "2020-08-04",
+          "open": 436.55,
+          "high": 443.15,
+          "low": 433.55,
+          "close": 438.66,
+          "volume": 41894427
+        },
+        {
+          "trade_datetime": "2020-08-05",
+          "open": 437.75,
+          "high": 441.53,
+          "low": 435.59,
+          "close": 440.25,
+          "volume": 28639358
+        },
+        {
+          "trade_datetime": "2020-08-06",
+          "open": 441.65,
+          "high": 457.65,
+          "low": 439.19,
+          "close": 455.61,
+          "volume": 49116593
+        },
+        {
+          "trade_datetime": "2020-08-07",
+          "open": 453.82,
+          "high": 455.52,
+          "low": 441.97,
+          "close": 445.25,
+          "volume": 46760815
+        },
+        {
+          "trade_datetime": "2020-08-10",
+          "open": 450.87,
+          "high": 455.92,
+          "low": 440.79,
+          "close": 451.72,
+          "volume": 51345671
+        },
+        {
+          "trade_datetime": "2020-08-11",
+          "open": 448.81,
+          "high": 450.74,
+          "low": 437.27,
+          "close": 438.29,
+          "volume": 44542146
+        },
+        {
+          "trade_datetime": "2020-08-12",
+          "open": 442.7,
+          "high": 453.92,
+          "low": 441.98,
+          "close": 452.85,
+          "volume": 40117931
+        },
+        {
+          "trade_datetime": "2020-08-13",
+          "open": 458.82,
+          "high": 465.01,
+          "low": 456.53,
+          "close": 460.87,
+          "volume": 49012755
+        },
+        {
+          "trade_datetime": "2020-08-14",
+          "open": 459.59,
+          "high": 460.83,
+          "low": 452.99,
+          "close": 460.46,
+          "volume": 39512037
+        },
+        {
+          "trade_datetime": "2020-08-17",
+          "open": 464.84,
+          "high": 465.2,
+          "low": 456.69,
+          "close": 459.26,
+          "volume": 27759840
+        },
+        {
+          "trade_datetime": "2020-08-18",
+          "open": 458.27,
+          "high": 464.84,
+          "low": 456.87,
+          "close": 463.08,
+          "volume": 25067180
+        },
+        {
+          "trade_datetime": "2020-08-19",
+          "open": 464.81,
+          "high": 469.48,
+          "low": 463.28,
+          "close": 463.66,
+          "volume": 35241167
+        },
+        {
+          "trade_datetime": "2020-08-20",
+          "open": 463.83,
+          "high": 474.41,
+          "low": 463.78,
+          "close": 473.95,
+          "volume": 30543687
+        },
+        {
+          "trade_datetime": "2020-08-21",
+          "open": 478.92,
+          "high": 500.37,
+          "low": 477.82,
+          "close": 498.38,
+          "volume": 80578252
+        },
+        {
+          "trade_datetime": "2020-08-24",
+          "open": 516.04,
+          "high": 516.07,
+          "low": 496.64,
+          "close": 504.34,
+          "volume": 82141732
+        },
+        {
+          "trade_datetime": "2020-08-25",
+          "open": 499.7,
+          "high": 501.61,
+          "low": 493.1,
+          "close": 500.2,
+          "volume": 50783015
+        },
+        {
+          "trade_datetime": "2020-08-26",
+          "open": 505.89,
+          "high": 508.88,
+          "low": 501.25,
+          "close": 507.0,
+          "volume": 39216373
+        },
+        {
+          "trade_datetime": "2020-08-27",
+          "open": 509.42,
+          "high": 510.86,
+          "low": 496.25,
+          "close": 500.94,
+          "volume": 37393655
+        },
+        {
+          "trade_datetime": "2020-08-28",
+          "open": 504.91,
+          "high": 506.68,
+          "low": 499.21,
+          "close": 500.13,
+          "volume": 44260263
+        },
+        {
+          "trade_datetime": "2020-08-31",
+          "open": 511.6,
+          "high": 524.94,
+          "low": 505.91,
+          "close": 517.09,
+          "volume": 52562418
+        },
+        {
+          "trade_datetime": "2020-09-01",
+          "open": 532.6,
+          "high": 540.17,
+          "low": 523.06,
+          "close": 537.69,
+          "volume": 35821071
+        },
+        {
+          "trade_datetime": "2020-09-02",
+          "open": 551.31,
+          "high": 552.91,
+          "low": 508.91,
+          "close": 526.55,
+          "volume": 47718994
+        },
+        {
+          "trade_datetime": "2020-09-03",
+          "open": 508.79,
+          "high": 516.29,
+          "low": 482.87,
+          "close": 484.39,
+          "volume": 60160556
+        }
+      ]
+    }
+  }
+}
