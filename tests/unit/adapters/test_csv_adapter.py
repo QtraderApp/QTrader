@@ -84,7 +84,7 @@ def test_csv_adapter_data_mode(adapter_config, instrument_aapl):
 
 
 def test_csv_adapter_reads_bars(adapter_config, data_config, csv_path):
-    """CSV adapter should load bars from CSV files (OHLCV only)."""
+    """CSV adapter should load bars with 3 price series."""
     if not csv_path.exists():
         pytest.skip("CSV sample data not available")
 
@@ -95,13 +95,16 @@ def test_csv_adapter_reads_bars(adapter_config, data_config, csv_path):
     # Should have 1258 bars for AAPL
     assert len(bars) == 1258
 
-    # Check types
+    # Check Bar structure with 3 price series
     first_bar = bars[0]
-    assert isinstance(first_bar.open, Decimal)
-    assert isinstance(first_bar.close, Decimal)
-    assert isinstance(first_bar.volume, int)
-    # Bar should NOT have adjustment fields
-    assert not hasattr(first_bar, "adj_reason")
+    assert hasattr(first_bar, "unadjusted")
+    assert hasattr(first_bar, "capital_adjusted")
+    assert hasattr(first_bar, "total_return")
+
+    # Check types in total_return series (should be the adjusted data)
+    assert isinstance(first_bar.total_return.open, Decimal)
+    assert isinstance(first_bar.total_return.close, Decimal)
+    assert isinstance(first_bar.total_return.volume, int)
 
 
 def test_csv_adapter_matches_parquet_data(adapter_config, data_config, csv_path):
@@ -117,8 +120,8 @@ def test_csv_adapter_matches_parquet_data(adapter_config, data_config, csv_path)
     assert len(bars) == 1258
 
     first_bar = bars[0]
-    # Should match parquet data (OHLCV only)
-    assert first_bar.close == Decimal("157.9200")
+    # Should match parquet data - check total_return series (adjusted)
+    assert first_bar.total_return.close == Decimal("157.9200")
 
 
 def test_csv_adapter_can_read_single_file(tmp_path, bar_schema):
@@ -143,4 +146,4 @@ def test_csv_adapter_can_read_single_file(tmp_path, bar_schema):
     bars = list(adapter.read_bars(config))
     assert len(bars) == 1
     assert bars[0].symbol == "TEST"
-    assert bars[0].close == Decimal("102.0000")
+    assert bars[0].total_return.close == Decimal("102.0000")

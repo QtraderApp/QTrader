@@ -1,4 +1,4 @@
-"""Tests for Algoseek Parquet adapter."""
+"""Tests for Algoseek OHLC adapter."""
 
 from datetime import date
 from decimal import Decimal
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.adapters.algoseek_parquet import AlgoseekParquetAdapter
+from qtrader.adapters.algoseek import AlgoseekOHLCAdapter
 from qtrader.config.data_config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig
 from qtrader.models.bar import AdjustmentEvent, DataMode
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
@@ -74,7 +74,7 @@ def data_config(bar_schema, adjustment_schema):
 
 def test_adapter_can_read_fixture(adapter_config, instrument_aapl):
     """Adapter should detect parquet files."""
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument_aapl)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument_aapl)
     assert adapter.can_read() is True
 
 
@@ -86,19 +86,19 @@ def test_adapter_cannot_read_missing_path(instrument_aapl):
         "path_template": "{root_path}/SecId={secid}/*.parquet",
         "symbol_map": "data/equity_security_master_sample.csv",
     }
-    adapter = AlgoseekParquetAdapter(bad_config, instrument_aapl)
+    adapter = AlgoseekOHLCAdapter(bad_config, instrument_aapl)
     assert adapter.can_read() is False
 
 
 def test_adapter_schema_version(adapter_config, instrument_aapl):
     """Adapter should report schema version."""
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument_aapl)
-    assert adapter.schema_version() == "algoseek-parquet-v1.0"
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument_aapl)
+    assert adapter.schema_version() == "algoseek-ohlc-v1.0"
 
 
 def test_adapter_data_mode(adapter_config, instrument_aapl):
     """Adapter should declare data mode."""
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument_aapl)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument_aapl)
     assert adapter.get_data_mode() == DataMode.ADJUSTED
 
 
@@ -106,7 +106,7 @@ def test_adapter_reads_fixture_bars(adapter_config, data_config):
     """Adapter should load all bars from fixture (OHLCV only)."""
     # Test with AAPL
     instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument)
     aapl_bars = list(adapter.read_bars(data_config))
 
     # AAPL should have 1258 bars
@@ -115,16 +115,16 @@ def test_adapter_reads_fixture_bars(adapter_config, data_config):
 
     # Test with MSFT
     instrument = Instrument("MSFT", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument)
     msft_bars = list(adapter.read_bars(data_config))
     assert len(msft_bars) == 1258
     assert all(bar.symbol == "MSFT" for bar in msft_bars)
 
 
 def test_adapter_first_bar_format(adapter_config, data_config):
-    """First bar should have correct format and types (OHLCV only)."""
+    """First bar should have correct format and types with 3 price series."""
     instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument)
     bars = list(adapter.read_bars(data_config))
 
     # Should have 1258 bars for AAPL
@@ -133,19 +133,27 @@ def test_adapter_first_bar_format(adapter_config, data_config):
     first_bar = bars[0]
     assert first_bar.ts.date() == date(2019, 1, 2)
     assert first_bar.symbol == "AAPL"
-    assert isinstance(first_bar.open, Decimal)
-    assert isinstance(first_bar.close, Decimal)
-    assert first_bar.close == Decimal("157.9200")  # Adjusted price
-    assert first_bar.volume == 30606605  # Actual volume from fixture data
-    # Bar should NOT have adjustment fields
-    assert not hasattr(first_bar, "adj_reason")
-    assert not hasattr(first_bar, "px_factor")
+
+    # Bar should have 3 price series
+    assert hasattr(first_bar, "unadjusted")
+    assert hasattr(first_bar, "capital_adjusted")
+    assert hasattr(first_bar, "total_return")
+
+    # Check total_return series (the adjusted data from vendor)
+    assert isinstance(first_bar.total_return.open, Decimal)
+    assert isinstance(first_bar.total_return.close, Decimal)
+    assert first_bar.total_return.close == Decimal("157.9200")  # Adjusted price
+    assert first_bar.total_return.volume == 30606605  # Actual volume from fixture data
+
+    # Bar should have optional dividend/split fields
+    assert hasattr(first_bar, "dividend")
+    assert hasattr(first_bar, "split")
 
 
 def test_adapter_reads_adjustments_separately(adapter_config, data_config):
     """Adapter should read adjustment metadata separately from bars."""
     instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument)
     adjustments = list(adapter.read_adjustments(data_config))
 
     # AAPL has dividend events in 2019-2023
@@ -165,7 +173,7 @@ def test_adapter_reads_adjustments_separately(adapter_config, data_config):
 def test_adapter_bars_sorted_by_symbol_and_time(adapter_config, data_config):
     """Bars should be sorted by timestamp (single instrument)."""
     instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument)
     bars = list(adapter.read_bars(data_config))
 
     # Check ordering - all bars should be for AAPL, sorted by time
@@ -176,23 +184,25 @@ def test_adapter_bars_sorted_by_symbol_and_time(adapter_config, data_config):
 
 
 def test_adapter_bar_prices_are_decimal(adapter_config, data_config):
-    """All bar prices should be Decimal type."""
+    """All bar prices in all series should be Decimal type."""
     instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument)
     bars = list(adapter.read_bars(data_config))
 
-    # Check first 100 bars
+    # Check first 100 bars - verify all 3 price series have Decimal prices
     for bar in bars[:100]:
-        assert isinstance(bar.open, Decimal), f"open not Decimal for {bar.symbol}"
-        assert isinstance(bar.high, Decimal), f"high not Decimal for {bar.symbol}"
-        assert isinstance(bar.low, Decimal), f"low not Decimal for {bar.symbol}"
-        assert isinstance(bar.close, Decimal), f"close not Decimal for {bar.symbol}"
+        for series_name in ["unadjusted", "capital_adjusted", "total_return"]:
+            series = getattr(bar, series_name)
+            assert isinstance(series.open, Decimal), f"{series_name}.open not Decimal for {bar.symbol}"
+            assert isinstance(series.high, Decimal), f"{series_name}.high not Decimal for {bar.symbol}"
+            assert isinstance(series.low, Decimal), f"{series_name}.low not Decimal for {bar.symbol}"
+            assert isinstance(series.close, Decimal), f"{series_name}.close not Decimal for {bar.symbol}"
 
 
 def test_adapter_bar_timestamps_are_timezone_aware(adapter_config, data_config):
     """All bar timestamps should be timezone-aware."""
     instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument)
     bars = list(adapter.read_bars(data_config))
 
     # Check first 100 bars
@@ -214,7 +224,7 @@ def test_adapter_no_adjustments_without_schema(adapter_config, bar_schema):
         adjustment_schema=None,  # No adjustment schema
     )
     instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-    adapter = AlgoseekParquetAdapter(adapter_config, instrument)
+    adapter = AlgoseekOHLCAdapter(adapter_config, instrument)
     adjustments = list(adapter.read_adjustments(config))
 
     # Should be empty when no adjustment schema provided

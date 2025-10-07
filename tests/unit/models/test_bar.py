@@ -5,48 +5,73 @@ from decimal import Decimal
 
 import pytz
 
-from qtrader.models.bar import AdjustmentEvent, Bar, BarFrequency, DataMode, OHLCPolicy
+from qtrader.models.bar import AdjustmentEvent, Bar, BarFrequency, DataMode, OHLCPolicy, PriceSeries
+
+
+def create_test_bar(
+    symbol: str = "AAPL",
+    ts: datetime | None = None,
+    open_price: Decimal = Decimal("150.25"),
+    high_price: Decimal = Decimal("151.50"),
+    low_price: Decimal = Decimal("149.75"),
+    close_price: Decimal = Decimal("151.00"),
+    volume: int = 1000000,
+) -> Bar:
+    """Helper to create test bar with all three price series."""
+    if ts is None:
+        ts = datetime(2023, 1, 1, tzinfo=pytz.UTC)
+
+    # Create same prices for all series (for simple tests)
+    price_series = PriceSeries(
+        open=open_price,
+        high=high_price,
+        low=low_price,
+        close=close_price,
+        volume=volume,
+    )
+
+    return Bar(
+        ts=ts,
+        symbol=symbol,
+        unadjusted=price_series,
+        capital_adjusted=price_series,
+        total_return=price_series,
+        dividend=None,
+        split=None,
+    )
 
 
 def test_bar_creation_with_decimal_prices():
-    """Bar should store prices as Decimal (OHLCV only)."""
-    bar = Bar(
-        ts=datetime(2023, 1, 1, tzinfo=pytz.UTC),
-        symbol="AAPL",
-        open=Decimal("150.25"),
-        high=Decimal("151.50"),
-        low=Decimal("149.75"),
-        close=Decimal("151.00"),
-        volume=1000000,
-    )
-    assert isinstance(bar.open, Decimal)
-    assert bar.open == Decimal("150.25")
-    assert isinstance(bar.close, Decimal)
-    assert bar.volume == 1000000
+    """Bar should store prices as Decimal in all three series."""
+    bar = create_test_bar()
+
+    # All three series should have Decimal prices
+    assert isinstance(bar.unadjusted.open, Decimal)
+    assert bar.unadjusted.open == Decimal("150.25")
+    assert isinstance(bar.capital_adjusted.close, Decimal)
+    assert isinstance(bar.total_return.close, Decimal)
+    assert bar.unadjusted.volume == 1000000
 
 
 def test_bar_is_vendor_agnostic():
     """Bar should be vendor-agnostic (no vendor-specific fields)."""
-    bar = Bar(
-        ts=datetime(2023, 1, 1, tzinfo=pytz.UTC),
-        symbol="AAPL",
-        open=Decimal("150.25"),
-        high=Decimal("151.50"),
-        low=Decimal("149.75"),
-        close=Decimal("151.00"),
-        volume=1000000,
-    )
-    # Bar should only have OHLCV fields
+    bar = create_test_bar()
+
+    # Bar should have required fields
     assert hasattr(bar, "ts")
     assert hasattr(bar, "symbol")
-    assert hasattr(bar, "open")
-    assert hasattr(bar, "high")
-    assert hasattr(bar, "low")
-    assert hasattr(bar, "close")
-    assert hasattr(bar, "volume")
-    # No vendor-specific fields
-    assert not hasattr(bar, "adj_reason")
-    assert not hasattr(bar, "px_factor")
+    assert hasattr(bar, "unadjusted")
+    assert hasattr(bar, "capital_adjusted")
+    assert hasattr(bar, "total_return")
+    assert hasattr(bar, "dividend")
+    assert hasattr(bar, "split")
+
+    # Each series should have OHLCV
+    assert hasattr(bar.unadjusted, "open")
+    assert hasattr(bar.unadjusted, "high")
+    assert hasattr(bar.unadjusted, "low")
+    assert hasattr(bar.unadjusted, "close")
+    assert hasattr(bar.unadjusted, "volume")
 
 
 def test_adjustment_event_creation():
