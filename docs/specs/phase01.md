@@ -38,56 +38,77 @@ ______________________________________________________________________
 
 **Design goal:** Accept **any vendor schema** → transform to a **canonical Bar** used end‑to‑end across the trade lifecycle (signals → orders → fills → accounting).
 
-**Bar is vendor-agnostic, asset-agnostic, and frequency-agnostic.** Works with equities, futures, crypto, forex at any timeframe. Vendor-specific fields (adjustments, bid/ask, etc.) are stored separately in `AdjustmentEvent`.
+**Bar is vendor-agnostic, asset-agnostic, and frequency-agnostic.** Works with equities, futures, crypto, forex at any timeframe. Each bar provides multiple price series for different use cases.
 
-**Bar Contract (OHLCV only):**
+**Bar Contract (Multi-Series):**
 
 ```python
-class Bar(NamedTuple):
-    """
-    Canonical OHLCV bar - the ONLY contract consumed by execution engine.
-
-    This is vendor-agnostic, asset-agnostic, and frequency-agnostic.
-    Works with equities, futures, crypto, forex at any timeframe.
-    """
-    ts: datetime         # timezone-aware per data.timezone
-    symbol: str
+@dataclass(frozen=True)
+class PriceSeries:
+    """OHLCV for a specific adjustment mode."""
     open: Decimal
     high: Decimal
     low: Decimal
     close: Decimal
-    volume: int
+    volume: int  # Adjusted volume for this series
+
+@dataclass(frozen=True)
+class Bar:
+    """
+    Canonical bar with multiple price series.
+
+    Adapter responsibility: Transform vendor data into all three series.
+    Downstream components choose which series to use via configuration.
+    """
+    ts: datetime         # timezone-aware per data.timezone
+    symbol: str
+
+    # Price series (adapter computes all three)
+    unadjusted: PriceSeries      # Raw execution prices + actual volume
+    capital_adjusted: PriceSeries # Split-adjusted (standard backtesting)
+    total_return: PriceSeries     # Split + dividend adjusted (benchmarking)
+
+    # Corporate actions (if any on this bar)
+    dividend: Optional[Dividend] = None
+    split: Optional[Split] = None
+
+@dataclass(frozen=True)
+class Dividend:
+    """Cash dividend event."""
+    ex_date: datetime
+    amount_per_share: Decimal
+    payment_date: Optional[datetime] = None
+
+@dataclass(frozen=True)
+class Split:
+    """Stock split event."""
+    ex_date: datetime
+    ratio: Decimal  # e.g., 0.25 for 4:1 split
 ```
+
+**Why volume in PriceSeries:** Volume adjustments differ by series (splits affect volume). Execution monitoring (participation %) requires unadjusted volume.
 
 **AdjustmentEvent (Separate Storage):**
 
 ```python
 class AdjustmentEvent(NamedTuple):
     """
-    Corporate action metadata for analysis and validation.
+    Corporate action metadata - DEPRECATED in favor of Bar.dividend/Bar.split.
 
-    NOT used by execution engine. Stored for:
-    - Audit trail (data provenance)
-    - Performance attribution (dividend-adjusted returns)
-    - Data validation (detect missing adjustments)
+    Kept for backward compatibility with existing adapters.
+    New adapters should populate Bar.dividend/Bar.split directly.
     """
-    ts: datetime                      # Event timestamp (ex-date)
+    ts: datetime
     symbol: str
-    event_type: str                   # CashDiv, Split, StockDiv, SpinOff
-    px_factor: Decimal                # Cumulative price adjustment factor
-    vol_factor: Decimal               # Cumulative volume adjustment factor
-    metadata: Dict[str, Any]          # Vendor-specific details (amount, ratio, etc.)
+    event_type: str
+    px_factor: Decimal
+    vol_factor: Decimal
+    metadata: Dict[str, Any]
 ```
 
-**DataMode Enum:**
+**DataMode Enum (DEPRECATED):**
 
-```python
-class DataMode(Enum):
-    """Declares whether dataset is adjusted or unadjusted."""
-    ADJUSTED = "adjusted"              # Total-return adjusted (splits + dividends)
-    UNADJUSTED = "unadjusted"          # Raw prices, no adjustments
-    SPLIT_ADJUSTED = "split_adjusted"  # Split-adjusted only, no dividends
-```
+DataMode no longer needed - Bar contains all three adjustment modes. Configuration now specifies which series to use per component.
 
 **Adapter interface:**
 
@@ -95,32 +116,53 @@ class DataMode(Enum):
 class DataAdapter(Protocol):
     def can_read(self, source: URI) -> bool: ...
     def schema_version(self) -> str: ...
-    def get_data_mode(self) -> DataMode: ...
     def read_bars(self, source: URI, config: DataConfig) -> Iterable[Bar]: ...
-    def read_adjustments(self, source: URI, config: DataConfig) -> Iterable[AdjustmentEvent]: ...
 ```
 
-**Pipeline:** `Read vendor data → Map schema → Emit Bar + AdjustmentEvent`.
+**Pipeline:** `Read vendor data → Compute 3 price series → Extract dividends/splits → Emit Bar`.
+
+**Adapter responsibility:**
+
+- Compute `unadjusted`, `capital_adjusted`, `total_return` series from vendor data
+- Extract `dividend` and `split` events into Bar attributes
+- For Algoseek: unadjusted = total_return / CPF, capital_adjusted = remove dividend adjustments
+- For other vendors: adapt based on vendor format
 
 **Schema mapping (config-driven):**
 
 - `bar_schema` maps vendor columns to OHLCV fields (ts, symbol, open, high, low, close, volume)
-- `adjustment_schema` (optional) maps vendor columns to adjustment fields
-- No code changes needed for new vendors - just config
+- Adapter computes all three price series internally (vendor-specific logic)
+- No code changes needed for new vendors - just implement adapter transformation logic
+
+**Downstream component configuration:**
+
+```yaml
+execution:
+  price_series: unadjusted  # Use raw prices for fills (realistic execution)
+
+portfolio:
+  price_series: capital_adjusted  # Use split-adjusted for valuation
+
+performance:
+  price_series: total_return  # Use total-return for benchmarking
+
+cash_ledger:
+  auto_process_dividends: true  # Watch bar.dividend, auto credit/debit
+```
 
 **Extensibility rules:**
 
-- New vendor = new `DataAdapter` implementation + config mapping; engine code unchanged
-- The **Bar** type is the **only** price/volume contract consumed by Exec/Cost/Risk
-- **AdjustmentEvent** is optional metadata for audit/analysis, not execution
-- Adapter declares `DataMode` to indicate if data is adjusted or unadjusted
-- Optionally persist a **Standard Bar Extract** to disk (parquet) to speed reruns
+- New vendor = new `DataAdapter` implementation; engine code unchanged
+- The **Bar** with multiple price series is the **only** contract consumed by engine
+- `bar.dividend` and `bar.split` used by cash ledger for automatic processing
+- Adapters choose which price series to use via configuration, not code changes
+- Participation monitoring uses `bar.unadjusted.volume` (actual market volume)
 
 **Validation:**
 
 - Strict type/required checks at adapter boundary
 - Frequency/monotonic checks after normalization
-- OHLC relationship validation (high ≥ max(o,c), low ≤ min(o,c))
+- OHLC relationship validation per series (high ≥ max(o,c), low ≤ min(o,c))
 
 **Versioning:**
 
@@ -128,8 +170,8 @@ class DataAdapter(Protocol):
 
 **Naming convention:**
 
-- Adapters named: `{Vendor}{AssetClass}{Frequency}{DataType}Adapter`
-- Example: `AlgoseekUSEquityDailyOHLCAdapter`, `IQFeedUSEquityMinuteOHLCAdapter`
+- Adapters named: `{Vendor}Adapter` (e.g., `AlgoseekOHLCAdapter`, `IQFeedAdapter`)
+- Legacy `AlgoseekParquetAdapter` renamed to `AlgoseekOHLCAdapter`
 
 ### 2.4 Instrument Abstraction & Data Sources
 
@@ -271,29 +313,27 @@ ______________________________________________________________________
 {
   "ts": "YYYY‑MM‑DD[THH:MM]",
   "symbol": "AAPL",
-  "open": 197.1200,
-  "high": 198.5000,
-  "low": 195.8000,
-  "close": 197.9100,
-  "volume": 32456789
+  "unadjusted": {
+    "open": 197.1200, "high": 198.5000, "low": 195.8000,
+    "close": 197.9100, "volume": 32456789
+  },
+  "capital_adjusted": {
+    "open": 195.2000, "high": 196.4000, "low": 193.9000,
+    "close": 195.8000, "volume": 32456789
+  },
+  "total_return": {
+    "open": 200.5000, "high": 201.8000, "low": 199.1000,
+    "close": 201.2000, "volume": 32456789
+  },
+  "dividend": {
+    "ex_date": "2023-02-10",
+    "amount_per_share": 0.24
+  },
+  "split": null
 }
 ```
 
-**Note:** Adjustment metadata (dividends, splits) stored separately in `AdjustmentEvent`:
-
-```json
-{
-  "ts": "2023-02-10",
-  "symbol": "AAPL",
-  "event_type": "CashDiv",
-  "px_factor": 1.2345,
-  "vol_factor": 0.8123,
-  "metadata": {
-    "dividend_amount": 0.24,
-    "currency": "USD"
-  }
-}
-```
+**Note:** Each bar contains all three price series. Downstream components select which to use via configuration.
 
 **Precision:** Prices serialized at `data.decimals.price` (default 4). Indicator math uses float64; ledger uses Decimal.
 
@@ -321,7 +361,8 @@ See §2.4 for complete data source configuration and mapping.
 
 - Validate monotonic timestamps per symbol.
 - Median delta must match `frequency` when `strict_frequency=true`.
-- If `mode=standard_adjusted`, **disable long dividends** and **enable short dividend debits**.
+- Validate OHLC relationships for all three price series in Bar.
+- Cash ledger watches `bar.dividend` and auto-processes (credit long, debit short).
 
 ### 3.4 Data Validation Policies (dataset‑specific)
 
@@ -444,10 +485,10 @@ trading:
 - If `allow_short=true`:
 
   - **Borrow cost accrual:** each EOD: `cash -= |short_market_value| × (borrow_rate_annual/252)`.
-  - **Short dividends:** on **ex‑date** when `adj_reason` indicates cash dividend and net short at bar close (EOD), post `cash -= |shares| × dividend_per_share`.
-  - **Long dividends:** none (embedded in adjusted prices).
+  - **Short dividends:** Cash ledger watches `bar.dividend` attribute. If position is net short at bar close, post `cash -= |shares| × bar.dividend.amount_per_share`.
+  - **Long dividends:** Cash ledger watches `bar.dividend` attribute. If position is net long at bar close, post `cash += shares × bar.dividend.amount_per_share`.
 
-**Dividend source:** For P1, `dividend_per_share` is derived from vendor CA metadata or implied from price factors when available; if missing, engine logs a warning and skips cash posting (prices still reflect the event).
+**Dividend processing:** Automatic via `bar.dividend` attribute. No separate `DividendProcessor` needed - cash ledger handles both long receipts and short payments on ex-date.
 
 ______________________________________________________________________
 
@@ -479,17 +520,24 @@ strategy.on_start(ctx)                   # after warmup completes
 # Phase 4: Trading Loop
 for bar in dataset:
   emit(bar)
+
+  # Auto-process dividends from bar.dividend attribute
+  if bar.dividend and portfolio.has_position(bar.symbol):
+    ledger.process_dividend(bar.dividend, portfolio.position(bar.symbol))
+
   strategy.on_bar(bar)                   # submit orders (strategy_ts = bar.ts)
   exec.evaluate_intrabar(bar)            # limit/stop touches; apply participation; partials
   exec.end_of_bar(bar)                   # MOC on current; schedule Market for next open
   ledger.apply_fills_and_costs()
-  ledger.eod_accruals()                  # borrow, short dividends if ex‑date
+  ledger.eod_accruals()                  # borrow costs
   outputs.snapshot_if_eod()
   logs.write()
 
 # Phase 5: Finalization
 strategy.on_end(ctx)
 ```
+
+**Price series selection:** Components select which series to use (unadjusted/capital_adjusted/total_return) via configuration. Execution uses `bar.unadjusted` by default for realistic fills and participation monitoring.
 
 **Timestamps:** each fill slice records `strategy_ts` (submission) and `execution_ts` (fill). Engine clock = bar timestamps; no sub‑bar clock in P1.
 

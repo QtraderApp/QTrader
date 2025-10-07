@@ -24,17 +24,19 @@ ______________________________________________________________________
 **Total Tests:** 470 passing, 10 skipped\
 **Code Coverage:** 96%\
 **Status:** Production Ready\
-**Next:** Stage 8 (Golden Baselines)
+**Next:** Stage 8 (Canonical Bar Enhancement)
 
 ### Architecture Highlights
 
-- ✅ Vendor-agnostic Bar model (pure OHLCV)
-- ✅ Adjustment events tracked separately (AdjustmentEvent)
+- ✅ Multiple price series per bar (unadjusted, capital_adjusted, total_return)
+- ✅ Configurable series selection per component (execution, portfolio, performance)
+- ✅ Automatic dividend processing via bar.dividend attribute
+- ✅ Vendor-agnostic Bar model (pure multi-series OHLCV)
+- ✅ Adjustment logic isolated in adapters (not in engine)
 - ✅ Signal-based risk management (portfolio-scoped)
 - ✅ Decimal precision throughout (no float errors)
 - ✅ Conservative fill model (no look-ahead bias)
 - ✅ Comprehensive indicators (SMA, EMA, BB, RSI, ATR, MACD)
-- ✅ Symmetric dividend processing (long receives, short pays)
 - ✅ Instrument abstraction (logical vs physical separation)
 - ✅ Multi-source data support (Algoseek, CSV, extensible)
 - ✅ Production-ready CLI (self-contained strategies)
@@ -44,7 +46,7 @@ ______________________________________________________________________
 
 ## 🎯 Quick Navigation
 
-- **What's Next** → [Stage 8: Golden Baselines](#stage-8-golden-baselines-next)
+- **What's Next** → [Stage 8: Canonical Bar Enhancement](#stage-8-canonical-bar-enhancement-next)
 - **Recent Stages** → [Stage 6C](#stage-6c-instrument-abstraction-complete) | [Stage 7](#stage-7-backtest-runner--cli-complete)
 - **Project Structure** → [Appendix A](#appendix-a-project-structure)
 - **Development Workflow** → [Appendix B](#appendix-b-development-workflow)
@@ -276,27 +278,145 @@ class SMACrossover(Strategy):
 
 ______________________________________________________________________
 
-## Stage 8: Golden Baselines (NEXT)
+## Stage 8: Canonical Bar Enhancement (NEXT)
 
-**Duration:** 5-7 days | **Priority:** HIGH | **Status:** Ready to start
+**Duration:** 1-2 weeks | **Priority:** HIGH | **Status:** Ready to start
 
 ### Objective
 
-Establish deterministic golden baselines for regression testing and validation. Create reference strategies with known-good results that must pass in CI.
+Transform Bar model from single OHLCV to multi-series format with automatic dividend processing. Eliminates separate `DividendProcessor` and `SplitProcessor` - all adjustment logic moves to adapters.
+
+### Specification Summary
+
+**New Bar Model:**
+
+```python
+@dataclass(frozen=True)
+class PriceSeries:
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int  # Adjusted for this series
+
+@dataclass(frozen=True)
+class Bar:
+    ts: datetime
+    symbol: str
+    unadjusted: PriceSeries      # Raw prices, actual volume
+    capital_adjusted: PriceSeries # Split-adjusted
+    total_return: PriceSeries     # Split + dividend adjusted
+    dividend: Optional[Dividend] = None
+    split: Optional[Split] = None
+```
+
+**Component Price Series Selection:**
+
+```yaml
+execution:
+  price_series: unadjusted  # Realistic fills, participation monitoring
+portfolio:
+  price_series: capital_adjusted  # Standard valuation
+performance:
+  price_series: total_return  # Benchmark comparison
+```
+
+### Implementation Phases
+
+**Phase 1: Models (2-3 days)**
+
+1. Define `PriceSeries`, `Dividend`, `Split` dataclasses
+1. Update `Bar` model with multiple series
+1. Add `price_series` config to execution/portfolio/performance
+1. Update all type hints
+
+**Phase 2: AlgoseekOHLCAdapter (3-4 days)**
+
+1. Rename `algoseek_parquet.py` → `algoseek.py`
+1. Rename `AlgoseekParquetAdapter` → `AlgoseekOHLCAdapter`
+1. Implement 3-series computation:
+   - `total_return` = data as-is (already adjusted)
+   - `unadjusted` = total_return / CPF (work backwards)
+   - `capital_adjusted` = remove dividend adjustments from total_return
+1. Extract `bar.dividend` from AdjustmentFactor/Reason metadata
+1. Extract `bar.split` from AdjustmentFactor metadata
+1. Update all tests
+
+**Phase 3: Execution Engine (2-3 days)**
+
+1. Update `ExecutionEngine.on_bar()` to use `bar.{configured_series}`
+1. Update `FillPolicy` to use configured series
+1. Participation uses `bar.unadjusted.volume`
+1. Remove dependency on separate adjustment events
+
+**Phase 4: Cash Ledger Auto-Processing (1-2 days)**
+
+1. Add `CashLedger.process_bar(bar, position)`
+1. Watch `bar.dividend`, auto credit/debit based on position
+1. Remove `DividendProcessor` (logic moved to adapter + ledger)
+1. Remove `SplitProcessor` (logic moved to adapter)
+
+**Phase 5: Portfolio & Performance (1 day)**
+
+1. Update `Portfolio.update_prices()` to use configured series
+1. Update performance calculations to use configured series
+1. Add series selection to configuration
+
+**Phase 6: Testing & Migration (2-3 days)**
+
+1. Update all unit tests for new Bar structure
+1. Update integration tests
+1. Regenerate golden baselines (Stage 8 prerequisite)
+1. Update example strategies (recreate from scratch)
+
+### Breaking Changes
+
+- ✅ Bar model completely refactored (no backward compatibility)
+- ✅ Adapter interface changes (`read_bars()` signature)
+- ✅ All strategies must be updated (examples recreated)
+- ✅ `DividendProcessor` and `SplitProcessor` removed
+- ✅ `AdjustmentEvent` deprecated (kept for compatibility)
+
+### Success Criteria
+
+- ✅ Adapter outputs all 3 price series correctly
+- ✅ Execution uses unadjusted by default
+- ✅ Portfolio uses capital_adjusted by default
+- ✅ Dividends auto-processed from bar.dividend
+- ✅ All tests pass with new structure
+- ✅ Code simpler (fewer processors, cleaner flow)
+
+### Estimated Effort
+
+- Models & config: 2-3 days
+- Adapter refactor: 3-4 days
+- Engine updates: 2-3 days
+- Ledger auto-processing: 1-2 days
+- Portfolio/performance: 1 day
+- Testing & migration: 2-3 days
+- **Total: 11-16 days (1-2 weeks)**
+
+______________________________________________________________________
+
+## Stage 9: Golden Baselines (AFTER STAGE 8)
+
+**Duration:** 3-5 days | **Priority:** HIGH
+
+Establish deterministic golden baselines after Stage 8 canonical bar implementation completes.
 
 ### Implementation Plan
 
 **Phase 1: Reference Strategies (2 days)**
 
-1. **Buy-and-Hold Strategy**
+1. **Buy-and-Hold Strategy** (recreate after Stage 8)
 
    - Symbols: AAPL, MSFT, AMZN
    - Period: 2023-01-01 to 2023-12-31
    - Initial allocation: Equal weight
    - Expected behavior: One-time purchases, hold to end
-   - Validates: Basic execution, portfolio tracking, dividends
+   - Validates: Basic execution, portfolio tracking, automatic dividends
 
-1. **SMA Crossover Strategy**
+1. **SMA Crossover Strategy** (recreate after Stage 8)
 
    - Symbol: MSFT
    - Parameters: 20/50 SMA
