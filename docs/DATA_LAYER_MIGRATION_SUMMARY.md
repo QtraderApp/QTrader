@@ -6,14 +6,15 @@ ______________________________________________________________________
 
 ## 🎯 Objective
 
-Migrate QTrader from legacy multi-series `Bar` model to new **Canonical Data Layer** with iterator-based data flow.
+Migrate QTrader from legacy multi-series `Bar` model to new **Canonical Data Layer** with iterator-based data flow and **multi-mode architecture**.
 
 **Key Principles:**
 
 - ✅ **No backward compatibility** - Clean refactor
 - ✅ **No bridge code** - Direct replacement
 - ✅ **Iterator-based** - Memory efficient streaming
-- ✅ **Configuration-driven** - Mode selection in YAML
+- ✅ **Multi-mode architecture** - Each bar contains all 3 adjustment modes
+- ✅ **Configuration-driven** - Mode selection per component in YAML
 
 ______________________________________________________________________
 
@@ -23,7 +24,8 @@ ______________________________________________________________________
 
 **Data Layer Models** - Production ready:
 
-- `CanonicalBar` - Single series bar (Pydantic)
+- `MultiModeBar` - Container with all 3 adjustment modes (designed, not yet implemented)
+- `CanonicalBar` - Single price series (Pydantic)
 - `CanonicalPriceSeries` - Collection with mode
 - `AlgoseekBar` - Vendor-specific with correct dividend formula
 - `AlgoseekPriceSeries.to_canonical_series()` - Transforms to 3 modes
@@ -45,25 +47,32 @@ ______________________________________________________________________
 
 ## 🏗️ Target Architecture
 
-### Data Flow (Iterator-Based)
+### Data Flow (Multi-Mode Iterator)
 
 ```
-┌──────────────────────────────────────────────────┐
-│  1. Raw Data (Parquet/CSV)                       │
-│     ↓                                             │
-│  2. VendorAdapter → Iterator[AlgoseekBar]        │
-│     ↓                                             │
-│  3. PriceSeriesBuilder → 3 CanonicalPriceSeries  │
-│     ↓                                             │
-│  4. Mode Selection (config: "adjusted")          │
-│     ↓                                             │
-│  5. PriceSeriesIterator → CanonicalBar           │
-│     ↓                                             │
-│  6. Backtest.run(iterator)                       │
-│     ↓                                             │
-│  7. Strategy.on_bar(bar: CanonicalBar)           │
-│          bar.close  # Direct access!             │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  1. Raw Data (Parquet/CSV)                               │
+│     ↓                                                     │
+│  2. VendorAdapter → Iterator[AlgoseekBar]                │
+│     ↓                                                     │
+│  3. PriceSeriesBuilder → 3 CanonicalPriceSeries          │
+│     ↓                                                     │
+│  4. PriceSeriesIterator → MultiModeBar                   │
+│        ├─ .unadjusted (actual traded prices)            │
+│        ├─ .adjusted (split-adjusted)                     │
+│        └─ .total_return (split + dividend)               │
+│     ↓                                                     │
+│  5. Backtest.run(iterator)                               │
+│     ↓                                                     │
+│  6. Strategy.on_bar(bar: MultiModeBar)                   │
+│        bar.adjusted.close  # For indicators              │
+│     ↓                                                     │
+│  7. Execution.on_bar(bar: MultiModeBar)                  │
+│        bar.unadjusted.high  # For fills                  │
+│     ↓                                                     │
+│  8. Portfolio.update(bar: MultiModeBar)                  │
+│        bar.total_return.close  # For performance         │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### Key Improvements
@@ -79,17 +88,29 @@ def on_bar(self, bar: Bar, ctx: Context):
 **After (NEW)**:
 
 ```python
-def on_bar(self, bar: CanonicalBar, ctx: Context):
-    # Single series - direct access
-    close = bar.close
+# Strategy uses adjusted (split-consistent indicators)
+def on_bar(self, bar: MultiModeBar, ctx: Context):
+    strategy_bar = bar.adjusted  # or bar.get_bar("adjusted")
+    close = strategy_bar.close
+
+# Execution uses unadjusted (realistic fills)
+def evaluate_fill(self, bar: MultiModeBar, order: Order):
+    exec_bar = bar.unadjusted
+    fill_price = exec_bar.high
+
+# Portfolio uses total_return (accurate performance)
+def calculate_return(self, bar: MultiModeBar):
+    perf_bar = bar.total_return
+    return_pct = (perf_bar.close - self.entry) / self.entry
 ```
 
 **Benefits**:
 
-- ✅ Simpler strategy code (no series selection)
-- ✅ Memory efficient (iterator vs load-all)
-- ✅ Clean vendor separation
-- ✅ Configuration-driven mode selection
+- ✅ **Optimal mode per component** - Signal gen (adjusted), Execution (unadjusted), Performance (total_return)
+- ✅ **Single data load** - All 3 modes available, no duplicate I/O
+- ✅ **Memory efficient** - Iterator-based streaming
+- ✅ **Configuration-driven** - Mode selection per stage in YAML
+- ✅ **Correctness** - Commissions on actual prices, indicators across splits, returns with dividends
 
 ______________________________________________________________________
 
@@ -113,14 +134,26 @@ ______________________________________________________________________
 
 ## 🔑 Critical Changes
 
-### 1. Bar Model Simplification
+### 1. Multi-Mode Bar Architecture
 
-| Aspect             | OLD                          | NEW                    |
-| ------------------ | ---------------------------- | ---------------------- |
-| **Structure**      | Multi-series NamedTuple      | Single-series Pydantic |
-| **Price Access**   | `bar.capital_adjusted.close` | `bar.close`            |
-| **Mode Selection** | Runtime (code)               | Config-time (YAML)     |
-| **Memory**         | All series loaded            | Single series          |
+| Aspect             | OLD                          | NEW                                      |
+| ------------------ | ---------------------------- | ---------------------------------------- |
+| **Structure**      | Multi-series NamedTuple      | Multi-mode Pydantic                      |
+| **Bar Type**       | `Bar` (all 3 series)         | `MultiModeBar` (container)               |
+| **Price Access**   | `bar.capital_adjusted.close` | `bar.adjusted.close`                     |
+| **Mode Selection** | Hardcoded in components      | Config per component                     |
+| **Strategy**       | N/A                          | Uses `.adjusted` (split-safe)            |
+| **Execution**      | N/A                          | Uses `.unadjusted` (real prices)         |
+| **Performance**    | N/A                          | Uses `.total_return` (dividends)         |
+| **Memory**         | All series loaded            | All 3 modes (acceptable for correctness) |
+
+**Why Multi-Mode?**
+
+Different components need different adjustment modes:
+
+- **Strategy**: `adjusted` - Technical indicators work across stock splits
+- **Execution**: `unadjusted` - Commissions calculated on actual traded prices
+- **Performance**: `total_return` - Returns include dividend reinvestment
 
 ### 2. Data Loading Pattern
 
@@ -132,14 +165,14 @@ bars: List[Bar] = list(adapter.read_bars(config))
 # Returns complex multi-series bars
 ```
 
-**NEW** (Adapter returns vendor model):
+**NEW** (Multi-mode iterator):
 
 ```python
 adapter = AlgoseekVendorAdapter(config)
 vendor_bars = list(adapter.read_bars(symbol, start, end))
 series = AlgoseekPriceSeries(symbol, bars=vendor_bars)
-canonical = series.to_canonical_series()  # 3 modes
-iterator = PriceSeriesIterator(canonical["adjusted"])
+canonical = series.to_canonical_series()  # All 3 modes
+iterator = PriceSeriesIterator(canonical)  # Yields MultiModeBar
 ```
 
 ### 3. Configuration
@@ -148,7 +181,10 @@ iterator = PriceSeriesIterator(canonical["adjusted"])
 
 ```yaml
 data:
-  price_series_mode: "adjusted"  # unadjusted | adjusted | total_return
+  # Mode per component for optimal correctness
+  signal_generation_mode: "adjusted"      # Strategy indicators
+  execution_mode: "unadjusted"            # Realistic fills
+  performance_mode: "total_return"        # Include dividends
 ```
 
 ______________________________________________________________________
@@ -161,12 +197,13 @@ ______________________________________________________________________
 - [ ] Golden output matches ($0.82 dividend validated)
 - [ ] Iterator-based data flow working
 - [ ] Multi-symbol coordination working
-- [ ] All 3 modes selectable
+- [ ] Multi-mode bar architecture working
+- [ ] Each component uses optimal mode
 
 ### Non-Functional
 
 - [ ] Code coverage >95%
-- [ ] Memory usage ≤ current (iterator should reduce)
+- [ ] Memory usage acceptable (3x bars but streaming keeps it bounded)
 - [ ] Performance within 10% of current
 - [ ] Documentation complete
 - [ ] Examples working
@@ -186,9 +223,10 @@ ______________________________________________________________________
 | Risk                      | Severity | Mitigation                  |
 | ------------------------- | -------- | --------------------------- |
 | Breaking changes in tests | HIGH     | Phase 7 dedicated (3 days)  |
-| Performance regression    | MEDIUM   | Phase 9 validation          |
+| Memory usage (3x bars)    | LOW      | Streaming keeps it bounded  |
 | Multi-symbol coordination | MEDIUM   | BarMerger tested separately |
 | Iterator state bugs       | LOW      | Comprehensive unit tests    |
+| Mode selection errors     | LOW      | Config validation + tests   |
 
 ______________________________________________________________________
 
@@ -196,10 +234,11 @@ ______________________________________________________________________
 
 ### Phase 2: Iterator Infrastructure
 
-- `PriceSeriesIterator` class (peek support)
-- `DataLoader` service
-- Configuration schema
-- 20+ unit tests
+- `MultiModeBar` model (container with 3 CanonicalBar fields)
+- `PriceSeriesIterator` class (yields MultiModeBar)
+- `DataLoader` service (loads all 3 modes)
+- Configuration schema (mode per component)
+- 25+ unit tests
 
 ### Phase 3: Adapter Refactoring
 
@@ -210,24 +249,25 @@ ______________________________________________________________________
 
 ### Phase 4: Backtest Engine
 
-- `BarMerger` (multi-symbol coordination)
+- `BarMerger` (multi-symbol coordination, yields MultiModeBar)
 - Updated `Backtest.run()` signature
-- Iterator-based event loop
-- Updated strategy interface
+- Iterator-based event loop (passes MultiModeBar)
+- Updated strategy interface (receives MultiModeBar)
 - 15+ integration tests
 
 ### Phase 5: Execution Engine
 
-- Updated `ExecutionEngine.on_bar()`
-- Direct field access (bar.high, bar.low)
-- Simplified fill logic
+- Updated `ExecutionEngine.on_bar(bar: MultiModeBar)`
+- Uses `bar.unadjusted` for realistic fills
+- Simplified fill logic (actual traded prices)
 - 50+ tests updated
 
 ### Phase 6: Portfolio Update
 
-- Updated `Portfolio.update_bar()`
-- Updated `Position` valuation
-- Direct field access
+- Updated `Portfolio.update_bar(bar: MultiModeBar)`
+- Uses `bar.unadjusted` for valuation
+- Uses `bar.total_return` for performance
+- Updated `Position` calculations
 - 40+ tests updated
 
 ### Phase 7: Test Suite
@@ -319,11 +359,21 @@ ______________________________________________________________________
 
 ## 💡 Key Design Decisions
 
-### Decision 1: Single Series per Bar
+### Decision 1: Multi-Mode Bar Architecture
 
-**Why**: Simpler code, configuration-driven mode selection\
-**Trade-off**: Can't mix modes in same backtest\
-**Verdict**: ✅ Accept - Cleaner architecture
+**Why**: Different components need different adjustment modes
+
+**Benefits**:
+
+- Strategy uses adjusted (split-consistent indicators)
+- Execution uses unadjusted (realistic fills, accurate commissions)
+- Performance uses total_return (includes dividends)
+
+**Trade-off**: 3x memory (one bar becomes three)
+
+**Verdict**: ✅ Accept - Correctness outweighs memory cost
+
+**Details**: See `docs/MULTI_MODE_ARCHITECTURE_DECISION.md`
 
 ### Decision 2: Iterator-Based Flow
 
@@ -348,6 +398,12 @@ ______________________________________________________________________
 ## 📞 Questions?
 
 See full implementation plan: `docs/DATA_LAYER_MIGRATION_PLAN.md`
+
+**Key Documents**:
+
+- **Architecture Decision**: `docs/MULTI_MODE_ARCHITECTURE_DECISION.md`
+- **Before/After Comparison**: `docs/DATA_LAYER_BEFORE_AFTER.md`
+- **Phase-by-Phase Plan**: `docs/DATA_LAYER_MIGRATION_PLAN.md`
 
 **Key Sections**:
 
