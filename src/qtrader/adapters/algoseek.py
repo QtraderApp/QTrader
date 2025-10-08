@@ -112,8 +112,12 @@ class AlgoseekOHLCVendorAdapter:
         """
         Load symbol → SecId mapping from CSV.
 
+        Supports both formats:
+        - Test format: Symbol, SecId
+        - Algoseek format: Tickers, SecId
+
         Returns:
-            DataFrame with Symbol and SecId columns
+            DataFrame with Symbol and SecId columns (normalized)
 
         Raises:
             ValueError: If CSV missing required columns
@@ -122,7 +126,13 @@ class AlgoseekOHLCVendorAdapter:
 
         df = pd.read_csv(self.symbol_map_path)
 
-        # Validate required columns
+        # Normalize column names (support both test and production formats)
+        if "Tickers" in df.columns and "Symbol" not in df.columns:
+            # Algoseek format: rename Tickers → Symbol
+            df = df.rename(columns={"Tickers": "Symbol"})
+            logger.debug("algoseek_ohlc_vendor_adapter.normalized_columns", from_col="Tickers", to_col="Symbol")
+
+        # Validate required columns (after normalization)
         required_cols = ["Symbol", "SecId"]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
