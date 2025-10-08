@@ -9,7 +9,7 @@ from qtrader.config.logging_config import LoggerFactory
 from qtrader.execution.commission import CommissionCalculator
 from qtrader.execution.config import ExecutionConfig
 from qtrader.execution.fill_policy import FillDecision, FillPolicy
-from qtrader.models.bar import Bar
+from qtrader.models.canonical_bar import CanonicalBar
 from qtrader.models.order import Fill, OrderBase, OrderSide, OrderState, TimeInForce
 from qtrader.models.portfolio import Portfolio
 
@@ -90,8 +90,8 @@ class ExecutionEngine:
         self.bar_participation: Dict[tuple, int] = {}  # (bar_ts, symbol, side) -> filled_qty
 
         # Bar tracking (for Market orders that need next bar)
-        self.current_bar: Optional[Bar] = None
-        self.next_bar: Optional[Bar] = None
+        self.current_bar: Optional[CanonicalBar] = None
+        self.next_bar: Optional[CanonicalBar] = None
 
         logger.info(
             "execution_engine.initialized",
@@ -166,12 +166,21 @@ class ExecutionEngine:
             stop_price=float(order.stop_price) if order.stop_price else None,
         )
 
-    def on_bar(self, bar: Bar, next_bar: Optional[Bar] = None, is_close_only: bool = False) -> List[Fill]:
+    def on_bar(
+        self,
+        bar: CanonicalBar,
+        symbol: str,
+        ts: datetime,
+        next_bar: Optional[CanonicalBar] = None,
+        is_close_only: bool = False,
+    ) -> List[Fill]:
         """
-        Process bar and generate fills.
+        Process bar and generate fills (Phase 4 CanonicalBar architecture).
 
         Args:
-            bar: Current bar to process
+            bar: Current bar to process (CanonicalBar - no symbol/ts fields)
+            symbol: Symbol for this bar (from MultiModeBar)
+            ts: Timestamp for this bar (parsed from bar.trade_datetime)
             next_bar: Next bar (needed for Market orders)
             is_close_only: If True, skip limit/stop evaluation (malformed OHLC bar)
 
@@ -181,13 +190,13 @@ class ExecutionEngine:
         self.current_bar = bar
         self.next_bar = next_bar
 
-        # Update portfolio with current prices
-        self.portfolio.update_prices({bar.symbol: bar.close})
+        # Update portfolio with current prices (convert float to Decimal)
+        self.portfolio.update_prices({symbol: Decimal(str(bar.close))})
 
         logger.debug(
             "execution_engine.on_bar",
-            symbol=bar.symbol,
-            ts=bar.ts.isoformat(),
+            symbol=symbol,
+            ts=ts.isoformat(),
             close=float(bar.close),
             pending_orders=len(self.pending_orders),
             is_close_only=is_close_only,
@@ -200,7 +209,7 @@ class ExecutionEngine:
 
         for order_id, order in list(self.pending_orders.items()):
             # Only evaluate orders for this symbol
-            if order.symbol != bar.symbol:
+            if order.symbol != symbol:
                 continue
 
             # Check DAY order expiration
@@ -215,7 +224,7 @@ class ExecutionEngine:
             ):
                 # Get submission date and current date
                 submission_date = order.submission_bar_ts.date()
-                current_date = bar.ts.date()
+                current_date = ts.date()
 
                 # Expire if we're past the submission date
                 if current_date > submission_date:
@@ -262,7 +271,7 @@ class ExecutionEngine:
                         continue
 
                 # Calculate participation cap (Stage 5)
-                participation_cap = self._calculate_participation_cap(bar, order.side)
+                participation_cap = self._calculate_participation_cap(bar, symbol, ts, order.side)
 
                 # Determine fill quantity (may be partial)
                 requested_qty = order.remaining_qty
@@ -285,14 +294,14 @@ class ExecutionEngine:
                 partial_index = self.order_partial_counts[order_id]
 
                 # Generate fill
-                fill = self._generate_fill(order, decision, bar, fill_qty, partial_index)
+                fill = self._generate_fill(order, decision, bar, symbol, ts, fill_qty, partial_index)
                 fills.append(fill)
 
                 # Apply fill to portfolio
-                self._apply_fill(order, fill, bar)
+                self._apply_fill(order, fill)
 
                 # Update participation tracking
-                self._update_participation(bar, order.side, fill_qty)
+                self._update_participation(symbol, ts, order.side, fill_qty)
 
                 # Update order with partial fill
                 remaining_qty = requested_qty - fill_qty
@@ -396,17 +405,21 @@ class ExecutionEngine:
         self,
         order: OrderBase,
         decision: FillDecision,
-        bar: Bar,
+        bar: CanonicalBar,
+        symbol: str,
+        ts: datetime,
         fill_qty: int,
         partial_index: int,
     ) -> Fill:
         """
-        Generate fill from order and decision.
+        Generate fill from order and decision (Phase 4 CanonicalBar architecture).
 
         Args:
             order: Order being filled
             decision: Fill decision with price
-            bar: Current bar
+            bar: Current bar (CanonicalBar - no symbol/ts fields)
+            symbol: Symbol for this bar
+            ts: Timestamp for this bar
             fill_qty: Quantity to fill (may be less than order.remaining_qty)
             partial_index: Index of this partial fill (0 for full fills)
 
@@ -430,15 +443,20 @@ class ExecutionEngine:
         # Calculate participation (fill_qty / bar.volume)
         participation = float(fill_qty) / float(bar.volume) if bar.volume > 0 else 0.0
 
+        # Ensure fill_price is Decimal (CanonicalBar prices are float)
+        fill_price_decimal = (
+            Decimal(str(decision.fill_price)) if not isinstance(decision.fill_price, Decimal) else decision.fill_price
+        )
+
         # Create fill
         fill = Fill(
             fill_id=fill_id,
             order_id=order.order_id,
-            execution_ts=bar.ts,
+            execution_ts=ts,
             symbol=order.symbol,
             side=order.side,
             qty=fill_qty,
-            price=decision.fill_price,
+            price=fill_price_decimal,
             slippage_bps=slippage_bps,
             fees=commission_result.commission,
             participation=participation,
@@ -452,15 +470,13 @@ class ExecutionEngine:
         self,
         order: OrderBase,
         fill: Fill,
-        bar: Bar,
     ) -> None:
         """
-        Apply fill to portfolio.
+        Apply fill to portfolio (Phase 4 - bar not needed, all info in fill).
 
         Args:
             order: Order being filled
-            fill: Fill details
-            bar: Current bar
+            fill: Fill details (includes symbol, ts, price, qty, etc.)
         """
         try:
             self.portfolio.apply_fill(
@@ -484,12 +500,14 @@ class ExecutionEngine:
             )
             raise
 
-    def _calculate_participation_cap(self, bar: Bar, side: OrderSide) -> int:
+    def _calculate_participation_cap(self, bar: CanonicalBar, symbol: str, ts: datetime, side: OrderSide) -> int:
         """
-        Calculate participation cap for this bar and side.
+        Calculate participation cap for this bar and side (Phase 4 CanonicalBar architecture).
 
         Args:
-            bar: Current bar
+            bar: Current bar (CanonicalBar)
+            symbol: Symbol for this bar
+            ts: Timestamp for this bar
             side: Order side (BUY or SELL)
 
         Returns:
@@ -499,7 +517,7 @@ class ExecutionEngine:
         total_cap = int(bar.volume * self.config.max_participation)
 
         # Get already filled quantity for this bar/symbol/side
-        key = (bar.ts, bar.symbol, side)
+        key = (ts, symbol, side)
         already_filled = self.bar_participation.get(key, 0)
 
         # Remaining cap for this side
@@ -507,7 +525,7 @@ class ExecutionEngine:
 
         logger.debug(
             "execution_engine.participation_cap_calculated",
-            symbol=bar.symbol,
+            symbol=symbol,
             side=side.value,
             bar_volume=bar.volume,
             max_participation=float(self.config.max_participation),
@@ -526,7 +544,7 @@ class ExecutionEngine:
 
         Args:
             order: Order with signal_price
-            fill_price: Proposed fill price
+            fill_price: Proposed fill price (may be float from CanonicalBar)
             max_deviation_pct: Maximum allowed deviation (e.g., 0.10 = 10%)
 
         Returns:
@@ -537,6 +555,10 @@ class ExecutionEngine:
         """
         if order.signal_price is None:
             return (True, "No signal price to check", 0.0)
+
+        # Ensure fill_price is Decimal for comparison (CanonicalBar uses float)
+        if not isinstance(fill_price, Decimal):
+            fill_price = Decimal(str(fill_price))
 
         # Calculate absolute deviation percentage
         deviation = abs(fill_price - order.signal_price) / order.signal_price
@@ -551,57 +573,26 @@ class ExecutionEngine:
 
         return (True, "Fill price within tolerance", deviation_pct)
 
-    def _update_participation(self, bar: Bar, side: OrderSide, filled_qty: int) -> None:
+    def _update_participation(self, symbol: str, ts: datetime, side: OrderSide, filled_qty: int) -> None:
         """
-        Update participation tracking after a fill.
+        Update participation tracking after a fill (Phase 4 CanonicalBar architecture).
 
         Args:
-            bar: Current bar
+            symbol: Symbol for this bar
+            ts: Timestamp for this bar
             side: Order side
             filled_qty: Quantity filled
         """
-        key = (bar.ts, bar.symbol, side)
+        key = (ts, symbol, side)
         self.bar_participation[key] = self.bar_participation.get(key, 0) + filled_qty
 
         logger.debug(
             "execution_engine.participation_updated",
-            symbol=bar.symbol,
+            symbol=symbol,
             side=side.value,
             filled_qty=filled_qty,
             total_filled=self.bar_participation[key],
         )
-
-    def _check_queue_expiration(self, order: OrderBase, bar: Bar) -> bool:
-        """
-        Check if partially filled order should expire due to queue timeout.
-
-        Args:
-            order: Order to check
-            bar: Current bar
-
-        Returns:
-            True if order should expire, False otherwise
-        """
-        if order.state != OrderState.PARTIALLY_FILLED:
-            return False
-
-        # Check if already exceeded queue_bars limit (before incrementing)
-        if self.order_queue_bars[order.order_id] >= self.config.queue_bars:
-            logger.info(
-                "execution_engine.partial_order_expired",
-                order_id=order.order_id,
-                symbol=order.symbol,
-                filled_qty=order.filled_qty,
-                remaining_qty=order.remaining_qty,
-                bars_in_queue=self.order_queue_bars[order.order_id],
-                queue_bars_limit=self.config.queue_bars,
-                reason="Exceeded queue_bars limit",
-            )
-            return True
-
-        # Increment bars in queue for next check
-        self.order_queue_bars[order.order_id] += 1
-        return False
 
     def on_end_of_day(self, ts: datetime) -> None:
         """
@@ -647,27 +638,6 @@ class ExecutionEngine:
             "portfolio_equity": float(self.portfolio.get_equity()),
             "portfolio_cash": float(self.portfolio.cash.get_balance()),
         }
-
-    def evaluate_orders(self, bar: Bar, next_bar: Optional[Bar] = None) -> None:
-        """
-        Convenience method to evaluate orders for a bar.
-
-        Args:
-            bar: Current bar to process
-            next_bar: Next bar (needed for Market orders)
-        """
-        self.on_bar(bar, next_bar=next_bar, is_close_only=False)
-
-    def end_of_bar(self, bar: Bar) -> None:
-        """
-        End-of-bar processing placeholder.
-
-        Currently a no-op, but allows tests to explicitly mark bar boundaries.
-
-        Args:
-            bar: Current bar
-        """
-        pass
 
     def get_orders(self) -> List[OrderBase]:
         """

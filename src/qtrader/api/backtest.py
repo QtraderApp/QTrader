@@ -1,5 +1,6 @@
 """Backtest runner and config loader."""
 
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -212,8 +213,8 @@ class Backtest:
         initial_cash = ctx.portfolio.cash.get_balance()
         first_bar = bars_list[start_idx][0] if start_idx < len(bars_list) else None
         initial_snapshot = {
-            "timestamp": first_bar.ts.isoformat() if first_bar else None,
-            "symbol": first_bar.symbol if first_bar else None,
+            "timestamp": first_bar.trade_datetime if first_bar else None,  # CanonicalBar uses trade_datetime
+            "symbol": ctx.current_symbol if first_bar else None,  # Symbol from context, not bar
             # Cash tracking
             "initial_cash": float(initial_cash),
             "cash_debits": 0.0,
@@ -243,18 +244,25 @@ class Backtest:
             unadjusted_bar = multi_mode_bar.unadjusted
             next_unadjusted_bar = bars_list[bar_idx + 1][1].unadjusted if bar_idx + 1 < len(bars_list) else None
 
-            # Update context state for this bar (strategy uses adjusted)
-            ctx.current_date = bar.ts
-            ctx.current_symbol = bar.symbol
-            ctx.current_price = bar.close
+            # Parse timestamp and symbol from MultiModeBar
+            # CanonicalBar has trade_datetime (string), MultiModeBar has symbol
+            bar_ts = datetime.fromisoformat(bar.trade_datetime)
+            symbol = multi_mode_bar.symbol
 
-            # Add bar to context history (strategy uses adjusted)
-            ctx._add_bar_to_history(bar)
+            # Update context state for this bar (strategy uses adjusted)
+            ctx.current_date = bar_ts
+            ctx.current_symbol = symbol
+            ctx.current_price = Decimal(str(bar.close))
+
+            # Note: Not adding CanonicalBar to history since it lacks symbol field
+            # Bar history is legacy - indicators should use data directly
+            # This will be addressed in Phase 4 Part 4 when strategies receive MultiModeBar
 
             # Detect and process splits (before dividends and trading)
             # Compare unadjusted/adjusted price ratio to detect splits
-            adjustment_ratio = unadjusted_bar.close / bar.close
-            prev_ratio = self._prev_adjustment_ratios.get(bar.symbol)
+            # CanonicalBar prices are float, so convert to Decimal for calculation
+            adjustment_ratio = Decimal(str(unadjusted_bar.close)) / Decimal(str(bar.close))
+            prev_ratio = self._prev_adjustment_ratios.get(symbol)
 
             if prev_ratio is not None:
                 # Check if ratio changed significantly (indicates split)
@@ -264,8 +272,8 @@ class Backtest:
                     # Split detected!
                     logger.info(
                         "backtest.split_detected",
-                        symbol=bar.symbol,
-                        date=bar.ts.isoformat(),
+                        symbol=symbol,
+                        date=bar.trade_datetime,
                         prev_ratio=float(prev_ratio),
                         curr_ratio=float(adjustment_ratio),
                         split_ratio=float(ratio_change),
@@ -273,7 +281,7 @@ class Backtest:
 
                     # Process split (updates position qty and cost basis)
                     split_result = self.split_processor.process_split(
-                        symbol=bar.symbol,
+                        symbol=symbol,
                         adjustment_factor=Decimal("1") / ratio_change,  # Convert to AlgoSeek format
                         current_price=unadjusted_bar.close,
                     )
@@ -281,12 +289,12 @@ class Backtest:
                     if split_result.get("processed"):
                         logger.info(
                             "backtest.split_processed",
-                            symbol=bar.symbol,
+                            symbol=symbol,
                             **split_result,
                         )
 
             # Store current ratio for next iteration
-            self._prev_adjustment_ratios[bar.symbol] = adjustment_ratio
+            self._prev_adjustment_ratios[symbol] = adjustment_ratio
 
             # Process dividend cash payment (if bar has dividend on ex-date)
             # Use UNADJUSTED dividend amount for cash payments (Phase 2 architecture)
@@ -295,20 +303,20 @@ class Backtest:
             # - Example: After 4:1 split, 4 shares × $0.205 unadjusted = $0.82 total
             if unadjusted_bar.dividend is not None:
                 # Get current position for this symbol
-                position = ctx.portfolio.positions.get_position(bar.symbol)
+                position = ctx.portfolio.positions.get_position(symbol)
                 if position and not position.is_flat():
                     # Credit cash for long positions, debit for short positions
                     # Use UNADJUSTED dividend amount (actual dollars paid at that time)
                     if position.qty > 0:
                         ctx.portfolio.apply_long_dividend(
-                            symbol=bar.symbol,
+                            symbol=symbol,
                             dividend_per_share=unadjusted_bar.dividend,  # Use unadjusted!
-                            ts=bar.ts,
+                            ts=bar_ts,
                         )
                         logger.debug(
                             "backtest.dividend_paid",
-                            symbol=bar.symbol,
-                            date=bar.ts.isoformat(),
+                            symbol=symbol,
+                            date=bar.trade_datetime,
                             dividend_per_share_unadjusted=float(unadjusted_bar.dividend),
                             dividend_per_share_adjusted=float(bar.dividend) if bar.dividend else None,
                             shares=position.qty,
@@ -317,14 +325,14 @@ class Backtest:
                     else:
                         # Short positions owe dividends
                         ctx.portfolio.apply_short_dividend(
-                            symbol=bar.symbol,
+                            symbol=symbol,
                             dividend_per_share=unadjusted_bar.dividend,  # Use unadjusted!
-                            ts=bar.ts,
+                            ts=bar_ts,
                         )
                         logger.debug(
                             "backtest.dividend_owed",
-                            symbol=bar.symbol,
-                            date=bar.ts.isoformat(),
+                            symbol=symbol,
+                            date=bar.trade_datetime,
                             dividend_per_share_unadjusted=float(unadjusted_bar.dividend),
                             dividend_per_share_adjusted=float(bar.dividend) if bar.dividend else None,
                             shares=position.qty,
@@ -353,8 +361,8 @@ class Backtest:
                             # Convert to order
                             order = ctx.signal_to_order(signal, decision)
 
-                            # Submit to execution engine
-                            self.execution_engine.submit_order(order, bar.ts)
+                            # Submit to execution engine (use bar_ts, not bar.ts)
+                            self.execution_engine.submit_order(order, bar_ts)
 
                             logger.debug(
                                 "backtest.order_submitted",
@@ -378,10 +386,10 @@ class Backtest:
                             error=str(e),
                         )
 
-            # Process bar through execution engine (Phase 2 architecture: use unadjusted)
+            # Process bar through execution engine (Phase 4: use unadjusted with symbol/ts)
             # Execution uses unadjusted prices for realistic fills and commissions
             # Positions track real share quantities (updated by split processing)
-            fills = self.execution_engine.on_bar(unadjusted_bar, next_bar=next_unadjusted_bar)
+            fills = self.execution_engine.on_bar(unadjusted_bar, symbol=symbol, ts=bar_ts, next_bar=next_unadjusted_bar)
 
             # Track fills
             self.all_fills.extend(fills)
@@ -415,7 +423,7 @@ class Backtest:
                 dividend_per_share_adjusted = float(bar.dividend) if bar.dividend else None
 
                 # Get fills for this bar
-                bar_fills = [f for f in fills if f.symbol == bar.symbol]
+                bar_fills = [f for f in fills if f.symbol == symbol]
                 fill_info: Dict[str, Any] = {}
                 if bar_fills:
                     # Aggregate fills for this bar
@@ -430,7 +438,7 @@ class Backtest:
                     }
 
                 # Get position for this symbol
-                position_opt = all_positions.get(bar.symbol)
+                position_opt = all_positions.get(symbol)
                 position_qty = position_opt.qty if position_opt and not position_opt.is_flat() else 0
                 position_avg_cost = (
                     float(position_opt.avg_price) if position_opt and not position_opt.is_flat() else 0.0
@@ -453,8 +461,8 @@ class Backtest:
 
                 snapshot = {
                     # Bar OHLC data
-                    "timestamp": bar.ts.isoformat(),
-                    "symbol": bar.symbol,
+                    "timestamp": bar.trade_datetime,  # CanonicalBar uses trade_datetime (ISO string)
+                    "symbol": symbol,  # From MultiModeBar, not CanonicalBar
                     "open": float(bar.open),
                     "high": float(bar.high),
                     "low": float(bar.low),

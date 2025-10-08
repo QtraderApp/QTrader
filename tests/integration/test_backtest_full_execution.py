@@ -9,16 +9,19 @@ Tests complete trading loop:
 - Portfolio state updated
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from qtrader.api.backtest import Backtest
 from qtrader.api.context import Context
+from qtrader.data import DataLoader, PriceSeriesIterator
 from qtrader.execution.config import ExecutionConfig
-from qtrader.models.bar import Bar
+from qtrader.models.canonical_bar import CanonicalBar
 from qtrader.models.portfolio import Portfolio
+from qtrader.models.vendors.algoseek.bar import AlgoseekBar
+from qtrader.models.vendors.algoseek.price_series import AlgoseekPriceSeries
 from qtrader.risk import RiskManager, RiskPolicy, Signal, SignalDirection, SignalType
 from qtrader.risk.sizing import SizingMethod
 
@@ -40,18 +43,24 @@ class SimpleBuyStrategy:
         """Called after warmup."""
         pass
 
-    def on_bar(self, bar: Bar, ctx: Context) -> Optional[List[Signal]]:
+    def on_bar(self, bar: CanonicalBar, ctx: Context) -> Optional[List[Signal]]:
         """
         Buy on bar 1, sell on last bar.
 
         Args:
-            bar: Current bar
-            ctx: Context
+            bar: Current bar (CanonicalBar from adjusted mode)
+            ctx: Context (contains current_symbol)
 
         Returns:
             List of signals
         """
         self.bars_seen += 1
+
+        # Parse timestamp from ISO string
+        bar_ts = datetime.fromisoformat(bar.trade_datetime)
+
+        # Get symbol from context
+        symbol = ctx.current_symbol
 
         # Buy on first bar
         if self.bars_seen == 1 and not self.has_bought:
@@ -59,8 +68,8 @@ class SimpleBuyStrategy:
             return [
                 Signal(
                     signal_id="buy_1",
-                    strategy_ts=bar.ts,
-                    symbol=bar.symbol,
+                    strategy_ts=bar_ts,
+                    symbol=symbol,
                     signal_type=SignalType.ENTRY_LONG,
                     direction=SignalDirection.LONG,
                     conviction=Decimal("1.0"),
@@ -73,8 +82,8 @@ class SimpleBuyStrategy:
             return [
                 Signal(
                     signal_id="sell_1",
-                    strategy_ts=bar.ts,
-                    symbol=bar.symbol,
+                    strategy_ts=bar_ts,
+                    symbol=symbol,
                     signal_type=SignalType.EXIT_LONG,
                     direction=SignalDirection.FLAT,
                     conviction=Decimal("1.0"),
@@ -92,9 +101,9 @@ class SimpleBuyStrategy:
         pass
 
 
-def create_test_bars(symbol: str, count: int, start_price: float = 100.0) -> List[Bar]:
+def create_test_iterators(symbol: str, count: int, start_price: float = 100.0) -> Dict[str, PriceSeriesIterator]:
     """
-    Create test bars with realistic OHLC.
+    Create test data iterators with realistic OHLC.
 
     Args:
         symbol: Symbol for bars
@@ -102,32 +111,39 @@ def create_test_bars(symbol: str, count: int, start_price: float = 100.0) -> Lis
         start_price: Starting price
 
     Returns:
-        List of Bar objects
+        Dict mapping symbol to PriceSeriesIterator
     """
-    bars = []
-    base_date = datetime(2024, 1, 1, 9, 30, tzinfo=timezone.utc)
-    price = Decimal(str(start_price))
+    vendor_bars = []
+    base_date = datetime(2024, 1, 1, 9, 30)
+    price = start_price
 
     for i in range(count):
         open_price = price
-        high_price = price + Decimal("1.0")
-        low_price = price - Decimal("1.0")
-        close_price = price + Decimal("0.5")  # Small gain each bar
+        high_price = price + 1.0
+        low_price = price - 1.0
+        close_price = price + 0.5  # Small gain each bar
 
-        bar = Bar(
-            ts=base_date + timedelta(days=i),
-            symbol=symbol,
-            open=open_price,
-            high=high_price,
-            low=low_price,
-            close=close_price,
-            volume=1000000,
+        vendor_bar = AlgoseekBar(
+            Ticker=symbol,
+            TradeDate=base_date + timedelta(days=i),  # datetime, not ISO string
+            Open=open_price,
+            High=high_price,
+            Low=low_price,
+            Close=close_price,
+            MarketHoursVolume=1000000,
+            # No adjustments (unadjusted = adjusted for this test)
+            CumulativePriceFactor=1.0,
+            CumulativeVolumeFactor=1.0,
         )
-        bars.append(bar)
-
+        vendor_bars.append(vendor_bar)
         price = close_price
 
-    return bars
+    # Create price series and iterator
+    loader = DataLoader({})
+    price_series = AlgoseekPriceSeries(symbol=symbol, bars=vendor_bars)
+    iterator = loader.load_data_from_series(price_series)
+
+    return {symbol: iterator}
 
 
 class TestBacktestFullExecution:
@@ -151,12 +167,12 @@ class TestBacktestFullExecution:
         # Create context with both portfolio and risk manager
         ctx = Context(portfolio=portfolio, risk_manager=risk_manager)
 
-        # Create 5 bars
-        bars = create_test_bars("AAPL", count=5, start_price=100.0)
+        # Create 5 bars using iterator approach
+        data_iterators = create_test_iterators("AAPL", count=5, start_price=100.0)
 
         # Run backtest
         backtest = Backtest(config, strategy)
-        metadata = backtest.run(ctx, bars, ["AAPL"], out_dir=Path("/tmp"))
+        metadata = backtest.run(ctx, data_iterators, ["AAPL"], out_dir=Path("/tmp"))
 
         # Verify backtest completed
         assert metadata["total_bars"] == 5
@@ -192,12 +208,12 @@ class TestBacktestFullExecution:
         risk_manager = RiskManager(portfolio=portfolio, policy=policy)
         ctx = Context(portfolio=portfolio, risk_manager=risk_manager)
 
-        # Create bars
-        bars = create_test_bars("AAPL", count=5)
+        # Create bars using iterator approach
+        data_iterators = create_test_iterators("AAPL", count=5)
 
         # Run backtest
         backtest = Backtest(config, strategy)
-        metadata = backtest.run(ctx, bars, ["AAPL"], out_dir=Path("/tmp"))
+        metadata = backtest.run(ctx, data_iterators, ["AAPL"], out_dir=Path("/tmp"))
 
         # Should complete but with no fills
         assert metadata["total_fills"] == 0, "Should have no fills due to insufficient cash"
@@ -219,11 +235,11 @@ class TestBacktestFullExecution:
         ctx = Context(portfolio=portfolio, risk_manager=risk_manager)
 
         # Create bars (need one extra bar for sell order to fill)
-        bars = create_test_bars("AAPL", count=6, start_price=100.0)
+        data_iterators = create_test_iterators("AAPL", count=6, start_price=100.0)
 
         # Run backtest
         backtest = Backtest(config, strategy)
-        metadata = backtest.run(ctx, bars, ["AAPL"], out_dir=Path("/tmp"))
+        metadata = backtest.run(ctx, data_iterators, ["AAPL"], out_dir=Path("/tmp"))
 
         # Verify portfolio has position history
         position = portfolio.positions.get_position("AAPL")
@@ -247,12 +263,12 @@ class TestBacktestFullExecution:
         risk_manager = RiskManager(portfolio=portfolio, policy=policy)
         ctx = Context(portfolio=portfolio, risk_manager=risk_manager)
 
-        # Create bars
-        bars = create_test_bars("AAPL", count=5)
+        # Create bars using iterator approach
+        data_iterators = create_test_iterators("AAPL", count=5)
 
         # Run backtest
         backtest = Backtest(config, strategy)
-        metadata = backtest.run(ctx, bars, ["AAPL"], out_dir=Path("/tmp"))
+        metadata = backtest.run(ctx, data_iterators, ["AAPL"], out_dir=Path("/tmp"))
 
         # Verify execution metadata exists
         assert "execution" in metadata, "Should have execution metadata"
@@ -270,12 +286,12 @@ class TestBacktestFullExecution:
         risk_manager = RiskManager(portfolio=portfolio, policy=policy)
         ctx = Context(portfolio=portfolio, risk_manager=risk_manager)
 
-        # Create bars
-        bars = create_test_bars("AAPL", count=5)
+        # Create bars using iterator approach
+        data_iterators = create_test_iterators("AAPL", count=5)
 
         # Run backtest
         backtest = Backtest(config, strategy)
-        _ = backtest.run(ctx, bars, ["AAPL"], out_dir=Path("/tmp"))
+        _ = backtest.run(ctx, data_iterators, ["AAPL"], out_dir=Path("/tmp"))
 
         # Verify snapshots were created
         assert len(backtest.portfolio_snapshots) > 0, "Should have portfolio snapshots"

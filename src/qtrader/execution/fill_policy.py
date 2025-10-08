@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import NamedTuple, Optional
 
 from qtrader.config.logging_config import LoggerFactory
-from qtrader.models.bar import Bar
+from qtrader.models.canonical_bar import CanonicalBar
 from qtrader.models.order import OrderBase, OrderSide, OrderType
 
 logger = LoggerFactory.get_logger()
@@ -79,8 +79,8 @@ class FillPolicy:
     def evaluate_market_order(
         self,
         order: OrderBase,
-        current_bar: Bar,
-        next_bar: Optional[Bar] = None,
+        current_bar: CanonicalBar,
+        next_bar: Optional[CanonicalBar] = None,
     ) -> FillDecision:
         """
         Evaluate Market order for fill.
@@ -116,7 +116,7 @@ class FillPolicy:
             side=order.side.value,
             qty=order.qty,
             fill_price=float(fill_price),
-            next_bar_ts=next_bar.ts.isoformat(),
+            next_bar_datetime=next_bar.trade_datetime,  # CanonicalBar has trade_datetime (ISO string)
         )
 
         return FillDecision(
@@ -129,7 +129,7 @@ class FillPolicy:
     def evaluate_moc_order(
         self,
         order: OrderBase,
-        current_bar: Bar,
+        current_bar: CanonicalBar,
     ) -> FillDecision:
         """
         Evaluate MOC (Market-On-Close) order for fill.
@@ -182,7 +182,7 @@ class FillPolicy:
     def evaluate_limit_order(
         self,
         order: OrderBase,
-        current_bar: Bar,
+        current_bar: CanonicalBar,
     ) -> FillDecision:
         """
         Evaluate Limit order for fill using conservative touch rules.
@@ -272,7 +272,7 @@ class FillPolicy:
     def evaluate_stop_order(
         self,
         order: OrderBase,
-        current_bar: Bar,
+        current_bar: CanonicalBar,
     ) -> FillDecision:
         """
         Evaluate Stop order for fill using conservative touch rules.
@@ -372,8 +372,8 @@ class FillPolicy:
     def evaluate_order(
         self,
         order: OrderBase,
-        current_bar: Bar,
-        next_bar: Optional[Bar] = None,
+        current_bar: CanonicalBar,
+        next_bar: Optional[CanonicalBar] = None,
         is_close_only: bool = False,
     ) -> FillDecision:
         """
