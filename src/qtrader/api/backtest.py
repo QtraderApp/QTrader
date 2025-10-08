@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from qtrader.config.logging_config import LoggerFactory
+from qtrader.data import BarMerger, PriceSeriesIterator
 from qtrader.execution.dividend_processor import DividendProcessor
 from qtrader.execution.engine import ExecutionEngine
 from qtrader.execution.warmup import WarmupDetector, WarmupProcessor
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from qtrader.api.context import Context
     from qtrader.api.strategy import Strategy
     from qtrader.execution.config import ExecutionConfig
-    from qtrader.models.bar import AdjustmentEvent, Bar
+    from qtrader.models.bar import AdjustmentEvent
     from qtrader.models.order import Fill
 
 logger = LoggerFactory.get_logger()
@@ -68,13 +69,13 @@ class Backtest:
     def run(
         self,
         ctx: "Context",
-        bars: List["Bar"],
+        data_iterators: Dict[str, PriceSeriesIterator],
         symbols: List[str],
         out_dir: Path,
         adjustment_events: Optional[Dict[str, List["AdjustmentEvent"]]] = None,
     ):
         """
-        Run backtest with complete execution loop.
+        Run backtest with complete execution loop (Phase 4 iterator-based).
 
         Implements canonical event loop from spec:
         1. strategy.on_init() - Register indicators
@@ -94,7 +95,7 @@ class Backtest:
 
         Args:
             ctx: Context instance with risk_manager and portfolio
-            bars: All bars to process (sorted by timestamp)
+            data_iterators: Dict mapping symbol -> PriceSeriesIterator
             symbols: List of symbols in backtest
             out_dir: Output directory for results
             adjustment_events: Optional dict mapping symbol -> list of adjustment events
@@ -102,11 +103,42 @@ class Backtest:
 
         Returns:
             Dict with run metadata including warmup, dividend, and execution info
+
+        Phase 4 Changes:
+            - Uses BarMerger to coordinate multi-symbol streams
+            - Processes bars chronologically across all symbols
+            - Strategy still receives Bar (from MultiModeBar.adjusted)
+            - Full MultiModeBar support comes in Phase 4 Part 4
         """
+        # Phase 4: Use BarMerger to coordinate multi-symbol streams
+        logger.info(
+            "backtest.using_iterator_mode",
+            symbols=symbols,
+            iterator_count=len(data_iterators),
+        )
+
+        # Use BarMerger to coordinate multi-symbol streams
+        merger = BarMerger(data_iterators)
+        bars_list = []  # Will contain CanonicalBar objects from MultiModeBar.adjusted
+
+        # Extract Bar objects from MultiModeBar (use adjusted mode for strategy)
+        while merger.has_next():
+            symbol, multi_mode_bar = merger.get_next_bar()
+            # Strategy receives Bar (extracted from adjusted mode)
+            # Full MultiModeBar support comes in Phase 4 Part 4
+            bar = multi_mode_bar.adjusted
+            bars_list.append(bar)
+
+        logger.info(
+            "backtest.iterator_conversion_complete",
+            total_bars=len(bars_list),
+            **merger.get_stats(),
+        )
+
         logger.info(
             "backtest.starting",
             symbols=symbols,
-            total_bars=len(bars),
+            total_bars=len(bars_list),
             warmup_enabled=self.config.warmup,
             warmup_bars=self.config.warmup_bars,
             has_adjustment_events=adjustment_events is not None,
@@ -173,7 +205,7 @@ class Backtest:
                 warmup_processor = WarmupProcessor(warmup_bars=warmup_bars, enable_warmup=True)
 
                 # Process warmup bars (indicators only, no trading)
-                for bar_idx, bar in enumerate(bars):
+                for bar_idx, bar in enumerate(bars_list):
                     if not warmup_processor.should_skip_bar(bar_idx):
                         break
 
@@ -199,7 +231,7 @@ class Backtest:
             self.strategy.on_start(ctx)
 
         # Track bars for indexing (needed for initial snapshot and next_bar lookahead)
-        bars_list = list(bars)  # Ensure we can index
+        # bars_list is already created from BarMerger above
 
         # Capture initial portfolio snapshot before trading begins
         initial_cash = ctx.portfolio.cash.get_balance()
@@ -226,7 +258,7 @@ class Backtest:
         self._prev_portfolio_value = Decimal("0")
 
         # Phase 4: Main trading loop
-        logger.info("backtest.trading_loop_starting", start_idx=start_idx, total_bars=len(bars))
+        logger.info("backtest.trading_loop_starting", start_idx=start_idx, total_bars=len(bars_list))
 
         # Track processed dividend dates to avoid duplicate processing
         processed_dividend_dates = set()
@@ -501,7 +533,7 @@ class Backtest:
 
         logger.info(
             "backtest.complete",
-            bars_processed=len(bars) - start_idx,
+            bars_processed=len(bars_list) - start_idx,
             total_fills=len(self.all_fills),
             final_cash=float(ctx.portfolio.cash.get_balance()),
             final_equity=float(ctx.portfolio.get_equity()),
@@ -509,8 +541,8 @@ class Backtest:
 
         # Return run metadata
         metadata: Dict[str, Any] = {
-            "total_bars": len(bars),
-            "trading_bars": len(bars) - start_idx,
+            "total_bars": len(bars_list),
+            "trading_bars": len(bars_list) - start_idx,
             "total_fills": len(self.all_fills),
             "final_cash": float(ctx.portfolio.cash.get_balance()),
             "final_equity": float(ctx.portfolio.get_equity()),
