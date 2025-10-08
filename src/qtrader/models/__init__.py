@@ -3,6 +3,7 @@
 from qtrader.models.bar import AdjustmentEvent, Bar, BarFrequency, DataMode, OHLCPolicy
 from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
 from qtrader.models.ledger import CashLedger, CashTransaction
+from qtrader.models.multi_mode_bar import MultiModeBar
 from qtrader.models.order import Fill, Order, OrderBase, OrderSide, OrderState, OrderType, TimeInForce
 from qtrader.models.portfolio import Portfolio
 from qtrader.models.position import Position, PositionTracker
@@ -17,6 +18,7 @@ __all__ = [
     # Canonical bar models (new data layer)
     "CanonicalBar",
     "CanonicalPriceSeries",
+    "MultiModeBar",  # Phase 2: Multi-mode architecture
     # Order models
     "Order",
     "OrderBase",

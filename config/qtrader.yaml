@@ -114,9 +114,28 @@ data:
   # See config/data_sources.yaml or ~/.qtrader/data_sources.yaml
   sources_config: "config/data_sources.yaml"
 
-  # Default data mode for adapters
-  # SYSTEM SETTING: Default adjustment mode if not specified
-  default_mode: "adjusted"    # adjusted, unadjusted, split_adjusted
+  # Multi-mode architecture: Different components use different price series
+  # Each bar contains all 3 modes, components select optimal mode for their purpose
+
+  # Strategy/Signal generation mode (for indicators and signals)
+  # SYSTEM SETTING: Price series for strategy indicator calculations
+  # Use "adjusted" for split-consistent technical indicators (SMA, RSI work across splits)
+  signal_generation_mode: "adjusted"
+
+  # Execution mode (for order fills and commissions)
+  # SYSTEM SETTING: Price series for execution and fill calculations
+  # Use "unadjusted" for realistic fills at actual traded prices and accurate commissions
+  execution_mode: "unadjusted"
+
+  # Performance mode (for metrics and returns)
+  # SYSTEM SETTING: Price series for performance calculations
+  # Use "total_return" for accurate returns including dividend reinvestment
+  performance_mode: "total_return"
+
+  # Mode descriptions:
+  # - unadjusted: Raw prices as traded (for realistic fills, commissions)
+  # - adjusted: Split-adjusted only (for consistent indicators across splits)
+  # - total_return: Split + dividend adjusted (for accurate performance metrics)
 
   # Timezone for market data
   # SYSTEM SETTING: Default timezone for timestamp interpretation
