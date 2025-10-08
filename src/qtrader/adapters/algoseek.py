@@ -8,9 +8,14 @@ import duckdb
 import pandas as pd
 import pytz
 
+from qtrader.adapters.adjustments import (
+    compute_capital_adjusted_price,
+    compute_unadjusted_price,
+    compute_unadjusted_volume,
+)
 from qtrader.config.data_config import DataConfig
 from qtrader.config.logging_config import LoggerFactory
-from qtrader.models.bar import AdjustmentEvent, Bar, DataMode, PriceSeries
+from qtrader.models.bar import AdjustmentEvent, Bar, DataMode, Dividend, PriceSeries, Split
 from qtrader.models.instrument import Instrument
 
 logger = LoggerFactory.get_logger()
@@ -239,7 +244,7 @@ class AlgoseekOHLCAdapter:
         # Connect to DuckDB and read
         con = duckdb.connect(":memory:")
         try:
-            # Build SELECT with bar schema mapping
+            # Build SELECT with bar schema mapping + Algoseek adjustment factors
             select_cols = [
                 f"{bar_schema.ts} as ts",
                 f"{bar_schema.symbol} as symbol",
@@ -248,6 +253,10 @@ class AlgoseekOHLCAdapter:
                 f"{bar_schema.low} as low",
                 f"{bar_schema.close} as close",
                 f"{bar_schema.volume} as volume",
+                "CumulativePriceFactor as px_factor",
+                "CumulativeVolumeFactor as vol_factor",
+                "AdjustmentFactor as adj_factor",
+                "AdjustmentReason as adj_reason",
             ]
 
             query = f"""
@@ -274,7 +283,20 @@ class AlgoseekOHLCAdapter:
             # Yield bars one at a time
             for row in result.fetchall():
                 try:
-                    ts_naive, symbol, open_f, high_f, low_f, close_f, volume = row
+                    # Unpack row including adjustment factors
+                    (
+                        ts_naive,
+                        symbol,
+                        open_f,
+                        high_f,
+                        low_f,
+                        close_f,
+                        volume,
+                        px_factor_f,
+                        vol_factor_f,
+                        adj_factor_f,
+                        adj_reason,
+                    ) = row
 
                     # Track symbols for logging
                     if symbol != last_symbol:
@@ -290,36 +312,115 @@ class AlgoseekOHLCAdapter:
                     # Localize timestamp
                     ts = tz.localize(ts_naive)
 
-                    # Convert prices to Decimal
-                    open_d = Decimal(str(open_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                    high_d = Decimal(str(high_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                    low_d = Decimal(str(low_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                    close_d = Decimal(str(close_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
+                    # Convert prices to Decimal (these are total-return adjusted from vendor)
+                    adjusted_open = Decimal(str(open_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
+                    adjusted_high = Decimal(str(high_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
+                    adjusted_low = Decimal(str(low_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
+                    adjusted_close = Decimal(str(close_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
 
-                    # TODO: Currently using total_return data for all 3 series
-                    # In future, need to:
-                    # 1. Read unadjusted data from vendor
-                    # 2. Compute capital_adjusted from split history
-                    # 3. Compute total_return from capital_adjusted + dividend history
-                    # For now: All series get the same adjusted values
-                    price_series = PriceSeries(
-                        open=open_d,
-                        high=high_d,
-                        low=low_d,
-                        close=close_d,
+                    # Convert adjustment factors to Decimal
+                    px_factor = Decimal(str(px_factor_f))
+                    vol_factor = Decimal(str(vol_factor_f))
+
+                    # Compute unadjusted prices (as actually traded)
+                    unadjusted_open = compute_unadjusted_price(adjusted_open, px_factor)
+                    unadjusted_high = compute_unadjusted_price(adjusted_high, px_factor)
+                    unadjusted_low = compute_unadjusted_price(adjusted_low, px_factor)
+                    unadjusted_close = compute_unadjusted_price(adjusted_close, px_factor)
+                    unadjusted_volume = compute_unadjusted_volume(volume, vol_factor)
+
+                    # Compute capital-adjusted prices (split-adjusted only, no dividends)
+                    capital_adj_open = compute_capital_adjusted_price(adjusted_open, px_factor, vol_factor)
+                    capital_adj_high = compute_capital_adjusted_price(adjusted_high, px_factor, vol_factor)
+                    capital_adj_low = compute_capital_adjusted_price(adjusted_low, px_factor, vol_factor)
+                    capital_adj_close = compute_capital_adjusted_price(adjusted_close, px_factor, vol_factor)
+                    # Capital-adjusted volume is same as total-return (splits already factored)
+                    capital_adj_volume = int(volume)
+
+                    # Create the 3 price series
+                    unadjusted_series = PriceSeries(
+                        open=unadjusted_open.quantize(quantizer, rounding=ROUND_HALF_UP),
+                        high=unadjusted_high.quantize(quantizer, rounding=ROUND_HALF_UP),
+                        low=unadjusted_low.quantize(quantizer, rounding=ROUND_HALF_UP),
+                        close=unadjusted_close.quantize(quantizer, rounding=ROUND_HALF_UP),
+                        volume=unadjusted_volume,
+                    )
+
+                    capital_adjusted_series = PriceSeries(
+                        open=capital_adj_open.quantize(quantizer, rounding=ROUND_HALF_UP),
+                        high=capital_adj_high.quantize(quantizer, rounding=ROUND_HALF_UP),
+                        low=capital_adj_low.quantize(quantizer, rounding=ROUND_HALF_UP),
+                        close=capital_adj_close.quantize(quantizer, rounding=ROUND_HALF_UP),
+                        volume=capital_adj_volume,
+                    )
+
+                    total_return_series = PriceSeries(
+                        open=adjusted_open,
+                        high=adjusted_high,
+                        low=adjusted_low,
+                        close=adjusted_close,
                         volume=int(volume),
                     )
+
+                    # Extract corporate events from Algoseek's AdjustmentReason field
+                    dividend = None
+                    split = None
+
+                    if adj_reason is not None:
+                        adj_factor = Decimal(str(adj_factor_f)) if adj_factor_f is not None else None
+
+                        if adj_reason == "CashDiv" and adj_factor is not None:
+                            # Dividend: Calculate amount per share from adjustment factor
+                            # AdjustmentFactor is the price multiplier on ex-date
+                            # For dividends: new_price = old_price * adj_factor
+                            # Therefore: dividend = old_price * (1 - adj_factor)
+                            # We use adjusted_close as the "old price" since it's the actual traded price
+                            div_pct = Decimal("1") - adj_factor
+                            div_amount = adjusted_close * div_pct
+                            dividend = Dividend(
+                                ex_date=ts,
+                                amount_per_share=div_amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP),
+                                payment_date=None,  # Algoseek doesn't provide payment date
+                            )
+                            logger.debug(
+                                "algoseek_adapter.dividend_detected",
+                                symbol=symbol,
+                                ts=ts.isoformat(),
+                                amount=float(div_amount),
+                                adj_factor=float(adj_factor),
+                            )
+
+                        elif adj_reason in ("Subdiv", "BonusSame") and adj_factor is not None:
+                            # Split: Calculate split ratio from adjustment factor
+                            # For splits, both px and vol factors change by the split ratio
+                            # The adj_factor on the split day tells us the ratio
+                            # Note: adj_factor is inverse ratio (e.g., 0.25 for 4:1 split)
+                            split_ratio = Decimal("1") / adj_factor
+                            split = Split(
+                                ex_date=ts,
+                                ratio=split_ratio.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                                from_factor=1,  # Algoseek doesn't provide explicit from/to
+                                to_factor=int(split_ratio.quantize(Decimal("1"), rounding=ROUND_HALF_UP)),
+                            )
+                            logger.debug(
+                                "algoseek_adapter.split_detected",
+                                symbol=symbol,
+                                ts=ts.isoformat(),
+                                ratio=float(split_ratio),
+                                adj_factor=float(adj_factor),
+                                reason=adj_reason,
+                            )
 
                     bar_count += 1
                     # Use instrument symbol (not vendor symbol which might differ)
                     yield Bar(
                         ts=ts,
                         symbol=self.instrument.symbol,
-                        unadjusted=price_series,  # TODO: Should be true unadjusted
-                        capital_adjusted=price_series,  # TODO: Should be split-adjusted only
-                        total_return=price_series,  # Correct: vendor data is total return adjusted
-                        dividend=None,  # TODO: Extract from vendor data if available
-                        split=None,  # TODO: Extract from vendor data if available
+                        unadjusted=unadjusted_series,
+                        capital_adjusted=capital_adjusted_series,
+                        total_return=total_return_series,
+                        dividend=dividend,
+                        split=split,
                     )
                 except Exception as e:
                     logger.error(
