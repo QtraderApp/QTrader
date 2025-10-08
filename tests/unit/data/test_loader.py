@@ -189,13 +189,13 @@ class TestDataLoaderFromSeries:
 class TestDataLoaderFromAdapter:
     """Test load_data method (Phase 3 integration)."""
 
-    def test_load_data_not_implemented(self):
-        """Test that load_data raises NotImplementedError until Phase 3."""
-        # Arrange
+    def test_load_data_requires_adapter_config(self):
+        """Test that load_data requires adapter configuration."""
+        # Arrange: Loader without adapter config
         loader = DataLoader({})
 
-        # Act & Assert
-        with pytest.raises(NotImplementedError, match="Phase 3"):
+        # Act & Assert: Should raise ValueError for missing adapter config
+        with pytest.raises(ValueError, match="Adapter configuration missing"):
             loader.load_data("AAPL", "2020-01-01", "2020-12-31")
 
 

@@ -81,9 +81,12 @@ class DataLoader:
             PriceSeriesIterator yielding MultiModeBar (all 3 modes)
 
         Raises:
-            NotImplementedError: Until Phase 3 adapter integration complete
+            ValueError: If adapter configuration missing
+            FileNotFoundError: If data source not found
 
         Examples:
+            >>> config = {"adapter": {"root_path": "data/...", ...}}
+            >>> loader = DataLoader(config)
             >>> iterator = loader.load_data("AAPL", "2020-01-01", "2020-12-31")
             >>> first_bar = next(iterator)
             >>> print(first_bar.adjusted.close)  # Split-adjusted close
@@ -100,7 +103,6 @@ class DataLoader:
             - Iterator provides memory-efficient streaming
         """
         # Step 1: Load raw bars from adapter
-        # (Adapter integration done in Phase 3)
         raw_bars: List[AlgoseekBar] = self._load_from_adapter(symbol, start_date, end_date)
 
         # Step 2: Build vendor series
@@ -121,7 +123,9 @@ class DataLoader:
         """
         Load raw bars from adapter.
 
-        This is a stub for Phase 2. Full adapter integration happens in Phase 3.
+        This method integrates with the vendor adapter to load raw AlgoseekBar
+        objects. The adapter handles data access while this layer handles
+        transformation to canonical format.
 
         Args:
             symbol: Ticker symbol
@@ -129,21 +133,36 @@ class DataLoader:
             end_date: End date (ISO format)
 
         Returns:
-            List of AlgoseekBar instances
+            List of AlgoseekBar objects (raw vendor data)
 
         Raises:
-            NotImplementedError: Until Phase 3 implementation
+            ValueError: If adapter configuration missing
+            FileNotFoundError: If data source not found
 
         Notes:
-            Phase 3 will implement:
-            - AlgoseekVendorAdapter (parquet/CSV reading)
-            - Filtering by date range
-            - Error handling for missing data
-            - Multiple vendor support
+            - Adapter configured from self.config["adapter"]
+            - Returns raw vendor bars (no transformation)
+            - Transformation happens in load_data() via to_canonical_series()
         """
-        raise NotImplementedError(
-            "Phase 3: Adapter integration - AlgoseekVendorAdapter will load raw bars from parquet/CSV"
-        )
+        from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
+        from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+
+        # Validate adapter configuration
+        if "adapter" not in self.config:
+            raise ValueError("Adapter configuration missing from config")
+
+        # Create instrument for adapter
+        # TODO: Get instrument type from config/registry
+        instrument = Instrument(symbol, InstrumentType.EQUITY, DataSource.ALGOSEEK)
+
+        # Initialize adapter
+        adapter = AlgoseekOHLCVendorAdapter(self.config["adapter"], instrument)
+
+        # Load raw bars (iterator → list for now)
+        # TODO: Consider keeping as iterator for memory efficiency
+        raw_bars = list(adapter.read_bars(start_date, end_date))
+
+        return raw_bars
 
     def load_data_from_series(self, vendor_series: AlgoseekPriceSeries) -> PriceSeriesIterator:
         """

@@ -1,582 +1,344 @@
-"""Adapter for Algoseek OHLC data (parquet format with Hive partitioning)."""
+"""
+Algoseek adapters for various dataset types.
 
-from decimal import ROUND_HALF_UP, Decimal
+This module contains adapters for different Algoseek datasets:
+- AlgoseekOHLCVendorAdapter: OHLC daily bars dataset
+
+Each adapter is responsible for loading raw Algoseek data from parquet files
+and parsing it into vendor-specific AlgoseekBar objects. Adapters do NOT perform
+any price adjustments or transformations - those are handled by the data layer.
+
+Separation of concerns:
+- Adapter: Load and parse raw data
+- Vendor models: Validate and structure data
+- Data layer: Transform to canonical format
+"""
+
 from pathlib import Path
-from typing import Any, Dict, Iterator
+from typing import Iterator, Optional
 
 import duckdb
 import pandas as pd
-import pytz
 
-from qtrader.adapters.adjustments import (
-    compute_capital_adjusted_price,
-    compute_unadjusted_price,
-    compute_unadjusted_volume,
-)
-from qtrader.config.data_config import DataConfig
 from qtrader.config.logging_config import LoggerFactory
-from qtrader.models.bar import AdjustmentEvent, Bar, DataMode, Dividend, PriceSeries, Split
 from qtrader.models.instrument import Instrument
+from qtrader.models.vendors.algoseek import AlgoseekBar
 
 logger = LoggerFactory.get_logger()
 
 
-class AlgoseekOHLCAdapter:
+class AlgoseekOHLCVendorAdapter:
     """
-    Adapter for Algoseek OHLC data in parquet format with Hive partitioning.
+    Algoseek OHLC vendor adapter - parses raw OHLC data to AlgoseekBar.
 
-    Reads from partitioned parquet files (SecId=*/data_0.parquet) using DuckDB.
-    Normalizes Algoseek schema to canonical Bar with 3 price series.
-    Uses Instrument to determine symbol and constructs file paths using SecId lookup.
+    This adapter is responsible ONLY for:
+    - Reading parquet/CSV files using DuckDB
+    - Parsing timestamps and data types
+    - Validating data structure
+    - Returning Iterator[AlgoseekBar] in chronological order
 
-    Data Mode: ADJUSTED (prices already total-return adjusted)
+    Does NOT:
+    - Perform price adjustments (done in AlgoseekPriceSeries)
+    - Transform to canonical format (done in DataLoader)
+    - Apply business logic (done in backtest engine)
 
-    Configuration (from data_sources.yaml):
+    Configuration:
         root_path: Base directory for parquet files
         path_template: Path template with {root_path} and {secid} placeholders
         symbol_map: Path to security master CSV (symbol → SecId mapping)
-        mode: Data mode (standard_adjusted)
 
-    Usage:
-        config = {
-            "root_path": "data/algoseek",
-            "path_template": "{root_path}/SecId={secid}/*.parquet",
-            "symbol_map": "data/equity_security_master_sample.csv"
-        }
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-        adapter = AlgoseekOHLCAdapter(config, instrument)
-        bars = adapter.read_bars(data_config)
+    Examples:
+        >>> config = {
+        ...     "root_path": "data/algoseek",
+        ...     "path_template": "{root_path}/SecId={secid}/*.parquet",
+        ...     "symbol_map": "data/equity_security_master_sample.csv"
+        ... }
+        >>> instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        >>> adapter = AlgoseekOHLCVendorAdapter(config, instrument)
+        >>> bars = list(adapter.read_bars("2020-01-01", "2020-12-31"))
+        >>> print(f"Loaded {len(bars)} bars")
+
+    Notes:
+        - Uses DuckDB for efficient parquet reading
+        - Supports Hive partitioning (SecId=*/data.parquet)
+        - Returns raw unadjusted data (adjustments in transformation layer)
     """
 
-    SCHEMA_VERSION = "algoseek-ohlc-v1.0"
-
-    def __init__(self, config: Dict[str, Any], instrument: Instrument):
+    def __init__(self, config: dict, instrument: Instrument):
         """
-        Initialize adapter for specific instrument.
+        Initialize Algoseek OHLC vendor adapter.
 
         Args:
-            config: Configuration dict from data_sources.yaml
-            instrument: Logical instrument specification
+            config: Adapter configuration with root_path, path_template, symbol_map
+            instrument: Instrument to load data for
 
         Raises:
-            ValueError: If required config fields missing
+            ValueError: If required config keys missing
             FileNotFoundError: If symbol_map file not found
-            KeyError: If symbol not found in security master
         """
         self.config = config
         self.instrument = instrument
 
-        # Validate required config fields
-        required = ["root_path", "path_template", "symbol_map"]
-        missing = [f for f in required if f not in config]
-        if missing:
-            raise ValueError(f"Missing required config fields: {missing}")
+        # Validate configuration
+        required_keys = ["root_path", "path_template", "symbol_map"]
+        missing_keys = [key for key in required_keys if key not in config]
+        if missing_keys:
+            raise ValueError(f"Missing required config keys: {missing_keys}")
+
+        self.root_path = Path(config["root_path"])
+        self.path_template = config["path_template"]
+        self.symbol_map_path = Path(config["symbol_map"])
 
         # Load symbol → SecId mapping
-        self.symbol_map_path = Path(config["symbol_map"])
         if not self.symbol_map_path.exists():
             raise FileNotFoundError(f"Symbol map not found: {self.symbol_map_path}")
 
-        self.symbol_to_secid = self._load_symbol_map()
+        self.symbol_map = self._load_symbol_map()
 
-        # Resolve SecId for this instrument
-        if instrument.symbol not in self.symbol_to_secid:
-            raise KeyError(
-                f"Symbol '{instrument.symbol}' not found in security master. "
-                f"Available symbols: {list(self.symbol_to_secid.keys())}"
-            )
+        # Get SecId for this instrument
+        self.secid = self._get_secid(instrument.symbol)
 
-        self.secid = self.symbol_to_secid[instrument.symbol]
-
-        # Build data directory from template (without wildcard)
-        path_template = config["path_template"]
-        # Remove wildcard pattern if present
-        path_str = path_template.format(root_path=config["root_path"], secid=self.secid)
-        # Strip the wildcard pattern - data_path should be a directory
-        if "*" in path_str:
-            path_str = path_str.rsplit("/", 1)[0]  # Remove the "/*.parquet" part
-
-        self.data_path = Path(path_str)
+        # Build data path
+        self.data_path = self._build_data_path()
 
         logger.info(
-            "algoseek_adapter.initialized",
+            "algoseek_ohlc_vendor_adapter.initialized",
             symbol=instrument.symbol,
             secid=self.secid,
             data_path=str(self.data_path),
         )
 
-    def _load_symbol_map(self) -> Dict[str, int]:
+    def _load_symbol_map(self) -> pd.DataFrame:
         """
-        Load symbol → SecId mapping from security master CSV.
+        Load symbol → SecId mapping from CSV.
 
         Returns:
-            Dict mapping symbol to SecId
+            DataFrame with Symbol and SecId columns
 
         Raises:
-            ValueError: If CSV format invalid
+            ValueError: If CSV missing required columns
         """
-        try:
-            df = pd.read_csv(self.symbol_map_path)
-        except Exception as e:
-            raise ValueError(f"Failed to read symbol map {self.symbol_map_path}: {e}")
+        logger.debug("algoseek_ohlc_vendor_adapter.loading_symbol_map", path=str(self.symbol_map_path))
 
-        if "Tickers" not in df.columns or "SecId" not in df.columns:
-            raise ValueError(f"Symbol map must have 'Tickers' and 'SecId' columns. Found: {df.columns.tolist()}")
+        df = pd.read_csv(self.symbol_map_path)
 
-        # Map ticker to SecId
-        symbol_map = {}
-        for _, row in df.iterrows():
-            ticker = row["Tickers"]
-            secid = int(row["SecId"])
-            symbol_map[ticker] = secid
+        # Validate required columns
+        required_cols = ["Symbol", "SecId"]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            raise ValueError(f"Symbol map missing columns: {missing_cols}")
 
-        logger.debug(
-            "algoseek_adapter.symbol_map_loaded",
-            symbol_count=len(symbol_map),
-            symbols=list(symbol_map.keys()),
-        )
+        logger.info("algoseek_ohlc_vendor_adapter.symbol_map_loaded", count=len(df))
+        return df
 
-        return symbol_map
-
-    def can_read(self) -> bool:
-        """Check if data path exists and contains parquet files."""
-        if not self.data_path.exists():
-            return False
-        # Check for .parquet files or Hive-style partitions
-        return any(self.data_path.rglob("*.parquet"))
-
-    def schema_version(self) -> str:
-        """Return adapter schema version."""
-        return self.SCHEMA_VERSION
-
-    def get_data_mode(self) -> DataMode:
-        """Algoseek data is total-return adjusted."""
-        return DataMode.ADJUSTED
-
-    def read_bars(self, config: DataConfig) -> Iterator[Bar]:
+    def _get_secid(self, symbol: str) -> int:
         """
-        Read parquet files for this instrument and yield canonical Bar objects.
+        Map symbol to SecId using symbol map.
 
         Args:
-            config: DataConfig with schema mappings and formatting rules
+            symbol: Ticker symbol (e.g., 'AAPL')
+
+        Returns:
+            SecId for the symbol
+
+        Raises:
+            ValueError: If symbol not found in map
+        """
+        matches = self.symbol_map[self.symbol_map["Symbol"] == symbol]
+
+        if matches.empty:
+            raise ValueError(f"Symbol not found in symbol map: {symbol}")
+
+        secid = int(matches.iloc[0]["SecId"])
+
+        logger.debug("algoseek_ohlc_vendor_adapter.secid_mapped", symbol=symbol, secid=secid)
+        return secid
+
+    def _build_data_path(self) -> Path:
+        """
+        Build data path from template.
+
+        Returns:
+            Path to data directory/file
+
+        Examples:
+            >>> # Template: "{root_path}/SecId={secid}/*.parquet"
+            >>> # Result: "data/algoseek/SecId=33449/*.parquet"
+        """
+        path_str = self.path_template.format(root_path=str(self.root_path), secid=self.secid)
+        return Path(path_str)
+
+    def read_bars(self, start_date: str, end_date: str) -> Iterator[AlgoseekBar]:
+        """
+        Read raw bars from data source.
+
+        This method loads raw Algoseek data and yields AlgoseekBar objects.
+        No adjustments or transformations are performed - just data loading.
+
+        Args:
+            start_date: Start date (ISO format, e.g., '2020-01-01')
+            end_date: End date (ISO format, e.g., '2020-12-31')
 
         Yields:
-            Bar objects in timestamp order
+            AlgoseekBar objects in chronological order (TradeDate ASC)
 
         Raises:
             FileNotFoundError: If data path doesn't exist or has no parquet files
-            Exception: On query or conversion errors
+            Exception: On DuckDB query errors
 
-        Steps:
-        1. Connect to DuckDB in-memory
-        2. Read parquet with hive_partitioning=true
-        3. Apply bar_schema mapping (vendor columns → Bar fields)
-        4. Convert types (float → Decimal, timestamp → tz-aware)
-        5. Yield Bar objects in timestamp order
+        Examples:
+            >>> bars = adapter.read_bars("2020-01-01", "2020-03-31")
+            >>> first_bar = next(bars)
+            >>> print(f"Date: {first_bar.TradeDate}, Close: {first_bar.Close}")
+
+        Notes:
+            - Uses DuckDB for efficient parquet scanning
+            - Supports Hive partitioning automatically
+            - Memory efficient (yields one bar at a time)
+            - Returns raw unadjusted data as stored
         """
         # Validate source exists
-        if not self.data_path.exists():
+        data_dir = self.data_path.parent if "*" in str(self.data_path) else self.data_path
+
+        if not data_dir.exists():
             logger.error(
-                "algoseek_adapter.source_not_found",
+                "algoseek_ohlc_vendor_adapter.source_not_found",
                 symbol=self.instrument.symbol,
                 secid=self.secid,
-                source=str(self.data_path),
+                source=str(data_dir),
             )
-            raise FileNotFoundError(f"Data source not found: {self.data_path} for {self.instrument.symbol}")
-
-        # Build parquet glob pattern
-        if self.data_path.is_dir():
-            parquet_pattern = str(self.data_path / "**" / "*.parquet")
-        else:
-            # data_path is a single file
-            parquet_pattern = str(self.data_path)
+            raise FileNotFoundError(f"Data source not found: {data_dir} for {self.instrument.symbol}")
 
         # Check if any parquet files exist
-        parquet_files = list(self.data_path.rglob("*.parquet") if self.data_path.is_dir() else [self.data_path])
+        parquet_files = list(data_dir.rglob("*.parquet"))
         if not parquet_files:
             logger.error(
-                "algoseek_adapter.no_parquet_files",
+                "algoseek_ohlc_vendor_adapter.no_parquet_files",
                 symbol=self.instrument.symbol,
                 secid=self.secid,
-                source=str(self.data_path),
-                pattern=parquet_pattern,
+                source=str(data_dir),
             )
-            raise FileNotFoundError(f"No parquet files found in {self.data_path} for {self.instrument.symbol}")
-
-        logger.debug(
-            "algoseek_adapter.parquet_files_found",
-            symbol=self.instrument.symbol,
-            secid=self.secid,
-            source=str(self.data_path),
-            file_count=len(parquet_files),
-            files=[f.name for f in parquet_files[:10]],  # Log first 10 files
-        )
-
-        # Configure timezone
-        try:
-            tz = pytz.timezone(config.timezone)
-        except pytz.exceptions.UnknownTimeZoneError as e:
-            logger.error(
-                "algoseek_adapter.invalid_timezone",
-                timezone=config.timezone,
-                error=str(e),
-            )
-            raise
-
-        # Decimal quantization context
-        price_decimals = config.decimals.get("price", 4)
-        quantizer = Decimal(10) ** -price_decimals
-
-        # Bar schema mapping
-        bar_schema = config.bar_schema
+            raise FileNotFoundError(f"No parquet files found in {data_dir}")
 
         logger.info(
-            "algoseek_adapter.reading_bars",
+            "algoseek_ohlc_vendor_adapter.reading_bars",
             symbol=self.instrument.symbol,
-            secid=self.secid,
-            source=str(self.data_path),
-            timezone=config.timezone,
-            price_decimals=price_decimals,
-            data_mode="adjusted",
-            file_count=len(parquet_files),
+            start_date=start_date,
+            end_date=end_date,
+            parquet_count=len(parquet_files),
         )
 
-        # Connect to DuckDB and read
-        con = duckdb.connect(":memory:")
+        # Connect to DuckDB (in-memory)
+        conn = duckdb.connect(":memory:")
+
+        # Build DuckDB query
+        query = f"""
+        SELECT *
+        FROM read_parquet('{self.data_path}', hive_partitioning=true)
+        WHERE TradeDate >= '{start_date}'
+          AND TradeDate <= '{end_date}'
+        ORDER BY TradeDate ASC
+        """
+
         try:
-            # Build SELECT with bar schema mapping + Algoseek adjustment factors
-            select_cols = [
-                f"{bar_schema.ts} as ts",
-                f"{bar_schema.symbol} as symbol",
-                f"{bar_schema.open} as open",
-                f"{bar_schema.high} as high",
-                f"{bar_schema.low} as low",
-                f"{bar_schema.close} as close",
-                f"{bar_schema.volume} as volume",
-                "CumulativePriceFactor as px_factor",
-                "CumulativeVolumeFactor as vol_factor",
-                "AdjustmentFactor as adj_factor",
-                "AdjustmentReason as adj_reason",
-            ]
+            logger.debug("algoseek_ohlc_vendor_adapter.executing_query", query=query[:200])
 
-            query = f"""
-            SELECT {", ".join(select_cols)}
-            FROM read_parquet('{parquet_pattern}', hive_partitioning=true)
-            ORDER BY symbol, ts
-            """
+            # Execute query and fetch results
+            result = conn.execute(query)
 
-            try:
-                result = con.execute(query)
-            except Exception as e:
-                logger.error(
-                    "algoseek_adapter.query_failed",
-                    query=query[:200],  # Log first 200 chars
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-                raise
-
-            bar_count = 0
-            last_symbol = None
-            symbol_bar_counts: dict[str, int] = {}
+            # Get column names from description
+            if result.description is None:
+                raise ValueError("Query returned no description")
+            columns = [desc[0] for desc in result.description]
 
             # Yield bars one at a time
+            bar_count = 0
             for row in result.fetchall():
+                row_dict = dict(zip(columns, row))
+
+                # Parse to AlgoseekBar (validation happens in Pydantic model)
                 try:
-                    # Unpack row including adjustment factors
-                    (
-                        ts_naive,
-                        symbol,
-                        open_f,
-                        high_f,
-                        low_f,
-                        close_f,
-                        volume,
-                        px_factor_f,
-                        vol_factor_f,
-                        adj_factor_f,
-                        adj_reason,
-                    ) = row
-
-                    # Track symbols for logging
-                    if symbol != last_symbol:
-                        symbol_bar_counts[symbol] = symbol_bar_counts.get(symbol, 0) + 1
-                        if last_symbol is not None and symbol_bar_counts[last_symbol] > 0:
-                            logger.debug(
-                                "algoseek_adapter.symbol_completed",
-                                symbol=last_symbol,
-                                bar_count=symbol_bar_counts[last_symbol],
-                            )
-                        last_symbol = symbol
-
-                    # Localize timestamp
-                    ts = tz.localize(ts_naive)
-
-                    # Convert prices to Decimal (these are total-return adjusted from vendor)
-                    adjusted_open = Decimal(str(open_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                    adjusted_high = Decimal(str(high_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                    adjusted_low = Decimal(str(low_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-                    adjusted_close = Decimal(str(close_f)).quantize(quantizer, rounding=ROUND_HALF_UP)
-
-                    # Convert adjustment factors to Decimal
-                    px_factor = Decimal(str(px_factor_f))
-                    vol_factor = Decimal(str(vol_factor_f))
-
-                    # Compute unadjusted prices (as actually traded)
-                    unadjusted_open = compute_unadjusted_price(adjusted_open, px_factor)
-                    unadjusted_high = compute_unadjusted_price(adjusted_high, px_factor)
-                    unadjusted_low = compute_unadjusted_price(adjusted_low, px_factor)
-                    unadjusted_close = compute_unadjusted_price(adjusted_close, px_factor)
-                    unadjusted_volume = compute_unadjusted_volume(volume, vol_factor)
-
-                    # Compute capital-adjusted prices (split-adjusted only, no dividends)
-                    capital_adj_open = compute_capital_adjusted_price(adjusted_open, px_factor, vol_factor)
-                    capital_adj_high = compute_capital_adjusted_price(adjusted_high, px_factor, vol_factor)
-                    capital_adj_low = compute_capital_adjusted_price(adjusted_low, px_factor, vol_factor)
-                    capital_adj_close = compute_capital_adjusted_price(adjusted_close, px_factor, vol_factor)
-                    # Capital-adjusted volume is same as total-return (splits already factored)
-                    capital_adj_volume = int(volume)
-
-                    # Create the 3 price series
-                    unadjusted_series = PriceSeries(
-                        open=unadjusted_open.quantize(quantizer, rounding=ROUND_HALF_UP),
-                        high=unadjusted_high.quantize(quantizer, rounding=ROUND_HALF_UP),
-                        low=unadjusted_low.quantize(quantizer, rounding=ROUND_HALF_UP),
-                        close=unadjusted_close.quantize(quantizer, rounding=ROUND_HALF_UP),
-                        volume=unadjusted_volume,
-                    )
-
-                    capital_adjusted_series = PriceSeries(
-                        open=capital_adj_open.quantize(quantizer, rounding=ROUND_HALF_UP),
-                        high=capital_adj_high.quantize(quantizer, rounding=ROUND_HALF_UP),
-                        low=capital_adj_low.quantize(quantizer, rounding=ROUND_HALF_UP),
-                        close=capital_adj_close.quantize(quantizer, rounding=ROUND_HALF_UP),
-                        volume=capital_adj_volume,
-                    )
-
-                    total_return_series = PriceSeries(
-                        open=adjusted_open,
-                        high=adjusted_high,
-                        low=adjusted_low,
-                        close=adjusted_close,
-                        volume=int(volume),
-                    )
-
-                    # Extract corporate events from Algoseek's AdjustmentReason field
-                    dividend = None
-                    split = None
-
-                    if adj_reason is not None:
-                        adj_factor = Decimal(str(adj_factor_f)) if adj_factor_f is not None else None
-
-                        if adj_reason == "CashDiv" and adj_factor is not None:
-                            # Dividend: Calculate amount per share from adjustment factor
-                            # AdjustmentFactor is the price multiplier on ex-date
-                            # For dividends: new_price = old_price * adj_factor
-                            # Therefore: dividend = old_price * (1 - adj_factor)
-                            # We use adjusted_close as the "old price" since it's the actual traded price
-                            div_pct = Decimal("1") - adj_factor
-                            div_amount = adjusted_close * div_pct
-                            dividend = Dividend(
-                                ex_date=ts,
-                                amount_per_share=div_amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP),
-                                payment_date=None,  # Algoseek doesn't provide payment date
-                            )
-                            logger.debug(
-                                "algoseek_adapter.dividend_detected",
-                                symbol=symbol,
-                                ts=ts.isoformat(),
-                                amount=float(div_amount),
-                                adj_factor=float(adj_factor),
-                            )
-
-                        elif adj_reason in ("Subdiv", "BonusSame") and adj_factor is not None:
-                            # Split: Calculate split ratio from adjustment factor
-                            # For splits, both px and vol factors change by the split ratio
-                            # The adj_factor on the split day tells us the ratio
-                            # Note: adj_factor is inverse ratio (e.g., 0.25 for 4:1 split)
-                            split_ratio = Decimal("1") / adj_factor
-                            split = Split(
-                                ex_date=ts,
-                                ratio=split_ratio.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-                                from_factor=1,  # Algoseek doesn't provide explicit from/to
-                                to_factor=int(split_ratio.quantize(Decimal("1"), rounding=ROUND_HALF_UP)),
-                            )
-                            logger.debug(
-                                "algoseek_adapter.split_detected",
-                                symbol=symbol,
-                                ts=ts.isoformat(),
-                                ratio=float(split_ratio),
-                                adj_factor=float(adj_factor),
-                                reason=adj_reason,
-                            )
-
+                    bar = AlgoseekBar(**row_dict)
+                    yield bar
                     bar_count += 1
-                    # Use instrument symbol (not vendor symbol which might differ)
-                    yield Bar(
-                        ts=ts,
-                        symbol=self.instrument.symbol,
-                        unadjusted=unadjusted_series,
-                        capital_adjusted=capital_adjusted_series,
-                        total_return=total_return_series,
-                        dividend=dividend,
-                        split=split,
-                    )
+
                 except Exception as e:
-                    logger.error(
-                        "algoseek_adapter.bar_conversion_failed",
-                        row=str(row)[:200],  # Truncate long rows
+                    logger.warning(
+                        "algoseek_ohlc_vendor_adapter.bar_parse_error",
+                        symbol=self.instrument.symbol,
+                        trade_date=row_dict.get("TradeDate"),
                         error=str(e),
-                        error_type=type(e).__name__,
-                        bar_number=bar_count + 1,
                     )
-                    raise
+                    # Skip invalid bars but continue processing
+                    continue
 
             logger.info(
-                "algoseek_adapter.bars_completed",
-                bar_count=bar_count,
-                symbol_count=len(symbol_bar_counts),
-                symbols=list(symbol_bar_counts.keys()),
-            )
-
-        finally:
-            con.close()
-            logger.debug("algoseek_adapter.bars_connection_closed")
-
-    def read_adjustments(self, config: DataConfig) -> Iterator[AdjustmentEvent]:
-        """
-        Read adjustment metadata from parquet files for this instrument.
-
-        Args:
-            config: DataConfig with adjustment schema
-
-        Yields:
-            AdjustmentEvent objects
-
-        Extracts rows with AdjustmentReason != NULL as AdjustmentEvent objects.
-        """
-        if config.adjustment_schema is None:
-            logger.info(
-                "algoseek_adapter.no_adjustment_schema",
+                "algoseek_ohlc_vendor_adapter.bars_loaded",
                 symbol=self.instrument.symbol,
-                msg="Skipping adjustment metadata",
+                count=bar_count,
+                start_date=start_date,
+                end_date=end_date,
             )
-            return
 
-        parquet_pattern = str(self.data_path)
-
-        try:
-            tz = pytz.timezone(config.timezone)
-        except pytz.exceptions.UnknownTimeZoneError as e:
+        except Exception as e:
             logger.error(
-                "algoseek_adapter.invalid_timezone_adjustments",
-                timezone=config.timezone,
+                "algoseek_ohlc_vendor_adapter.query_error",
+                symbol=self.instrument.symbol,
                 error=str(e),
+                query=query[:200],
             )
             raise
 
-        # Adjustment schema mapping
-        adj_schema = config.adjustment_schema
+        finally:
+            conn.close()
 
-        logger.info(
-            "algoseek_adapter.reading_adjustments",
-            symbol=self.instrument.symbol,
-            secid=self.secid,
-            source=str(self.data_path),
-        )
+    def get_available_date_range(self) -> tuple[Optional[str], Optional[str]]:
+        """
+        Get available date range for this instrument.
 
-        con = duckdb.connect(":memory:")
+        Returns:
+            Tuple of (min_date, max_date) in ISO format, or (None, None) if no data
+
+        Examples:
+            >>> min_date, max_date = adapter.get_available_date_range()
+            >>> print(f"Data available from {min_date} to {max_date}")
+        """
+        data_dir = self.data_path.parent if "*" in str(self.data_path) else self.data_path
+
+        if not data_dir.exists():
+            return None, None
+
+        parquet_files = list(data_dir.rglob("*.parquet"))
+        if not parquet_files:
+            return None, None
+
+        conn = duckdb.connect(":memory:")
+
         try:
-            # Select only rows with adjustments
-            select_cols = [
-                f"{adj_schema.ts} as ts",
-                f"{adj_schema.symbol} as symbol",
-                f"{adj_schema.event_type} as event_type",
-                f"{adj_schema.px_factor} as px_factor",
-                f"{adj_schema.vol_factor} as vol_factor",
-            ]
-
-            # Add metadata fields if specified
-            metadata_cols = ", ".join(adj_schema.metadata_fields) if adj_schema.metadata_fields else ""
-
             query = f"""
-            SELECT {", ".join(select_cols)}{", " + metadata_cols if metadata_cols else ""}
-            FROM read_parquet('{parquet_pattern}', hive_partitioning=true)
-            WHERE {adj_schema.event_type} IS NOT NULL
-            ORDER BY symbol, ts
+            SELECT
+                MIN(TradeDate) as min_date,
+                MAX(TradeDate) as max_date
+            FROM read_parquet('{self.data_path}', hive_partitioning=true)
             """
 
-            try:
-                result = con.execute(query)
-            except Exception as e:
-                logger.error(
-                    "algoseek_adapter.adjustments_query_failed",
-                    query=query[:200],
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-                raise
+            result = conn.execute(query).fetchone()
 
-            adj_count = 0
-            symbol_adj_counts: dict[str, int] = {}
+            if result and result[0] and result[1]:
+                # Convert datetime to ISO string
+                min_date = result[0].date().isoformat()
+                max_date = result[1].date().isoformat()
+                return min_date, max_date
 
-            for row in result.fetchall():
-                try:
-                    ts_naive, symbol, event_type, px_f, vol_f = row[:5]
-                    metadata_vals = row[5:] if len(row) > 5 else []
+            return None, None
 
-                    # Track adjustment counts by symbol
-                    symbol_adj_counts[symbol] = symbol_adj_counts.get(symbol, 0) + 1
-
-                    # Localize timestamp
-                    ts = tz.localize(ts_naive)
-
-                    # Convert factors to Decimal
-                    px_factor = Decimal(str(px_f)).quantize(Decimal("0.0000001"))
-                    vol_factor = Decimal(str(vol_f)).quantize(Decimal("0.0000001"))
-
-                    # Build metadata dict
-                    metadata = {}
-                    if adj_schema.metadata_fields and metadata_vals:
-                        metadata = dict(zip(adj_schema.metadata_fields, metadata_vals))
-
-                    adj_count += 1
-                    # Use instrument symbol (not vendor symbol)
-                    yield AdjustmentEvent(
-                        ts=ts,
-                        symbol=self.instrument.symbol,
-                        event_type=event_type,
-                        px_factor=px_factor,
-                        vol_factor=vol_factor,
-                        metadata=metadata,
-                    )
-
-                    # Log individual adjustments for debugging
-                    logger.debug(
-                        "algoseek_adapter.adjustment_event",
-                        symbol=symbol,
-                        ts=ts.isoformat(),
-                        event_type=event_type,
-                        px_factor=float(px_factor),
-                        vol_factor=float(vol_factor),
-                    )
-                except Exception as e:
-                    logger.error(
-                        "algoseek_adapter.adjustment_conversion_failed",
-                        row=str(row)[:200],
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        adjustment_number=adj_count + 1,
-                    )
-                    raise
-
-            logger.info(
-                "algoseek_adapter.adjustments_completed",
-                adj_count=adj_count,
-                symbol_count=len(symbol_adj_counts),
-                adjustments_by_symbol=symbol_adj_counts,
+        except Exception as e:
+            logger.warning(
+                "algoseek_ohlc_vendor_adapter.date_range_query_error",
+                symbol=self.instrument.symbol,
+                error=str(e),
             )
+            return None, None
 
         finally:
-            con.close()
-            logger.debug("algoseek_adapter.adjustments_connection_closed")
+            conn.close()
