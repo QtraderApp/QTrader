@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from qtrader.config.logging_config import LoggerFactory
 from qtrader.data import BarMerger, PriceSeriesIterator
 from qtrader.execution.engine import ExecutionEngine
+from qtrader.execution.split_processor import SplitProcessor
 from qtrader.execution.warmup import WarmupDetector, WarmupProcessor
 
 if TYPE_CHECKING:
@@ -60,6 +61,12 @@ class Backtest:
         self._prev_cash: Optional[Decimal] = None
         self._prev_portfolio_value: Optional[Decimal] = None
 
+        # Split processor for handling corporate actions
+        self.split_processor: Optional[SplitProcessor] = None
+
+        # Track previous adjustment ratios for split detection
+        self._prev_adjustment_ratios: Dict[str, Decimal] = {}
+
     def run(
         self,
         ctx: "Context",
@@ -110,15 +117,16 @@ class Backtest:
 
         # Use BarMerger to coordinate multi-symbol streams
         merger = BarMerger(data_iterators)
-        bars_list = []  # Will contain CanonicalBar objects from MultiModeBar.adjusted
+        bars_list = []  # Will contain tuples: (CanonicalBar adjusted, MultiModeBar)
 
         # Extract Bar objects from MultiModeBar (use adjusted mode for strategy)
+        # Keep MultiModeBar for accessing unadjusted dividend amounts
         while merger.has_next():
             symbol, multi_mode_bar = merger.get_next_bar()
             # Strategy receives Bar (extracted from adjusted mode)
-            # Full MultiModeBar support comes in Phase 4 Part 4
+            # But we keep the full MultiModeBar for dividend processing
             bar = multi_mode_bar.adjusted
-            bars_list.append(bar)
+            bars_list.append((bar, multi_mode_bar))  # Store both
 
         logger.info(
             "backtest.iterator_conversion_complete",
@@ -147,6 +155,9 @@ class Backtest:
             config=self.config,
         )
 
+        # Initialize split processor
+        self.split_processor = SplitProcessor(ctx.portfolio.positions)
+
         # Phase 1: Initialize strategy
         if hasattr(self.strategy, "on_init"):
             logger.info("backtest.calling_on_init")
@@ -169,7 +180,7 @@ class Backtest:
                 warmup_processor = WarmupProcessor(warmup_bars=warmup_bars, enable_warmup=True)
 
                 # Process warmup bars (indicators only, no trading)
-                for bar_idx, bar in enumerate(bars_list):
+                for bar_idx, (bar, _) in enumerate(bars_list):
                     if not warmup_processor.should_skip_bar(bar_idx):
                         break
 
@@ -199,9 +210,10 @@ class Backtest:
 
         # Capture initial portfolio snapshot before trading begins
         initial_cash = ctx.portfolio.cash.get_balance()
+        first_bar = bars_list[start_idx][0] if start_idx < len(bars_list) else None
         initial_snapshot = {
-            "timestamp": bars_list[start_idx].ts.isoformat() if start_idx < len(bars_list) else None,
-            "symbol": bars_list[start_idx].symbol if start_idx < len(bars_list) else None,
+            "timestamp": first_bar.ts.isoformat() if first_bar else None,
+            "symbol": first_bar.symbol if first_bar else None,
             # Cash tracking
             "initial_cash": float(initial_cash),
             "cash_debits": 0.0,
@@ -225,57 +237,101 @@ class Backtest:
         logger.info("backtest.trading_loop_starting", start_idx=start_idx, total_bars=len(bars_list))
 
         for bar_idx in range(start_idx, len(bars_list)):
-            bar = bars_list[bar_idx]
-            next_bar = bars_list[bar_idx + 1] if bar_idx + 1 < len(bars_list) else None
+            bar, multi_mode_bar = bars_list[bar_idx]  # Unpack both adjusted bar and full MultiModeBar
 
-            # Update context state for this bar
+            # Extract unadjusted bar for execution (Phase 2 architecture)
+            unadjusted_bar = multi_mode_bar.unadjusted
+            next_unadjusted_bar = bars_list[bar_idx + 1][1].unadjusted if bar_idx + 1 < len(bars_list) else None
+
+            # Update context state for this bar (strategy uses adjusted)
             ctx.current_date = bar.ts
             ctx.current_symbol = bar.symbol
             ctx.current_price = bar.close
 
-            # Add bar to context history
+            # Add bar to context history (strategy uses adjusted)
             ctx._add_bar_to_history(bar)
 
+            # Detect and process splits (before dividends and trading)
+            # Compare unadjusted/adjusted price ratio to detect splits
+            adjustment_ratio = unadjusted_bar.close / bar.close
+            prev_ratio = self._prev_adjustment_ratios.get(bar.symbol)
+
+            if prev_ratio is not None:
+                # Check if ratio changed significantly (indicates split)
+                ratio_change = adjustment_ratio / prev_ratio
+                # Allow 0.5% tolerance for price movements
+                if abs(ratio_change - Decimal("1")) > Decimal("0.005"):
+                    # Split detected!
+                    logger.info(
+                        "backtest.split_detected",
+                        symbol=bar.symbol,
+                        date=bar.ts.isoformat(),
+                        prev_ratio=float(prev_ratio),
+                        curr_ratio=float(adjustment_ratio),
+                        split_ratio=float(ratio_change),
+                    )
+
+                    # Process split (updates position qty and cost basis)
+                    split_result = self.split_processor.process_split(
+                        symbol=bar.symbol,
+                        adjustment_factor=Decimal("1") / ratio_change,  # Convert to AlgoSeek format
+                        current_price=unadjusted_bar.close,
+                    )
+
+                    if split_result.get("processed"):
+                        logger.info(
+                            "backtest.split_processed",
+                            symbol=bar.symbol,
+                            **split_result,
+                        )
+
+            # Store current ratio for next iteration
+            self._prev_adjustment_ratios[bar.symbol] = adjustment_ratio
+
             # Process dividend cash payment (if bar has dividend on ex-date)
-            # The dividend field contains the split-adjusted dividend amount per share
-            # This comes from the data layer (AlgoseekBar → CanonicalBar transformation)
-            if bar.dividend is not None:
+            # Use UNADJUSTED dividend amount for cash payments (Phase 2 architecture)
+            # - Portfolio positions are in real shares (updated by split processing)
+            # - Dividends are actual dollars per share paid at that time
+            # - Example: After 4:1 split, 4 shares × $0.205 unadjusted = $0.82 total
+            if unadjusted_bar.dividend is not None:
                 # Get current position for this symbol
                 position = ctx.portfolio.positions.get_position(bar.symbol)
                 if position and not position.is_flat():
                     # Credit cash for long positions, debit for short positions
-                    # Use existing Portfolio methods which handle cash ledger correctly
+                    # Use UNADJUSTED dividend amount (actual dollars paid at that time)
                     if position.qty > 0:
                         ctx.portfolio.apply_long_dividend(
                             symbol=bar.symbol,
-                            dividend_per_share=bar.dividend,
+                            dividend_per_share=unadjusted_bar.dividend,  # Use unadjusted!
                             ts=bar.ts,
                         )
                         logger.debug(
                             "backtest.dividend_paid",
                             symbol=bar.symbol,
                             date=bar.ts.isoformat(),
-                            dividend_per_share=float(bar.dividend),
+                            dividend_per_share_unadjusted=float(unadjusted_bar.dividend),
+                            dividend_per_share_adjusted=float(bar.dividend) if bar.dividend else None,
                             shares=position.qty,
-                            total_amount=float(bar.dividend * position.qty),
+                            total_amount=float(unadjusted_bar.dividend * position.qty),
                         )
                     else:
                         # Short positions owe dividends
                         ctx.portfolio.apply_short_dividend(
                             symbol=bar.symbol,
-                            dividend_per_share=bar.dividend,
+                            dividend_per_share=unadjusted_bar.dividend,  # Use unadjusted!
                             ts=bar.ts,
                         )
                         logger.debug(
                             "backtest.dividend_owed",
                             symbol=bar.symbol,
                             date=bar.ts.isoformat(),
-                            dividend_per_share=float(bar.dividend),
+                            dividend_per_share_unadjusted=float(unadjusted_bar.dividend),
+                            dividend_per_share_adjusted=float(bar.dividend) if bar.dividend else None,
                             shares=position.qty,
-                            total_amount=float(bar.dividend * abs(position.qty)),
+                            total_amount=float(unadjusted_bar.dividend * abs(position.qty)),
                         )
 
-            # Call strategy.on_bar() - returns signals
+            # Call strategy.on_bar() - returns signals (strategy uses adjusted)
             signals = self.strategy.on_bar(bar, ctx)
 
             # Process signals through risk manager
@@ -322,9 +378,10 @@ class Backtest:
                             error=str(e),
                         )
 
-            # Process bar through execution engine
-            # This handles: intrabar evaluation (limit/stop), participation, partials, MOC fills
-            fills = self.execution_engine.on_bar(bar, next_bar=next_bar)
+            # Process bar through execution engine (Phase 2 architecture: use unadjusted)
+            # Execution uses unadjusted prices for realistic fills and commissions
+            # Positions track real share quantities (updated by split processing)
+            fills = self.execution_engine.on_bar(unadjusted_bar, next_bar=next_unadjusted_bar)
 
             # Track fills
             self.all_fills.extend(fills)
@@ -351,7 +408,11 @@ class Backtest:
                         portfolio_market_value += position.market_value(current_price)
 
                 # Check if this bar has a dividend (for snapshot metadata)
-                dividend_per_share = float(bar.dividend) if bar.dividend else None
+                # Log both unadjusted (actual payment) and adjusted (for analysis)
+                dividend_per_share_unadjusted = (
+                    float(multi_mode_bar.unadjusted.dividend) if multi_mode_bar.unadjusted.dividend else None
+                )
+                dividend_per_share_adjusted = float(bar.dividend) if bar.dividend else None
 
                 # Get fills for this bar
                 bar_fills = [f for f in fills if f.symbol == bar.symbol]
@@ -400,7 +461,9 @@ class Backtest:
                     "close": float(bar.close),
                     "volume": bar.volume,
                     # Dividend info (if present on this bar)
-                    "dividend_per_share": dividend_per_share,
+                    # Log both amounts for transparency
+                    "dividend_per_share_unadjusted": dividend_per_share_unadjusted,  # Actual payment
+                    "dividend_per_share_adjusted": dividend_per_share_adjusted,  # For analysis
                     # Fill information
                     "signal": fill_info.get("signal"),
                     "order_id": fill_info.get("order_id"),
