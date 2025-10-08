@@ -150,43 +150,55 @@ class AlgoseekBar(BaseModel):
         """
         return self.AdjustmentReason in ("Subdiv", "BonusSame", "ScriptDiv", "Cons")
 
-    def get_dividend_amount(self) -> Optional[Decimal]:
+    def get_dividend_amount(self, previous_close: float) -> Optional[Decimal]:
         """
         Extract dividend amount if AdjustmentReason indicates a dividend.
 
-        For dividends, Algoseek's AdjustmentFactor represents:
-            new_price = old_price * adjustment_factor
+        For dividends, Algoseek's AdjustmentFactor represents a price adjustment ratio,
+        not a dollar amount. The dividend must be calculated from the previous close:
 
-        Therefore:
-            dividend = old_price * (1 - adjustment_factor)
+            Dividend = (1 - AdjustmentFactor) × Close[T-1]
+
+        Where:
+            - AdjustmentFactor appears on ex-dividend date (T)
+            - Close[T-1] is the previous trading day's closing price
+            - Dividend is paid to shareholders holding at end of T-1
+
+        Args:
+            previous_close: The closing price from the previous trading day
 
         Returns:
-            Decimal dividend amount per share, or None if no dividend
+            Decimal dividend amount per share in dollars, or None if no dividend
+
+        Example:
+            AAPL 2020-08-07:
+            - AdjustmentFactor = 0.998200215
+            - Previous Close (Aug 6) = $455.61
+            - Dividend = (1 - 0.998200215) × 455.61 = $0.82
         """
         if self.is_dividend() and self.AdjustmentFactor:
-            # For dividends: new_price = old_price * adjustment_factor
-            # Therefore: dividend = old_price * (1 - adjustment_factor)
-            div_pct = Decimal("1") - Decimal(str(self.AdjustmentFactor))
-            div_amount = Decimal(str(self.Close)) * div_pct
-            return div_amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+            # Calculate dividend from adjustment factor and previous close
+            adjustment_factor = Decimal(str(self.AdjustmentFactor))
+            prev_close = Decimal(str(previous_close))
+            dividend = (Decimal("1") - adjustment_factor) * prev_close
+            return dividend.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
         return None
 
     def get_split_ratio(self) -> Optional[Decimal]:
         """
         Extract split ratio if AdjustmentReason indicates a split.
 
-        For splits, Algoseek's AdjustmentFactor is the inverse ratio:
-            e.g., 0.25 for a 4:1 split
+        For splits, Algoseek's AdjustmentFactor is the INVERSE of the split ratio:
+            - 0.25 for a 4:1 forward split (1/4 = 0.25)
+            - 5.0 for a 1:5 reverse split (1/0.2 = 5.0)
 
-        Therefore:
-            split_ratio = 1 / adjustment_factor
+        Therefore: split_ratio = 1 / AdjustmentFactor
 
         Returns:
             Decimal split ratio (e.g., 4.00 for 4:1 split), or None if no split
         """
         if self.is_split() and self.AdjustmentFactor:
-            # For splits: adjustment_factor is the inverse ratio
-            # e.g., 0.25 for a 4:1 split
+            # AdjustmentFactor is the inverse of the split ratio
             split_ratio = Decimal("1") / Decimal(str(self.AdjustmentFactor))
             return split_ratio.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return None

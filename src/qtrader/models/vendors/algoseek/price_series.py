@@ -79,9 +79,15 @@ class AlgoseekPriceSeries(BaseModel):
         prev_unadj_close: Optional[Decimal] = None
         prev_tr_close: Optional[Decimal] = None
         cumulative_split_ratio = Decimal("1.0")  # Track cumulative splits for volume adjustment
+        prev_bar: Optional[AlgoseekBar] = None  # Track previous bar for dividend calculation
 
         for bar in self.bars:
             trade_date = bar.TradeDate.date().isoformat()
+
+            # Calculate dividend amount (requires previous bar's close)
+            dividend_amount: Optional[Decimal] = None
+            if bar.is_dividend() and prev_bar is not None:
+                dividend_amount = bar.get_dividend_amount(prev_bar.Close)
 
             # 1. Unadjusted (raw prices, no adjustment)
             unadj_bar = CanonicalBar(
@@ -91,7 +97,7 @@ class AlgoseekPriceSeries(BaseModel):
                 low=bar.Low,
                 close=bar.Close,
                 volume=bar.MarketHoursVolume,
-                dividend=bar.get_dividend_amount(),
+                dividend=dividend_amount,
             )
             unadjusted_bars.append(unadj_bar)
 
@@ -102,7 +108,6 @@ class AlgoseekPriceSeries(BaseModel):
 
             # Adjust dividend amount for splits (divide by split ratio)
             adjusted_dividend: Optional[Decimal] = None
-            dividend_amount = bar.get_dividend_amount()
             if dividend_amount is not None:
                 adjusted_dividend = dividend_amount / vol_factor_ratio
 
@@ -130,10 +135,8 @@ class AlgoseekPriceSeries(BaseModel):
                 # First bar: TR_0 = UnAdj_0
                 tr_close = Decimal(str(bar.Close))
             else:
-                # Get dividend for this bar (if any)
-                dividend = bar.get_dividend_amount()
-                if dividend is None:
-                    dividend = Decimal("0")
+                # Use the dividend we already calculated
+                dividend = dividend_amount if dividend_amount is not None else Decimal("0")
 
                 # TR_t = TR_{t-1} * (UnAdj_t * SplitRatio_t + Div_t) / UnAdj_{t-1}
                 unadj_close = Decimal(str(bar.Close))
@@ -166,6 +169,7 @@ class AlgoseekPriceSeries(BaseModel):
             # Update for next iteration
             prev_unadj_close = Decimal(str(bar.Close))
             prev_tr_close = tr_close
+            prev_bar = bar  # Track previous bar for dividend calculation
 
         return {
             "unadjusted": CanonicalPriceSeries(mode="unadjusted", symbol=self.symbol, bars=unadjusted_bars),
