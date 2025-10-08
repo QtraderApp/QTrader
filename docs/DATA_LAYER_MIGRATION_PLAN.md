@@ -130,15 +130,16 @@ ______________________________________________________________________
 
 ### Key Design Principles
 
-1. **Single Series Model**: `CanonicalBar` represents ONE adjustment mode
+1. **Multi-Mode Bar Model**: Each bar contains ALL adjustment modes
 
-   - Simplifies bar model (no nested series)
-   - Mode selection happens at data layer
-   - Downstream sees only one price series
+   - `MultiModeBar` contains: unadjusted, adjusted, total_return
+   - Each component selects appropriate mode for its purpose
+   - Single data load, multiple uses
+   - Configuration specifies which mode each stage uses
 
 1. **Iterator-Based**: Streaming data flow
 
-   - Memory efficient (no load-all-bars)
+   - Memory efficient streaming (one timestamp at a time)
    - Natural backtest progression
    - Easy to add filters/transformations
 
@@ -148,12 +149,21 @@ ______________________________________________________________________
    - `to_canonical_series()` converts to canonical
    - Backtest engine never sees vendor models
 
-1. **Configuration-Driven Mode Selection**:
+1. **Configuration-Driven Mode Selection per Stage**:
 
    ```yaml
    data:
-     price_series_mode: "adjusted"  # unadjusted | adjusted | total_return
+     # Each stage uses optimal mode for its purpose
+     signal_generation_mode: "adjusted"      # For indicators/strategies (split-adjusted)
+     execution_mode: "unadjusted"            # For fills (actual traded prices)
+     performance_mode: "total_return"        # For metrics (includes dividends)
    ```
+
+   **Rationale**:
+
+   - **Signals**: Use adjusted prices for consistent technical indicators across splits
+   - **Execution**: Use unadjusted prices for realistic fills at actual market prices
+   - **Performance**: Use total_return to include dividend reinvestment in returns
 
 ______________________________________________________________________
 
@@ -176,46 +186,94 @@ ______________________________________________________________________
 
 ### Phase 2: Iterator Infrastructure (2 days)
 
-**Objective**: Build streaming data layer on top of canonical models.
+**Objective**: Build streaming data layer with multi-mode support.
+
+#### 2.0 Create `MultiModeBar` Model
+
+**File**: `src/qtrader/models/multi_mode_bar.py`
+
+```python
+"""Multi-mode bar containing all adjustment modes."""
+
+from pydantic import BaseModel
+from qtrader.models.canonical_bar import CanonicalBar
+
+
+class MultiModeBar(BaseModel):
+    """
+    Bar with all adjustment modes.
+
+    Allows each component to select appropriate mode:
+    - Strategy: adjusted (for indicators)
+    - Execution: unadjusted (for fills)
+    - Performance: total_return (for metrics)
+    """
+
+    symbol: str
+    trade_datetime: str
+    unadjusted: CanonicalBar
+    adjusted: CanonicalBar
+    total_return: CanonicalBar
+
+    class Config:
+        frozen = True  # Immutable
+
+    def get_bar(self, mode: str) -> CanonicalBar:
+        """Get bar for specific mode."""
+        if mode == "unadjusted":
+            return self.unadjusted
+        elif mode == "adjusted":
+            return self.adjusted
+        elif mode == "total_return":
+            return self.total_return
+        else:
+            raise ValueError(f"Invalid mode: {mode}")
+```
+
+**Tests**: `tests/unit/models/test_multi_mode_bar.py`
+
+- Test all modes accessible
+- Test get_bar() method
+- Test immutability
 
 #### 2.1 Create `PriceSeriesIterator` Class
 
 **File**: `src/qtrader/data/price_series_iterator.py`
 
 ```python
-"""Price series iterator for streaming canonical bars."""
+"""Price series iterator for streaming multi-mode bars."""
 
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Dict
 from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
+from qtrader.models.multi_mode_bar import MultiModeBar
 
 
 class PriceSeriesIterator:
     """
-    Iterator wrapper for CanonicalPriceSeries.
+    Iterator wrapper for multi-mode price series.
 
-    Provides streaming access to bars one at a time.
+    Provides streaming access to bars with all adjustment modes.
     Supports peek (look at next bar without consuming).
     """
 
-    def __init__(self, series: CanonicalPriceSeries):
+    def __init__(self, series_dict: Dict[str, CanonicalPriceSeries]):
         """
         Initialize iterator.
 
         Args:
-            series: CanonicalPriceSeries to iterate over
+            series_dict: Dict with keys 'unadjusted', 'adjusted', 'total_return'
         """
-        self.series = series
-        self.symbol = series.symbol
-        self.mode = series.mode
+        self.series_dict = series_dict
+        self.symbol = series_dict["unadjusted"].symbol
         self._index = 0
-        self._peeked: Optional[CanonicalBar] = None
+        self._peeked: Optional[MultiModeBar] = None
 
-    def __iter__(self) -> Iterator[CanonicalBar]:
+    def __iter__(self) -> Iterator[MultiModeBar]:
         """Return iterator."""
         return self
 
-    def __next__(self) -> CanonicalBar:
-        """Get next bar."""
+    def __next__(self) -> MultiModeBar:
+        """Get next multi-mode bar."""
         # If we peeked, return peeked bar
         if self._peeked is not None:
             bar = self._peeked
@@ -223,33 +281,50 @@ class PriceSeriesIterator:
             return bar
 
         # Otherwise get next from series
-        if self._index >= len(self.series.bars):
+        unadj_bars = self.series_dict["unadjusted"].bars
+        if self._index >= len(unadj_bars):
             raise StopIteration
 
-        bar = self.series.bars[self._index]
-        self._index += 1
-        return bar
+        # Build MultiModeBar from all three series
+        multi_bar = MultiModeBar(
+            symbol=self.symbol,
+            trade_datetime=unadj_bars[self._index].trade_datetime,
+            unadjusted=self.series_dict["unadjusted"].bars[self._index],
+            adjusted=self.series_dict["adjusted"].bars[self._index],
+            total_return=self.series_dict["total_return"].bars[self._index],
+        )
 
-    def peek(self) -> Optional[CanonicalBar]:
+        self._index += 1
+        return multi_bar
+
+    def peek(self) -> Optional[MultiModeBar]:
         """
         Peek at next bar without consuming.
 
         Returns:
-            Next bar or None if at end
+            Next MultiModeBar or None if at end
         """
         if self._peeked is not None:
             return self._peeked
 
-        if self._index >= len(self.series.bars):
+        unadj_bars = self.series_dict["unadjusted"].bars
+        if self._index >= len(unadj_bars):
             return None
 
-        self._peeked = self.series.bars[self._index]
+        self._peeked = MultiModeBar(
+            symbol=self.symbol,
+            trade_datetime=unadj_bars[self._index].trade_datetime,
+            unadjusted=self.series_dict["unadjusted"].bars[self._index],
+            adjusted=self.series_dict["adjusted"].bars[self._index],
+            total_return=self.series_dict["total_return"].bars[self._index],
+        )
         self._index += 1
         return self._peeked
 
     def has_next(self) -> bool:
         """Check if more bars available."""
-        return self._peeked is not None or self._index < len(self.series.bars)
+        unadj_bars = self.series_dict["unadjusted"].bars
+        return self._peeked is not None or self._index < len(unadj_bars)
 
     def reset(self) -> None:
         """Reset iterator to beginning."""
@@ -259,11 +334,12 @@ class PriceSeriesIterator:
 
 **Tests**: `tests/unit/data/test_price_series_iterator.py`
 
-- Test iteration
+- Test iteration with MultiModeBar
 - Test peek without consume
 - Test has_next
 - Test reset
 - Test empty series
+- Test mode access (unadjusted/adjusted/total_return)
 
 #### 2.2 Create `DataLoader` Service
 
@@ -286,8 +362,8 @@ class DataLoader:
     Responsibilities:
     1. Call vendor adapter to get raw bars
     2. Build vendor price series
-    3. Transform to canonical series
-    4. Return iterator for selected mode
+    3. Transform to canonical series (all 3 modes)
+    4. Return iterator with multi-mode bars
     """
 
     def __init__(self, config: Dict):
@@ -295,10 +371,9 @@ class DataLoader:
         Initialize data loader.
 
         Args:
-            config: Data configuration dict
+            config: Data configuration dict (mode selection moved to components)
         """
         self.config = config
-        self.price_series_mode = config.get("price_series_mode", "adjusted")
 
     def load_data(
         self,
@@ -307,7 +382,7 @@ class DataLoader:
         end_date: str
     ) -> PriceSeriesIterator:
         """
-        Load data for symbol and return iterator.
+        Load data for symbol and return multi-mode iterator.
 
         Args:
             symbol: Ticker symbol
@@ -315,14 +390,13 @@ class DataLoader:
             end_date: End date (ISO format)
 
         Returns:
-            PriceSeriesIterator for selected mode
+            PriceSeriesIterator yielding MultiModeBar (all 3 modes)
 
         Steps:
         1. Load raw vendor bars (from adapter)
         2. Build AlgoseekPriceSeries
         3. Transform to canonical series (all 3 modes)
-        4. Select configured mode
-        5. Return iterator
+        4. Return iterator with all modes
         """
         # Step 1: Load raw bars from adapter
         # (Adapter integration done in Phase 3)
@@ -336,11 +410,9 @@ class DataLoader:
         # Step 3: Transform to canonical (all 3 modes)
         canonical_series_dict = vendor_series.to_canonical_series()
 
-        # Step 4: Select configured mode
-        selected_series = canonical_series_dict[self.price_series_mode]
-
-        # Step 5: Return iterator
-        return PriceSeriesIterator(selected_series)
+        # Step 4: Return iterator with all modes
+        # Components will select mode based on their config
+        return PriceSeriesIterator(canonical_series_dict)
 
     def _load_from_adapter(
         self,
@@ -354,8 +426,8 @@ class DataLoader:
 
 **Tests**: `tests/unit/data/test_data_loader.py`
 
-- Test mode selection (unadjusted/adjusted/total_return)
-- Test iterator returns correct mode
+- Test iterator returns MultiModeBar
+- Test all 3 modes present
 - Test with mock adapter
 
 #### 2.3 Update Configuration Schema
@@ -364,20 +436,24 @@ class DataLoader:
 
 ```yaml
 data:
-  price_series_mode: "adjusted"  # unadjusted | adjusted | total_return
+  # Mode selection per component (each uses optimal series for its purpose)
+  signal_generation_mode: "adjusted"      # For indicators/strategies (split-adjusted)
+  execution_mode: "unadjusted"            # For fills (actual traded prices)
+  performance_mode: "total_return"        # For metrics (includes dividends)
 
   # Mode descriptions:
-  # - unadjusted: Raw prices (for realistic fills, volume participation)
-  # - adjusted: Split-adjusted (standard backtesting)
-  # - total_return: Split + dividend adjusted (benchmarking)
+  # - unadjusted: Raw prices as traded (for realistic fills, commissions)
+  # - adjusted: Split-adjusted (for consistent indicators across splits)
+  # - total_return: Split + dividend adjusted (for accurate performance metrics)
 ```
 
 **Deliverables**:
 
-- ✅ `PriceSeriesIterator` class with peek support
-- ✅ `DataLoader` service
-- ✅ Configuration schema
-- ✅ Unit tests (20+ tests)
+- ✅ `MultiModeBar` model with all 3 modes
+- ✅ `PriceSeriesIterator` yielding MultiModeBar
+- ✅ `DataLoader` service (loads all modes)
+- ✅ Configuration schema (mode per component)
+- ✅ Unit tests (25+ tests)
 
 ______________________________________________________________________
 
@@ -577,7 +653,7 @@ class BarMerger:
             except StopIteration:
                 pass
 
-    def get_next_bar(self) -> tuple[str, CanonicalBar]:
+    def get_next_bar(self) -> tuple[str, MultiModeBar]:
         """Get next bar across all symbols (earliest timestamp)."""
         if not self.current_bars:
             raise StopIteration
@@ -606,11 +682,17 @@ bar_merger = BarMerger(data_iterators)
 
 try:
     while True:
-        symbol, bar = bar_merger.get_next_bar()
+        symbol, multi_bar = bar_merger.get_next_bar()
 
-        # Process bar
-        signals = self.strategy.on_bar(bar, ctx)
-        # ... rest of event loop
+        # Each component selects its preferred mode
+        # Strategy gets adjusted for indicators
+        signals = self.strategy.on_bar(multi_bar, ctx)
+
+        # Execution gets unadjusted for realistic fills
+        fills = self.execution_engine.on_bar(multi_bar, signals)
+
+        # Portfolio can use total_return for performance
+        self.portfolio.update(multi_bar, fills)
 
 except StopIteration:
     # All bars processed
@@ -632,16 +714,24 @@ def on_bar(self, bar: Bar, ctx: Context) -> Optional[List[Signal]]:
 **NEW**:
 
 ```python
-def on_bar(self, bar: CanonicalBar, ctx: Context) -> Optional[List[Signal]]:
-    # bar has single price series (mode selected at data layer)
-    price = bar.close  # NEW - simpler!
+def on_bar(self, bar: MultiModeBar, ctx: Context) -> Optional[List[Signal]]:
+    # Strategy uses adjusted mode (configured in ctx.config)
+    strategy_bar = bar.get_bar(ctx.config.signal_generation_mode)
+    # or directly: strategy_bar = bar.adjusted
+
+    price = strategy_bar.close  # Simpler access!
+
+    # Example: SMA calculation uses adjusted prices
+    if strategy_bar.close > self.sma_50:
+        return [Signal.BUY]
 ```
 
 **Migration Impact**:
 
-- ✅ Simpler strategy code (no series selection)
-- ✅ Mode configured once in YAML
-- ✅ All strategies get same mode
+- ✅ Strategy uses adjusted mode (optimal for indicators)
+- ✅ Execution uses unadjusted mode (optimal for fills)
+- ✅ Each component gets appropriate price series
+- ✅ Configuration specifies mode per stage
 
 **Deliverables**:
 
@@ -679,19 +769,35 @@ def on_bar(
 ```python
 def on_bar(
     self,
-    bar: CanonicalBar,  # NEW: Single series
-    next_bar: Optional[CanonicalBar] = None,
+    bar: MultiModeBar,  # NEW: Multi-mode bar
+    next_bar: Optional[MultiModeBar] = None,
     ...
 ) -> List[Fill]:
-    # Access bar.high directly
-    high = bar.high
+    # Execution uses unadjusted mode (configured in ctx.config)
+    exec_bar = bar.get_bar(self.config.execution_mode)
+    # or directly: exec_bar = bar.unadjusted
+
+    high = exec_bar.high  # Actual traded high
+
+    # Fill at actual market prices (not adjusted prices)
+    # This ensures realistic commission/slippage calculations
+    fill_price = exec_bar.high
 ```
 
 **Key Changes**:
 
-- Remove series selection logic
-- Direct field access (bar.high, bar.low, bar.close)
-- Simpler code (~50 lines removed)
+- Execution explicitly uses unadjusted mode
+- Fills based on actual traded prices
+- Commissions calculated on real market values
+- Simpler code with direct field access
+
+**Rationale**:
+
+- **Why unadjusted for execution?**
+  - Commissions per share are based on actual traded price
+  - Slippage should reflect real market conditions
+  - Order size validation uses actual volumes
+  - Position sizing based on real cash requirements
 
 #### 5.2 Update Dividend Processing
 
@@ -740,9 +846,26 @@ def update_bar(self, bar: Bar):
 **NEW**:
 
 ```python
-def update_bar(self, bar: CanonicalBar):
-    close = bar.close  # NEW - simpler!
+def update_bar(self, bar: MultiModeBar):
+    # Portfolio can use different modes for different purposes:
+
+    # 1. Position valuation: Use unadjusted for current market value
+    valuation_bar = bar.unadjusted
+    position_value = self.position.shares * valuation_bar.close
+
+    # 2. Performance tracking: Use total_return for accurate returns
+    performance_bar = bar.get_bar(self.config.performance_mode)
+    # or directly: performance_bar = bar.total_return
+
+    # Total return includes dividend reinvestment
+    total_return = (performance_bar.close - self.entry_price) / self.entry_price
 ```
+
+**Rationale**:
+
+- **Position Valuation**: Use unadjusted (current market value)
+- **Performance Metrics**: Use total_return (includes dividends)
+- **P&L Calculations**: Can use adjusted (split-consistent)
 
 #### 6.2 Update `Position` Valuation
 
@@ -1028,20 +1151,43 @@ ______________________________________________________________________
 
 ## Appendix A: Key Design Decisions
 
-### Decision 1: Single Series per Bar
+### Decision 1: Multi-Mode Bar Model
 
 **Rationale**:
 
-- Simplifies bar model (no nested series)
-- Mode selection at data layer (configuration)
-- Cleaner strategy code
+- Different stages need different modes:
+  - **Strategy**: adjusted (split-consistent indicators)
+  - **Execution**: unadjusted (realistic fills at actual prices)
+  - **Performance**: total_return (includes dividend reinvestment)
+- Single data load, multiple uses
+- Each component selects optimal mode
+- Configuration-driven per stage
 
 **Trade-off**:
 
-- Can't mix modes in same backtest
-- Must regenerate for different mode
+- Memory: 3x bars in memory (vs 1x in single-mode)
+- Complexity: Components must select appropriate mode
 
-**Verdict**: ✅ Accept - Configuration-driven is cleaner
+**Verdict**: ✅ Accept - Flexibility and correctness outweigh memory cost
+
+**Example Use Case**:
+
+```yaml
+# Strategy generates signals using adjusted prices (split-consistent)
+signal_generation_mode: "adjusted"
+
+# Execution fills orders at unadjusted prices (actual market prices)
+execution_mode: "unadjusted"
+
+# Performance calculated with total return (includes dividends)
+performance_mode: "total_return"
+```
+
+This allows:
+
+- SMA crossover strategy to work correctly across stock splits
+- Commission calculations based on actual traded prices
+- Accurate performance metrics including dividend reinvestment
 
 ### Decision 2: Iterator-Based Flow
 
@@ -1102,7 +1248,7 @@ def on_bar(self, bar: Bar, ctx: Context):
 
 # Execution
 def evaluate_order(self, bar: Bar):
-    # Must select series
+    # Must select series - but which one for fills?
     high = bar.unadjusted.high  # For realistic fills
 
 # Adapter
@@ -1120,26 +1266,70 @@ def read_bars(self) -> Iterator[Bar]:
 ### After (NEW)
 
 ```python
-# Strategy
-def on_bar(self, bar: CanonicalBar, ctx: Context):
-    # Single series - direct access
-    close = bar.close
+# Strategy (uses adjusted for indicators)
+def on_bar(self, bar: MultiModeBar, ctx: Context):
+    # Select adjusted mode for consistent indicators across splits
+    strategy_bar = bar.adjusted
+    close = strategy_bar.close
 
-# Execution
-def evaluate_order(self, bar: CanonicalBar):
-    # Direct access
-    high = bar.high
+    # SMA calculation unaffected by stock splits
+    if close > self.sma_50:
+        return [Signal.BUY]
 
-# Adapter
+# Execution (uses unadjusted for fills)
+def evaluate_fill(self, bar: MultiModeBar, order: Order):
+    # Select unadjusted mode for realistic fills at actual prices
+    exec_bar = bar.unadjusted
+    fill_price = exec_bar.high
+
+    # Commissions based on actual traded price
+    commission = fill_price * order.shares * 0.001
+
+# Portfolio (uses total_return for performance)
+def calculate_return(self, bar: MultiModeBar):
+    # Select total_return mode for accurate performance including dividends
+    perf_bar = bar.total_return
+    return_value = (perf_bar.close - self.entry_price) / self.entry_price
+
+# Adapter (returns vendor model only)
 def read_bars(self) -> Iterator[AlgoseekBar]:
-    # Returns vendor model
+    # Returns vendor model - transformation happens at data layer
     yield AlgoseekBar(...)
 
-# Data Layer
+# Data Layer (transforms to all modes)
 loader = DataLoader(config)
 iterator = loader.load_data(symbol, start, end)
-# Returns CanonicalBar iterator (mode selected)
+# Returns MultiModeBar iterator with all 3 modes
+# Each component selects appropriate mode
 ```
+
+### Benefits of Multi-Mode Architecture
+
+1. **Optimal Mode per Stage**:
+
+   - Signals: `adjusted` (split-consistent indicators)
+   - Execution: `unadjusted` (realistic fills)
+   - Performance: `total_return` (includes dividends)
+
+1. **Single Data Load**:
+
+   - Load once, use three ways
+   - No duplicate data loading
+   - Memory efficient streaming
+
+1. **Configuration Flexibility**:
+
+   ```yaml
+   signal_generation_mode: "adjusted"
+   execution_mode: "unadjusted"
+   performance_mode: "total_return"
+   ```
+
+1. **Clear Separation of Concerns**:
+
+   - Strategy focuses on signals (adjusted prices)
+   - Execution focuses on fills (actual prices)
+   - Portfolio tracks performance (total return)
 
 ______________________________________________________________________
 
