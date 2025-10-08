@@ -1,13 +1,11 @@
 """Backtest runner and config loader."""
 
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from qtrader.config.logging_config import LoggerFactory
 from qtrader.data import BarMerger, PriceSeriesIterator
-from qtrader.execution.dividend_processor import DividendProcessor
 from qtrader.execution.engine import ExecutionEngine
 from qtrader.execution.warmup import WarmupDetector, WarmupProcessor
 
@@ -15,7 +13,6 @@ if TYPE_CHECKING:
     from qtrader.api.context import Context
     from qtrader.api.strategy import Strategy
     from qtrader.execution.config import ExecutionConfig
-    from qtrader.models.bar import AdjustmentEvent
     from qtrader.models.order import Fill
 
 logger = LoggerFactory.get_logger()
@@ -51,9 +48,6 @@ class Backtest:
         self.config = config
         self.strategy = strategy
         self.warmup_metadata: Optional[Dict[str, Any]] = None
-        self.dividend_processor: Optional[DividendProcessor] = None
-        self.split_processor: Optional[Any] = None  # SplitProcessor (imported conditionally)
-        self.dividend_metadata: Dict[str, Any] = {}
         self.execution_engine: Optional[ExecutionEngine] = None
 
         # Track all fills for reporting
@@ -72,7 +66,6 @@ class Backtest:
         data_iterators: Dict[str, PriceSeriesIterator],
         symbols: List[str],
         out_dir: Path,
-        adjustment_events: Optional[Dict[str, List["AdjustmentEvent"]]] = None,
     ):
         """
         Run backtest with complete execution loop (Phase 4 iterator-based).
@@ -98,11 +91,9 @@ class Backtest:
             data_iterators: Dict mapping symbol -> PriceSeriesIterator
             symbols: List of symbols in backtest
             out_dir: Output directory for results
-            adjustment_events: Optional dict mapping symbol -> list of adjustment events
-                              (for dividend processing)
 
         Returns:
-            Dict with run metadata including warmup, dividend, and execution info
+            Dict with run metadata including warmup and execution info
 
         Phase 4 Changes:
             - Uses BarMerger to coordinate multi-symbol streams
@@ -141,7 +132,6 @@ class Backtest:
             total_bars=len(bars_list),
             warmup_enabled=self.config.warmup,
             warmup_bars=self.config.warmup_bars,
-            has_adjustment_events=adjustment_events is not None,
         )
 
         # Validate context has required components
@@ -161,32 +151,6 @@ class Backtest:
         if hasattr(self.strategy, "on_init"):
             logger.info("backtest.calling_on_init")
             self.strategy.on_init(ctx)
-
-        # Store adjustment events for split processing
-        self.adjustment_events = adjustment_events
-
-        # Initialize dividend and split processors if adjustment events provided
-        if adjustment_events:
-            # Dividend processor for cash dividends
-            self.dividend_processor = DividendProcessor(ctx.portfolio, adjustment_events)
-            logger.info(
-                "backtest.dividend_processor_initialized",
-                **self.dividend_processor.get_stats(),
-            )
-
-            # Split processor for stock splits/reverse splits
-            from qtrader.execution.split_processor import SplitProcessor
-
-            self.split_processor = SplitProcessor(ctx.portfolio.positions)
-            logger.info("backtest.split_processor_initialized")
-
-            # Index ALL events by date (not just dividends)
-            self.events_by_date: Dict[datetime, List["AdjustmentEvent"]] = {}
-            for symbol, events in adjustment_events.items():
-                for event in events:
-                    if event.ts not in self.events_by_date:
-                        self.events_by_date[event.ts] = []
-                    self.events_by_date[event.ts].append(event)
 
         # Phase 2: Warmup (if enabled)
         warmup_processor = None
@@ -260,12 +224,6 @@ class Backtest:
         # Phase 4: Main trading loop
         logger.info("backtest.trading_loop_starting", start_idx=start_idx, total_bars=len(bars_list))
 
-        # Track processed dividend dates to avoid duplicate processing
-        processed_dividend_dates = set()
-
-        # Track previous bar for dividend calculation (need close price before ex-date)
-        prev_bar = None
-
         for bar_idx in range(start_idx, len(bars_list)):
             bar = bars_list[bar_idx]
             next_bar = bars_list[bar_idx + 1] if bar_idx + 1 < len(bars_list) else None
@@ -278,75 +236,44 @@ class Backtest:
             # Add bar to context history
             ctx._add_bar_to_history(bar)
 
-            # Process corporate actions (dividends and splits) on ex-date
-            if hasattr(self, "events_by_date") and bar.ts not in processed_dividend_dates:
-                # Get ALL adjustment events for this date
-                events = self.events_by_date.get(bar.ts, [])
-
-                # Process all dividends for this date (once per date, not per event)
-                has_dividends = any(e.event_type == "CashDiv" for e in events)
-                if has_dividends and self.dividend_processor is not None:
-                    # Collect close prices from previous bars for all symbols
-                    close_prices: Dict[str, Decimal] = {}
-                    if prev_bar:
-                        close_prices[prev_bar.symbol] = prev_bar.close
-
-                    dividend_results = self.dividend_processor.process_ex_date(bar.ts, close_prices)
-                    if dividend_results:
-                        logger.debug(
-                            "backtest.dividends_processed",
-                            date=bar.ts.isoformat(),
-                            count=len(dividend_results),
-                            processed=sum(1 for r in dividend_results if r["processed"]),
-                        )
-
-                # Process splits for each event
-                for event in events:
-                    if event.event_type == "Subdiv" and hasattr(self, "split_processor"):
-                        # Process stock split/reverse split
-                        # metadata should have 'AdjustmentFactor' from config
-                        logger.info(
-                            "backtest.split_event_detected",
-                            date=bar.ts.isoformat(),
+            # Process dividend cash payment (if bar has dividend on ex-date)
+            # The dividend field contains the split-adjusted dividend amount per share
+            # This comes from the data layer (AlgoseekBar → CanonicalBar transformation)
+            if bar.dividend is not None:
+                # Get current position for this symbol
+                position = ctx.portfolio.positions.get_position(bar.symbol)
+                if position and not position.is_flat():
+                    # Credit cash for long positions, debit for short positions
+                    # Use existing Portfolio methods which handle cash ledger correctly
+                    if position.qty > 0:
+                        ctx.portfolio.apply_long_dividend(
                             symbol=bar.symbol,
-                            event_type=event.event_type,
-                            px_factor=float(event.px_factor),
-                            metadata=str(event.metadata),
+                            dividend_per_share=bar.dividend,
+                            ts=bar.ts,
                         )
-
-                        # Get adjustment_factor from metadata if available
-                        # metadata_fields=["AdjustmentFactor"] should put it in metadata dict
-                        split_adjustment_factor: Decimal
-                        if "AdjustmentFactor" in event.metadata:
-                            split_adjustment_factor = Decimal(str(event.metadata["AdjustmentFactor"]))
-                        elif "adjustment_factor" in event.metadata:
-                            split_adjustment_factor = Decimal(str(event.metadata["adjustment_factor"]))
-                        else:
-                            # Fallback: px_factor might be the adjustment factor
-                            logger.warning(
-                                "backtest.split_no_adjustment_factor",
-                                date=bar.ts.isoformat(),
-                                metadata=str(event.metadata),
-                                msg="Using px_factor as adjustment_factor",
-                            )
-                            split_adjustment_factor = event.px_factor
-
-                        if self.split_processor is not None:
-                            split_result = self.split_processor.process_split(
-                                symbol=bar.symbol,
-                                adjustment_factor=split_adjustment_factor,
-                                current_price=bar.close,
-                            )
-                            if split_result["processed"]:
-                                logger.info(
-                                    "backtest.split_processed",
-                                    date=bar.ts.isoformat(),
-                                    **{k: v for k, v in split_result.items() if k != "processed"},
-                                )
-
-                # Mark date as processed to avoid reprocessing
-                if events:
-                    processed_dividend_dates.add(bar.ts)
+                        logger.debug(
+                            "backtest.dividend_paid",
+                            symbol=bar.symbol,
+                            date=bar.ts.isoformat(),
+                            dividend_per_share=float(bar.dividend),
+                            shares=position.qty,
+                            total_amount=float(bar.dividend * position.qty),
+                        )
+                    else:
+                        # Short positions owe dividends
+                        ctx.portfolio.apply_short_dividend(
+                            symbol=bar.symbol,
+                            dividend_per_share=bar.dividend,
+                            ts=bar.ts,
+                        )
+                        logger.debug(
+                            "backtest.dividend_owed",
+                            symbol=bar.symbol,
+                            date=bar.ts.isoformat(),
+                            dividend_per_share=float(bar.dividend),
+                            shares=position.qty,
+                            total_amount=float(bar.dividend * abs(position.qty)),
+                        )
 
             # Call strategy.on_bar() - returns signals
             signals = self.strategy.on_bar(bar, ctx)
@@ -423,23 +350,8 @@ class Backtest:
                         current_price = ctx.portfolio._current_prices.get(symbol, Decimal("0"))
                         portfolio_market_value += position.market_value(current_price)
 
-                # Get adjustment event for this bar (if any)
-                adjustment_event: Optional["AdjustmentEvent"] = None
-                adjustment_factor: Optional[float] = None
-                adjustment_reason: Optional[str] = None
-                cumulative_price_factor: Optional[float] = None
-                cumulative_volume_factor: Optional[float] = None
-                if hasattr(self, "events_by_date") and bar.ts in self.events_by_date:
-                    events = self.events_by_date[bar.ts]
-                    if events:
-                        # Take first event for this date
-                        adjustment_event = events[0]
-                        adjustment_reason = adjustment_event.event_type
-                        cumulative_price_factor = float(adjustment_event.px_factor)
-                        cumulative_volume_factor = float(adjustment_event.vol_factor)
-                        # Get individual adjustment factor from metadata
-                        if "AdjustmentFactor" in adjustment_event.metadata:
-                            adjustment_factor = float(adjustment_event.metadata["AdjustmentFactor"])
+                # Check if this bar has a dividend (for snapshot metadata)
+                dividend_per_share = float(bar.dividend) if bar.dividend else None
 
                 # Get fills for this bar
                 bar_fills = [f for f in fills if f.symbol == bar.symbol]
@@ -487,11 +399,8 @@ class Backtest:
                     "low": float(bar.low),
                     "close": float(bar.close),
                     "volume": bar.volume,
-                    # Adjustment factors
-                    "cumulative_price_factor": cumulative_price_factor,
-                    "cumulative_volume_factor": cumulative_volume_factor,
-                    "adjustment_factor": adjustment_factor,
-                    "adjustment_reason": adjustment_reason,
+                    # Dividend info (if present on this bar)
+                    "dividend_per_share": dividend_per_share,
                     # Fill information
                     "signal": fill_info.get("signal"),
                     "order_id": fill_info.get("order_id"),
@@ -523,9 +432,6 @@ class Backtest:
                 self._prev_cash = current_cash
                 self._prev_portfolio_value = portfolio_market_value
 
-            # Save current bar as prev_bar for dividend calculation
-            prev_bar = bar
-
         # Phase 5: End callback
         if hasattr(self.strategy, "on_end"):
             logger.info("backtest.calling_on_end")
@@ -550,9 +456,6 @@ class Backtest:
 
         if self.warmup_metadata:
             metadata["warmup"] = self.warmup_metadata
-
-        if self.dividend_processor:
-            metadata["dividends"] = self.dividend_processor.get_stats()
 
         if self.execution_engine:
             metadata["execution"] = {
