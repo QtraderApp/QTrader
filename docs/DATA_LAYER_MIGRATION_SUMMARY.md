@@ -20,17 +20,24 @@ ______________________________________________________________________
 
 ## 📊 Current State
 
-### ✅ What's Done (Phase 1)
+### ✅ What's Done (Phases 1-2)
 
 **Data Layer Models** - Production ready:
 
-- `MultiModeBar` - Container with all 3 adjustment modes (designed, not yet implemented)
-- `CanonicalBar` - Single price series (Pydantic)
-- `CanonicalPriceSeries` - Collection with mode
-- `AlgoseekBar` - Vendor-specific with correct dividend formula
-- `AlgoseekPriceSeries.to_canonical_series()` - Transforms to 3 modes
-- **Validation**: $0.82 AAPL dividend (100% accurate)
-- **Tests**: 13 unit + 6 integration passing
+- ✅ `MultiModeBar` - Container with all 3 adjustment modes (immutable, Pydantic V2)
+- ✅ `CanonicalBar` - Single price series (Pydantic)
+- ✅ `CanonicalPriceSeries` - Collection with mode
+- ✅ `AlgoseekBar` - Vendor-specific with correct dividend formula
+- ✅ `AlgoseekPriceSeries.to_canonical_series()` - Transforms to 3 modes
+- ✅ **Validation**: $0.82 AAPL dividend (100% accurate)
+
+**Iterator Infrastructure** - Complete:
+
+- ✅ `PriceSeriesIterator` - Streams MultiModeBar with peek support
+- ✅ `DataLoader` - Coordinates adapter → transformation → iterator
+- ✅ Multi-mode configuration schema (3 mode settings)
+- ✅ **Tests**: 47 unit tests passing (13 + 22 + 12)
+- ✅ **Bug fixes**: Iterator peek + next interaction, Pydantic V2 upgrade
 
 ### ❌ What Needs Migration
 
@@ -119,8 +126,8 @@ ______________________________________________________________________
 | Phase                          | Days | Work                            | Status  |
 | ------------------------------ | ---- | ------------------------------- | ------- |
 | **1. Core Models**             | 1    | Data layer validated            | ✅ DONE |
-| **2. Iterator Infrastructure** | 2    | PriceSeriesIterator, DataLoader | 📋 TODO |
-| **3. Adapter Refactoring**     | 2    | Simplified vendor adapters      | 📋 TODO |
+| **2. Iterator Infrastructure** | 1    | PriceSeriesIterator, DataLoader | ✅ DONE |
+| **3. Adapter Refactoring**     | 2    | Simplified vendor adapters      | 📋 NEXT |
 | **4. Backtest Engine**         | 3    | Iterator-based runner           | 📋 TODO |
 | **5. Execution Engine**        | 2    | CanonicalBar support            | 📋 TODO |
 | **6. Portfolio Update**        | 1    | Direct field access             | 📋 TODO |
@@ -128,7 +135,9 @@ ______________________________________________________________________
 | **8. Documentation**           | 2    | Docs & examples                 | 📋 TODO |
 | **9. Cleanup**                 | 1    | Remove old code                 | 📋 TODO |
 
-**Total: 17 days (~3.5 weeks)**
+**Total: 16 days (~3 weeks)** | **Completed: 2 days (12.5%)** | **Remaining: 14 days**
+
+**Latest Update**: Phase 2 complete (October 8, 2025) - Iterator infrastructure with multi-mode support, 47 tests passing
 
 ______________________________________________________________________
 
