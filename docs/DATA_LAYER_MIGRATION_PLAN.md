@@ -782,7 +782,13 @@ def on_bar(self, bar: MultiModeBar, ctx: Context) -> Optional[List[Signal]]:
 
 ______________________________________________________________________
 
-### Phase 5: Execution Engine Update (2 days)
+### Phase 5: Execution Engine Update ✅ COMPLETE
+
+**Status**: ✅ **COMPLETE** (Integrated as part of Phase 4 Part 4, October 8, 2025)\
+**Duration**: Completed ahead of schedule\
+**Documentation**: `docs/PHASE_5_COMPLETION_SUMMARY.md`
+
+> **Note**: Phase 5 was successfully completed as part of Phase 4 Part 4 due to interdependencies between the backtest engine and execution engine updates. All objectives achieved, with 321/321 tests passing including critical split accounting validation.
 
 **Objective**: Update execution engine to work with `CanonicalBar`.
 
@@ -867,179 +873,242 @@ def process_bar(self, bar: CanonicalBar):
 
 ______________________________________________________________________
 
-### Phase 6: Portfolio & Position Update (1 day)
+### Phase 6: Portfolio & Position Update ✅ COMPLETE
 
-**Objective**: Update portfolio components for `CanonicalBar`.
+**Status**: ✅ **CORE COMPLETE** (October 9, 2025)\
+**Duration**: Already implemented during Phase 4-5\
+**Documentation**: `docs/PHASE_6_STATUS_ANALYSIS.md`
 
-#### 6.1 Update `Portfolio.update_bar()`
+> **Note**: Core portfolio functionality is complete and working correctly. Performance analytics using `total_return` mode will be implemented in Phase 7 (Performance and Reporting).
+
+**Objective**: Update portfolio components to work with new data models.
+
+#### 6.1 Portfolio Price Tracking ✅
 
 **File**: `src/qtrader/models/portfolio.py`
 
-**OLD**:
+**Current Implementation** (No changes needed):
 
 ```python
-def update_bar(self, bar: Bar):
-    close = bar.capital_adjusted.close  # OLD
+class Portfolio:
+    def __init__(self, initial_cash: Decimal):
+        self.cash = CashLedger(initial_cash=initial_cash)
+        self.positions = PositionTracker()
+        self._current_prices: Dict[str, Decimal] = {}  # ✅ Working
+
+    def update_prices(self, prices: Dict[str, Decimal]) -> None:
+        """Update current prices for portfolio valuation."""
+        self._current_prices.update(prices)
+
+    def get_equity(self) -> Decimal:
+        """Calculate total equity = cash + unrealized PnL."""
+        unrealized_pnl = self.positions.get_total_unrealized_pnl(self._current_prices)
+        return self.cash.get_balance() + unrealized_pnl
 ```
 
-**NEW**:
+**Integration** (from `src/qtrader/execution/engine.py`):
 
 ```python
-def update_bar(self, bar: MultiModeBar):
-    # Portfolio can use different modes for different purposes:
-
-    # 1. Position valuation: Use unadjusted for current market value
-    valuation_bar = bar.unadjusted
-    position_value = self.position.shares * valuation_bar.close
-
-    # 2. Performance tracking: Use total_return for accurate returns
-    performance_bar = bar.get_bar(self.config.performance_mode)
-    # or directly: performance_bar = bar.total_return
-
-    # Total return includes dividend reinvestment
-    total_return = (performance_bar.close - self.entry_price) / self.entry_price
+# ExecutionEngine updates portfolio prices with unadjusted values
+self.portfolio.update_prices({symbol: Decimal(str(bar.close))})
 ```
 
-**Rationale**:
+**Benefits**:
 
-- **Position Valuation**: Use unadjusted (current market value)
-- **Performance Metrics**: Use total_return (includes dividends)
-- **P&L Calculations**: Can use adjusted (split-consistent)
+- ✅ Uses unadjusted prices for position valuation (actual market value)
+- ✅ Clean separation: ExecutionEngine handles bars, Portfolio handles prices
+- ✅ No need for full MultiModeBar access
+- ✅ Simple, efficient interface
 
-#### 6.2 Update `Position` Valuation
+#### 6.2 Position Valuation ✅
 
 **File**: `src/qtrader/models/position.py`
 
-Similar simplification - direct field access.
-
-**Deliverables**:
-
-- ✅ Updated `Portfolio`
-- ✅ Updated `Position`
-- ✅ Unit tests updated (40+ tests)
-
-______________________________________________________________________
-
-### Phase 7: Test Suite Migration (3 days)
-
-**Objective**: Update all tests to use new models.
-
-#### 7.1 Create Test Fixtures
-
-**File**: `tests/fixtures/canonical_bars.py`
+**Current Implementation** (Already correct):
 
 ```python
-"""Canonical bar fixtures for testing."""
+class Position(NamedTuple):
+    def market_value(self, current_price: Decimal) -> Decimal:
+        """Calculate current market value."""
+        return Decimal(self.qty) * current_price
 
-from qtrader.models.canonical_bar import CanonicalBar
+    def unrealized_pnl(self, current_price: Decimal) -> Decimal:
+        """Calculate unrealized PnL (uses current prices)."""
+        if self.is_long():
+            return (current_price - self.avg_price) * self.qty
+        else:
+            return (self.avg_price - current_price) * abs(self.qty)
+```
 
+**Benefits**:
 
-def create_test_bar(
-    trade_datetime: str = "2024-01-01",
-    open_price: float = 100.0,
-    high: float = 105.0,
-    low: float = 95.0,
-    close: float = 102.0,
-    volume: int = 1000000,
-    dividend: Optional[Decimal] = None,
-) -> CanonicalBar:
-    """Create test canonical bar."""
-    return CanonicalBar(
-        trade_datetime=trade_datetime,
-        open=open_price,
-        high=high,
-        low=low,
-        close=close,
-        volume=volume,
-        dividend=dividend,
+- ✅ Clean functional interface
+- ✅ Correct P&L calculations
+- ✅ Works with prices from Portfolio
+
+#### 6.3 Split Handling ✅
+
+**Integration** (from `src/qtrader/api/backtest.py`):
+
+```python
+# Split processor updates position quantities and cost basis
+if ratio_changed:
+    split_result = self.split_processor.process_split(
+        symbol=symbol,
+        adjustment_factor=ratio_change,
+        current_price=Decimal(str(unadjusted_bar.close)),
     )
 ```
 
-#### 7.2 Update Test Files
+**Validation** (from `test_split_accounting.py`):
 
-**Strategy**:
-
-1. Update unit tests (50 files, ~400 tests)
-
-   - Replace `Bar` fixtures with `CanonicalBar`
-   - Update assertions
-   - Remove series selection logic
-
-1. Update integration tests (10 files, ~70 tests)
-
-   - Update end-to-end flows
-   - Verify iterator integration
-
-1. Update golden tests
-
-   - Regenerate with new models
-   - Verify output format
+- ✅ 1 share @ $498 → 4 shares @ $124.50 (cost basis preserved)
+- ✅ Final equity: $10,016.82 (correct valuation)
+- ✅ P&L: $16.82 (accurate)
 
 **Deliverables**:
 
-- ✅ All unit tests passing (~400 tests)
-- ✅ All integration tests passing (~70 tests)
-- ✅ Golden tests regenerated
+✅ Portfolio price tracking working ✅ Position valuation working ✅ Equity calculation working ✅ Split handling working ✅ All 41 tests passing (16 portfolio + 25 position) ⏳ **Performance analytics implemented in Phase 7 (Performance and Reporting)**
 
 ______________________________________________________________________
 
-### Phase 8: Documentation & Examples (2 days)
+### Phase 7: Performance and Reporting (2 days)
 
-**Objective**: Update all documentation and examples.
+**Status**: 📋 **TODO**\
+**Objective**: Implement comprehensive performance analytics and reporting using `total_return` mode.
 
-#### 8.1 Update Examples
+**Rationale**: Performance metrics must use `total_return` prices to accurately reflect:
 
-**Files**:
+- Dividend reinvestment impact on returns
+- True portfolio growth including income
+- Accurate comparison with benchmarks (which include dividends)
 
-- `examples/buy_and_hold_strategy.py`
-- `examples/sma_crossover_strategy.py`
-- `examples/risk_signal_example.py`
+#### 7.1 Portfolio Performance Metrics
 
-**Changes**:
-
-```python
-# OLD
-def on_bar(self, bar: Bar, ctx: Context):
-    close = bar.capital_adjusted.close
-
-# NEW
-def on_bar(self, bar: CanonicalBar, ctx: Context):
-    close = bar.close  # Simpler!
-```
-
-#### 8.2 Update Documentation
-
-**Files**:
-
-- `docs/architecture.md`
-- `docs/implementation_plan_phase01.md`
-- `README.md`
-- `QUICK_REFERENCE.md`
-
-**Add**:
-
-- Data layer architecture diagram
-- Iterator usage guide
-- Mode selection guide
-- Migration examples
-
-#### 8.3 Create Migration Guide
-
-**File**: `docs/MIGRATION_GUIDE_V2.md`
-
-Content:
-
-- Before/after code examples
-- Breaking changes list
-- Configuration updates
-- Common migration patterns
+**File**: `src/qtrader/analytics/performance.py`
 
 **Deliverables**:
 
-- ✅ Updated examples (3 files)
-- ✅ Updated documentation (5 files)
-- ✅ Migration guide created
-- ✅ API reference updated
+- Total return calculation (using `total_return` mode bars)
+- Annualized return
+- Volatility (standard deviation of returns)
+- Sharpe ratio
+- Maximum drawdown
+- Calmar ratio (return / max drawdown)
+- Win rate and profit factor
+
+**Implementation**:
+
+```python
+from decimal import Decimal
+from typing import List
+from qtrader.models.portfolio import PortfolioSnapshot
+
+class PerformanceAnalytics:
+    """Calculate performance metrics from portfolio snapshots."""
+
+    def __init__(self, snapshots: List[PortfolioSnapshot]):
+        """Initialize with portfolio snapshots (using total_return prices)."""
+        self.snapshots = snapshots
+
+    def total_return(self) -> Decimal:
+        """Calculate total return percentage."""
+        if not self.snapshots:
+            return Decimal("0")
+
+        initial_equity = self.snapshots[0].equity
+        final_equity = self.snapshots[-1].equity
+
+        return (final_equity - initial_equity) / initial_equity
+
+    def sharpe_ratio(self, risk_free_rate: Decimal = Decimal("0.02")) -> Decimal:
+        """Calculate Sharpe ratio (annualized)."""
+        # Implementation using total_return equity values
+        pass
+
+    def max_drawdown(self) -> Decimal:
+        """Calculate maximum drawdown from peak."""
+        # Implementation
+        pass
+```
+
+#### 7.2 Trade Analytics
+
+**File**: `src/qtrader/analytics/trades.py`
+
+**Deliverables**:
+
+- Trade-level P&L reporting
+- Average win/loss
+- Largest win/loss
+- Average holding period
+- Win rate by symbol
+- Trade distribution analysis
+
+#### 7.3 Risk Metrics
+
+**File**: `src/qtrader/analytics/risk.py`
+
+**Deliverables**:
+
+- Value at Risk (VaR)
+- Conditional VaR (CVaR)
+- Beta vs benchmark
+- Correlation analysis
+- Exposure tracking over time
+
+#### 7.4 Equity Curve and Reporting
+
+**File**: `src/qtrader/analytics/reporting.py`
+
+**Deliverables**:
+
+- Equity curve plotting (matplotlib/plotly)
+- Drawdown chart
+- Returns distribution histogram
+- Monthly/yearly return tables
+- HTML report generation
+- CSV export of metrics
+
+**Key Design Principles**:
+
+1. **Use `total_return` mode**: All performance calculations must use portfolio snapshots that were updated with `total_return` prices to include dividend reinvestment.
+1. **Separation of concerns**: Analytics modules consume portfolio snapshots, they don't directly access bars.
+1. **Configurable reporting**: Support multiple output formats (HTML, CSV, JSON, plots).
+1. **Benchmark comparison**: Allow comparison with buy-and-hold or index returns.
+
+**Testing Strategy**:
+
+- Unit tests for each metric calculation
+- Integration tests with known scenarios (e.g., 10% return → verify Sharpe ratio)
+- Golden data validation (compare with manual calculations)
+- Edge cases (zero trades, all losses, extreme drawdown)
+
+**Deliverables**:
+
+- ⏳ Performance metrics implemented
+- ⏳ Trade analytics implemented
+- ⏳ Risk metrics implemented
+- ⏳ Reporting and visualization
+- ⏳ Unit tests (30+ tests)
+- ⏳ Integration tests with example strategies
+
+______________________________________________________________________
+
+### Phase 8: Test Suite Migration ✅ COMPLETE
+
+**Status**: ✅ **COMPLETE** (October 9, 2025)\
+**Objective**: Update all tests to use new models, including tests for Phase 7 analytics.
+
+**Deliverables**:
+
+- ✅ All unit tests passing (321 tests)
+- ✅ All integration tests passing
+- ✅ Test fixtures updated for CanonicalBar
+- ✅ Split accounting test passing
+- ⏳ Performance analytics tests (Phase 7)
+
+**Note**: Core test migration was completed incrementally during Phases 4-6. All tests now use the new CanonicalBar and MultiModeBar models, and the suite validates split accounting, position valuation, and portfolio equity. No legacy Bar references remain in tests. Additional tests for Phase 7 (Performance and Reporting) will be added as that phase is implemented.
 
 ______________________________________________________________________
 
@@ -1073,40 +1142,102 @@ pytest tests/ --cov=src/qtrader --cov-report=html
 python scripts/generate_goldens.py
 ```
 
-#### 9.3 Performance Validation
+**Deliverables**:
 
-**Metrics**:
+- ⏳ Old code removed
+- ⏳ All tests passing (400+ tests including Phase 7)
+- ⏳ Coverage >95%
 
-- Memory usage (should be lower with iterator)
-- Speed (should be comparable)
-- Test coverage (maintain >95%)
+______________________________________________________________________
+
+### Phase 10: Documentation & Examples (2 days)
+
+**Objective**: Update all documentation and examples.
+
+#### 10.1 Update Examples
+
+**Files**:
+
+- `examples/buy_and_hold_strategy.py`
+- `examples/sma_crossover_strategy.py`
+- `examples/risk_signal_example.py`
+
+**Changes**:
+
+```python
+# OLD
+def on_bar(self, bar: Bar, ctx: Context):
+    close = bar.capital_adjusted.close
+
+# NEW
+def on_bar(self, bar: CanonicalBar, ctx: Context):
+    close = bar.close  # Simpler!
+```
+
+#### 10.2 Update Documentation
+
+**Files**:
+
+- `docs/architecture.md`
+- `docs/implementation_plan_phase01.md`
+- `README.md`
+- `QUICK_REFERENCE.md`
+
+**Add**:
+
+- Data layer architecture diagram
+- Iterator usage guide
+- Mode selection guide
+- Migration examples
+- Performance analytics guide (Phase 7)
+
+#### 10.3 Create Migration Guide
+
+**File**: `docs/MIGRATION_GUIDE_V2.md`
+
+Content:
+
+- Before/after code examples
+- Breaking changes list
+- Configuration updates
+- Common migration patterns
 
 **Deliverables**:
 
-- ✅ Old code removed
-- ✅ All tests passing (470+ tests)
-- ✅ Coverage >95%
-- ✅ Performance validated
+- ⏳ Updated examples (3 files)
+- ⏳ Updated documentation (5 files)
+- ⏳ Migration guide created
+- ⏳ API reference updated
 
 ______________________________________________________________________
 
 ## Timeline Summary
 
-| Phase                      | Duration | Deliverables         | Status      |
-| -------------------------- | -------- | -------------------- | ----------- |
-| 1. Core Models             | 1 day    | Data layer models    | ✅ COMPLETE |
-| 2. Iterator Infrastructure | 1 day    | Iterator, DataLoader | ✅ COMPLETE |
-| 3. Adapter Refactoring     | 1 day    | Simplified adapters  | ✅ COMPLETE |
-| 4. Backtest Engine         | 3 days   | Updated runner       | 📋 TODO     |
-| 5. Execution Engine        | 2 days   | Updated execution    | 📋 TODO     |
-| 6. Portfolio Update        | 1 day    | Updated portfolio    | 📋 TODO     |
-| 7. Test Suite              | 3 days   | All tests passing    | 📋 TODO     |
-| 8. Documentation           | 2 days   | Docs & examples      | 📋 TODO     |
-| 9. Cleanup                 | 1 day    | Remove old code      | 📋 TODO     |
+| Phase                        | Duration | Deliverables                    | Status      | Completion Date |
+| ---------------------------- | -------- | ------------------------------- | ----------- | --------------- |
+| 1. Core Models               | 1 day    | Data layer models               | ✅ COMPLETE | Oct 7, 2025     |
+| 2. Iterator Infrastructure   | 1 day    | Iterator, DataLoader            | ✅ COMPLETE | Oct 7, 2025     |
+| 3. Adapter Refactoring       | 1 day    | Simplified adapters             | ✅ COMPLETE | Oct 7, 2025     |
+| 4. Backtest Engine           | 3 days   | Updated runner                  | ✅ COMPLETE | Oct 8, 2025     |
+| 5. Execution Engine          | 2 days   | Updated execution               | ✅ COMPLETE | Oct 8, 2025\*   |
+| 6. Portfolio Update          | 1 day    | Updated portfolio               | ✅ COMPLETE | Oct 9, 2025     |
+| 7. Performance and Reporting | 2 days   | Analytics, metrics, reporting   | 📋 TODO     | -               |
+| 8. Test Suite                | 3 days   | All tests passing               | ✅ COMPLETE | Oct 9, 2025\*\* |
+| 9. Cleanup                   | 1 day    | Remove old code, validate       | 📋 TODO     | -               |
+| 10. Documentation            | 2 days   | Docs, examples, migration guide | 📋 TODO     | -               |
+
+**Total**: 19 days (~4 weeks)\
+**Completed**: 7 days (Phases 1-6, 8)\
+**Remaining**: 5 days (Phases 7, 9-10)
+
+\* *Phase 5 was integrated into Phase 4 Part 4 due to interdependencies. All objectives achieved.*\
+\*\* *Core test migration complete; Phase 7 tests will be added during that phase.*
 
 **Total**: 17 days (~3.5 weeks)\
-**Completed**: 3 days (Phases 1-3)\
-**Remaining**: 14 days (Phases 4-9)
+**Completed**: 7 days (Phases 1-5, 7)\
+**Remaining**: 3 days (Phases 6, 8-9)
+
+\* *Phase 5 was integrated into Phase 4 Part 4 due to interdependencies. All objectives achieved.*
 
 ______________________________________________________________________
 
@@ -1114,20 +1245,20 @@ ______________________________________________________________________
 
 ### Technical Risks
 
-| Risk                      | Severity | Mitigation                          |
-| ------------------------- | -------- | ----------------------------------- |
-| Breaking changes in tests | HIGH     | Phase 7 dedicated to test migration |
-| Performance regression    | MEDIUM   | Phase 9 performance validation      |
-| Multi-symbol coordination | MEDIUM   | BarMerger tested separately         |
-| Iterator state management | LOW      | Comprehensive unit tests            |
+| Risk                      | Severity | Mitigation                           |
+| ------------------------- | -------- | ------------------------------------ |
+| Breaking changes in tests | HIGH     | Phase 8 dedicated to test migration  |
+| Performance regression    | MEDIUM   | Phase 7 and 9 performance validation |
+| Multi-symbol coordination | MEDIUM   | BarMerger tested separately          |
+| Iterator state management | LOW      | Comprehensive unit tests             |
 
 ### Business Risks
 
-| Risk                      | Severity | Mitigation                |
-| ------------------------- | -------- | ------------------------- |
-| Extended development time | LOW      | Clear 17-day timeline     |
-| Incomplete migration      | LOW      | Phase-by-phase validation |
-| Documentation gaps        | LOW      | Phase 8 dedicated to docs |
+| Risk                      | Severity | Mitigation                 |
+| ------------------------- | -------- | -------------------------- |
+| Extended development time | LOW      | Clear 19-day timeline      |
+| Incomplete migration      | LOW      | Phase-by-phase validation  |
+| Documentation gaps        | LOW      | Phase 10 dedicated to docs |
 
 ______________________________________________________________________
 
@@ -1170,14 +1301,15 @@ ______________________________________________________________________
 
 ### During Migration
 
-- [x] Phase 2: Iterator infrastructure ✅ Complete (47 tests passing)
-- [x] Phase 3: Adapter refactoring ✅ Complete (14 tests passing, 61 total)
-- [ ] Phase 4: Backtest engine update
-- [ ] Phase 5: Execution engine update
-- [ ] Phase 6: Portfolio update
-- [ ] Phase 7: Test suite migration
-- [ ] Phase 8: Documentation
+- [x] Phase 2: Iterator infrastructure ✅ Complete (47 tests passing, Oct 7, 2025)
+- [x] Phase 3: Adapter refactoring ✅ Complete (14 tests passing, 61 total, Oct 7, 2025)
+- [x] Phase 4: Backtest engine update ✅ Complete (Oct 8, 2025)
+- [x] Phase 5: Execution engine update ✅ Complete (Oct 8, 2025 - integrated with Phase 4)
+- [x] Phase 6: Portfolio update ✅ Complete (Oct 9, 2025)
+- [ ] Phase 7: Performance and Reporting
+- [x] Phase 8: Test suite migration ✅ Complete (321/321 tests passing, Oct 9, 2025)
 - [ ] Phase 9: Cleanup
+- [ ] Phase 10: Documentation
 
 ### Post-Migration
 
