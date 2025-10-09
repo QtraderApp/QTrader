@@ -4,15 +4,19 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+import pytz
+
 from qtrader.api.backtest import Backtest
 from qtrader.api.context import Context
 from qtrader.api.strategy import Strategy
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.execution.config import ExecutionConfig
-from qtrader.models.canonical_bar import CanonicalBar
+from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
 from qtrader.models.multi_mode_bar import MultiModeBar
 from qtrader.models.portfolio import Portfolio
-from qtrader.risk.signal import Signal, SignalDirection
+from qtrader.risk.signal import Signal, SignalDirection, SignalType
+
+ET = pytz.timezone("US/Eastern")
 
 
 class SimpleBuyHoldSellStrategy(Strategy):
@@ -24,7 +28,7 @@ class SimpleBuyHoldSellStrategy(Strategy):
         self.sell_executed = False
         self.bar_count = 0
 
-    def on_bar(self, bar: CanonicalBar, ctx: Context):
+    def on_bar(self, bar: MultiModeBar, ctx: Context):
         self.bar_count += 1
 
         # Buy on first bar
@@ -32,11 +36,12 @@ class SimpleBuyHoldSellStrategy(Strategy):
             self.buy_executed = True
             return [
                 Signal(
+                    signal_id=f"buy_{bar.symbol}_{self.bar_count}",
+                    strategy_ts=datetime.fromisoformat(bar.trade_datetime),
                     symbol=bar.symbol,
+                    signal_type=SignalType.ENTRY_LONG,
                     direction=SignalDirection.LONG,
-                    quantity=1,  # Buy 1 share (pre-split)
-                    ts=bar.ts,
-                    reason="Initial buy",
+                    target_qty=1,  # Buy 1 share (pre-split)
                 )
             ]
 
@@ -48,11 +53,12 @@ class SimpleBuyHoldSellStrategy(Strategy):
             if position and not position.is_flat():
                 return [
                     Signal(
+                        signal_id=f"sell_{bar.symbol}_{self.bar_count}",
+                        strategy_ts=datetime.fromisoformat(bar.trade_datetime),
                         symbol=bar.symbol,
+                        signal_type=SignalType.EXIT_LONG,
                         direction=SignalDirection.FLAT,
-                        quantity=position.qty,  # Sell all (should be 4 after split)
-                        ts=bar.ts,
-                        reason=f"Sell all {position.qty} shares",
+                        target_qty=position.qty,  # Sell all (should be 4 after split)
                     )
                 ]
 
@@ -87,32 +93,29 @@ def test_split_accounting_with_unadjusted_execution():
             symbol="AAPL",
             trade_datetime="2020-08-01T16:00:00",
             unadjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 1, 16, 0),
-                open=Decimal("495"),
-                high=Decimal("505"),
-                low=Decimal("490"),
-                close=Decimal("500"),
+                trade_datetime=datetime(2020, 8, 1, 16, 0).isoformat(),
+                open=495,
+                high=505,
+                low=490,
+                close=500,
                 volume=1000000,
                 dividend=None,
             ),
             adjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 1, 16, 0),
-                open=Decimal("123.75"),
-                high=Decimal("126.25"),
-                low=Decimal("122.50"),
-                close=Decimal("125.00"),
+                trade_datetime=datetime(2020, 8, 1, 16, 0).isoformat(),
+                open=123.75,
+                high=126.25,
+                low=122.50,
+                close=125.00,
                 volume=1000000,
                 dividend=None,
             ),
             total_return=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 1, 16, 0),
-                open=Decimal("123.75"),
-                high=Decimal("126.25"),
-                low=Decimal("122.50"),
-                close=Decimal("125.00"),
+                trade_datetime=datetime(2020, 8, 1, 16, 0).isoformat(),
+                open=123.75,
+                high=126.25,
+                low=122.50,
+                close=125.00,
                 volume=1000000,
                 dividend=None,
             ),
@@ -122,34 +125,31 @@ def test_split_accounting_with_unadjusted_execution():
             symbol="AAPL",
             trade_datetime="2020-08-07T16:00:00",
             unadjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 7, 16, 0),
-                open=Decimal("498"),
-                high=Decimal("508"),
-                low=Decimal("495"),
-                close=Decimal("502"),
+                trade_datetime=datetime(2020, 8, 7, 16, 0).isoformat(),
+                open=498,
+                high=508,
+                low=495,
+                close=502,
                 volume=1000000,
-                dividend=Decimal("0.82"),  # Unadjusted dividend
+                dividend=0.82,  # Unadjusted dividend
             ),
             adjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 7, 16, 0),
-                open=Decimal("124.50"),
-                high=Decimal("127.00"),
-                low=Decimal("123.75"),
-                close=Decimal("125.50"),
+                trade_datetime=datetime(2020, 8, 7, 16, 0).isoformat(),
+                open=124.50,
+                high=127.00,
+                low=123.75,
+                close=125.50,
                 volume=1000000,
-                dividend=Decimal("0.205"),  # Split-adjusted dividend
+                dividend=0.205,  # Split-adjusted dividend
             ),
             total_return=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 7, 16, 0),
-                open=Decimal("124.50"),
-                high=Decimal("127.00"),
-                low=Decimal("123.75"),
-                close=Decimal("125.50"),
+                trade_datetime=datetime(2020, 8, 7, 16, 0).isoformat(),
+                open=124.50,
+                high=127.00,
+                low=123.75,
+                close=125.50,
                 volume=1000000,
-                dividend=Decimal("0.205"),
+                dividend=0.205,
             ),
         ),
         # Bar 3: Split 4:1 happens
@@ -158,32 +158,29 @@ def test_split_accounting_with_unadjusted_execution():
             symbol="AAPL",
             trade_datetime="2020-08-31T16:00:00",
             unadjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 31, 16, 0),
-                open=Decimal("126"),  # Post-split price
-                high=Decimal("132"),
-                low=Decimal("124"),
-                close=Decimal("129"),
+                trade_datetime=datetime(2020, 8, 31, 16, 0).isoformat(),
+                open=126,  # Post-split price
+                high=132,
+                low=124,
+                close=129,
                 volume=4000000,  # Volume also adjusts
                 dividend=None,
             ),
             adjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 31, 16, 0),
-                open=Decimal("126.00"),
-                high=Decimal("132.00"),
-                low=Decimal("124.00"),
-                close=Decimal("129.00"),
+                trade_datetime=datetime(2020, 8, 31, 16, 0).isoformat(),
+                open=126.00,
+                high=132.00,
+                low=124.00,
+                close=129.00,
                 volume=4000000,
                 dividend=None,
             ),
             total_return=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 8, 31, 16, 0),
-                open=Decimal("126.00"),
-                high=Decimal("132.00"),
-                low=Decimal("124.00"),
-                close=Decimal("129.00"),
+                trade_datetime=datetime(2020, 8, 31, 16, 0).isoformat(),
+                open=126.00,
+                high=132.00,
+                low=124.00,
+                close=129.00,
                 volume=4000000,
                 dividend=None,
             ),
@@ -193,32 +190,29 @@ def test_split_accounting_with_unadjusted_execution():
             symbol="AAPL",
             trade_datetime="2020-09-01T16:00:00",
             unadjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 9, 1, 16, 0),
-                open=Decimal("128"),
-                high=Decimal("134"),
-                low=Decimal("127"),
-                close=Decimal("131"),
+                trade_datetime=datetime(2020, 9, 1, 16, 0).isoformat(),
+                open=128,
+                high=134,
+                low=127,
+                close=131,
                 volume=3500000,
                 dividend=None,
             ),
             adjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 9, 1, 16, 0),
-                open=Decimal("128.00"),
-                high=Decimal("134.00"),
-                low=Decimal("127.00"),
-                close=Decimal("131.00"),
+                trade_datetime=datetime(2020, 9, 1, 16, 0).isoformat(),
+                open=128.00,
+                high=134.00,
+                low=127.00,
+                close=131.00,
                 volume=3500000,
                 dividend=None,
             ),
             total_return=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 9, 1, 16, 0),
-                open=Decimal("128.00"),
-                high=Decimal("134.00"),
-                low=Decimal("127.00"),
-                close=Decimal("131.00"),
+                trade_datetime=datetime(2020, 9, 1, 16, 0).isoformat(),
+                open=128.00,
+                high=134.00,
+                low=127.00,
+                close=131.00,
                 volume=3500000,
                 dividend=None,
             ),
@@ -228,40 +222,47 @@ def test_split_accounting_with_unadjusted_execution():
             symbol="AAPL",
             trade_datetime="2020-09-20T16:00:00",
             unadjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 9, 20, 16, 0),
-                open=Decimal("129"),
-                high=Decimal("135"),
-                low=Decimal("128"),
-                close=Decimal("130"),
+                trade_datetime=datetime(2020, 9, 20, 16, 0).isoformat(),
+                open=129,
+                high=135,
+                low=128,
+                close=130,
                 volume=3000000,
                 dividend=None,
             ),
             adjusted=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 9, 20, 16, 0),
-                open=Decimal("129.00"),
-                high=Decimal("135.00"),
-                low=Decimal("128.00"),
-                close=Decimal("130.00"),
+                trade_datetime=datetime(2020, 9, 20, 16, 0).isoformat(),
+                open=129.00,
+                high=135.00,
+                low=128.00,
+                close=130.00,
                 volume=3000000,
                 dividend=None,
             ),
             total_return=CanonicalBar(
-                symbol="AAPL",
-                ts=datetime(2020, 9, 20, 16, 0),
-                open=Decimal("129.00"),
-                high=Decimal("135.00"),
-                low=Decimal("128.00"),
-                close=Decimal("130.00"),
+                trade_datetime=datetime(2020, 9, 20, 16, 0).isoformat(),
+                open=129.00,
+                high=135.00,
+                low=128.00,
+                close=130.00,
                 volume=3000000,
                 dividend=None,
             ),
         ),
     ]
 
-    # Create iterator
-    iterator = PriceSeriesIterator(bars)
+    # Create iterator by extracting bars from each mode
+    unadjusted_bars = [bar.unadjusted for bar in bars]
+    adjusted_bars = [bar.adjusted for bar in bars]
+    total_return_bars = [bar.total_return for bar in bars]
+
+    series_dict = {
+        "unadjusted": CanonicalPriceSeries(mode="unadjusted", symbol="AAPL", bars=unadjusted_bars),
+        "adjusted": CanonicalPriceSeries(mode="adjusted", symbol="AAPL", bars=adjusted_bars),
+        "total_return": CanonicalPriceSeries(mode="total_return", symbol="AAPL", bars=total_return_bars),
+    }
+
+    iterator = PriceSeriesIterator(series_dict)
 
     # Create portfolio and context
     portfolio = Portfolio(initial_cash=Decimal("10000"))
@@ -311,7 +312,7 @@ def test_split_accounting_with_unadjusted_execution():
     print(f"Total shares sold: {total_sold}")
 
     # Calculate P&L
-    initial_cash = Decimal("10000")
+    initial_cash = 10000
     final_cash = ctx.portfolio.cash.get_balance()
     profit = final_cash - initial_cash
     print(f"\nP&L: ${float(profit):.2f}")
