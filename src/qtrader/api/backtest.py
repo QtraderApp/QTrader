@@ -118,16 +118,12 @@ class Backtest:
 
         # Use BarMerger to coordinate multi-symbol streams
         merger = BarMerger(data_iterators)
-        bars_list = []  # Will contain tuples: (CanonicalBar adjusted, MultiModeBar)
+        bars_list = []  # Will contain MultiModeBar objects
 
-        # Extract Bar objects from MultiModeBar (use adjusted mode for strategy)
-        # Keep MultiModeBar for accessing unadjusted dividend amounts
+        # Extract MultiModeBar objects (Phase 5: strategy receives full MultiModeBar)
         while merger.has_next():
             symbol, multi_mode_bar = merger.get_next_bar()
-            # Strategy receives Bar (extracted from adjusted mode)
-            # But we keep the full MultiModeBar for dividend processing
-            bar = multi_mode_bar.adjusted
-            bars_list.append((bar, multi_mode_bar))  # Store both
+            bars_list.append(multi_mode_bar)  # Store full MultiModeBar
 
         logger.info(
             "backtest.iterator_conversion_complete",
@@ -181,9 +177,12 @@ class Backtest:
                 warmup_processor = WarmupProcessor(warmup_bars=warmup_bars, enable_warmup=True)
 
                 # Process warmup bars (indicators only, no trading)
-                for bar_idx, (bar, _) in enumerate(bars_list):
+                for bar_idx, multi_mode_bar in enumerate(bars_list):
                     if not warmup_processor.should_skip_bar(bar_idx):
                         break
+
+                    # Strategies work with adjusted prices for indicators
+                    bar = multi_mode_bar.adjusted
 
                     # Add bar to context history for indicators
                     ctx._add_bar_to_history(bar)
@@ -211,10 +210,10 @@ class Backtest:
 
         # Capture initial portfolio snapshot before trading begins
         initial_cash = ctx.portfolio.cash.get_balance()
-        first_bar = bars_list[start_idx][0] if start_idx < len(bars_list) else None
+        first_bar = bars_list[start_idx] if start_idx < len(bars_list) else None
         initial_snapshot = {
-            "timestamp": first_bar.trade_datetime if first_bar else None,  # CanonicalBar uses trade_datetime
-            "symbol": ctx.current_symbol if first_bar else None,  # Symbol from context, not bar
+            "timestamp": first_bar.adjusted.trade_datetime if first_bar else None,  # Use adjusted bar
+            "symbol": first_bar.symbol if first_bar else None,  # Symbol from MultiModeBar
             # Cash tracking
             "initial_cash": float(initial_cash),
             "cash_debits": 0.0,
@@ -238,14 +237,16 @@ class Backtest:
         logger.info("backtest.trading_loop_starting", start_idx=start_idx, total_bars=len(bars_list))
 
         for bar_idx in range(start_idx, len(bars_list)):
-            bar, multi_mode_bar = bars_list[bar_idx]  # Unpack both adjusted bar and full MultiModeBar
+            multi_mode_bar = bars_list[bar_idx]  # Get MultiModeBar
 
-            # Extract unadjusted bar for execution (Phase 2 architecture)
-            unadjusted_bar = multi_mode_bar.unadjusted
-            next_unadjusted_bar = bars_list[bar_idx + 1][1].unadjusted if bar_idx + 1 < len(bars_list) else None
+            # Extract bars for different purposes (Phase 5 architecture)
+            bar = multi_mode_bar.adjusted  # For strategy indicators
+            unadjusted_bar = multi_mode_bar.unadjusted  # For execution
+
+            # Get next bar for execution engine lookahead
+            next_unadjusted_bar = bars_list[bar_idx + 1].unadjusted if bar_idx + 1 < len(bars_list) else None
 
             # Parse timestamp and symbol from MultiModeBar
-            # CanonicalBar has trade_datetime (string), MultiModeBar has symbol
             bar_ts = datetime.fromisoformat(bar.trade_datetime)
             symbol = multi_mode_bar.symbol
 
@@ -339,8 +340,8 @@ class Backtest:
                             total_amount=float(unadjusted_bar.dividend * abs(position.qty)),
                         )
 
-            # Call strategy.on_bar() - returns signals (strategy uses adjusted)
-            signals = self.strategy.on_bar(bar, ctx)
+            # Call strategy.on_bar() - returns signals (Phase 5: receives MultiModeBar)
+            signals = self.strategy.on_bar(multi_mode_bar, ctx)
 
             # Process signals through risk manager
             if signals:
@@ -417,9 +418,7 @@ class Backtest:
 
                 # Check if this bar has a dividend (for snapshot metadata)
                 # Log both unadjusted (actual payment) and adjusted (for analysis)
-                dividend_per_share_unadjusted = (
-                    float(multi_mode_bar.unadjusted.dividend) if multi_mode_bar.unadjusted.dividend else None
-                )
+                dividend_per_share_unadjusted = float(unadjusted_bar.dividend) if unadjusted_bar.dividend else None
                 dividend_per_share_adjusted = float(bar.dividend) if bar.dividend else None
 
                 # Get fills for this bar

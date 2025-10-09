@@ -16,9 +16,8 @@ from typing import Dict, List, Optional
 
 from qtrader.api.backtest import Backtest
 from qtrader.api.context import Context
-from qtrader.data import DataLoader, PriceSeriesIterator
+from qtrader.data import DataLoader, MultiModeBar, PriceSeriesIterator
 from qtrader.execution.config import ExecutionConfig
-from qtrader.models.canonical_bar import CanonicalBar
 from qtrader.models.portfolio import Portfolio
 from qtrader.models.vendors.algoseek.bar import AlgoseekBar
 from qtrader.models.vendors.algoseek.price_series import AlgoseekPriceSeries
@@ -43,12 +42,12 @@ class SimpleBuyStrategy:
         """Called after warmup."""
         pass
 
-    def on_bar(self, bar: CanonicalBar, ctx: Context) -> Optional[List[Signal]]:
+    def on_bar(self, bar: MultiModeBar, ctx: Context) -> Optional[List[Signal]]:
         """
         Buy on bar 1, sell on last bar.
 
         Args:
-            bar: Current bar (CanonicalBar from adjusted mode)
+            bar: MultiModeBar with all adjustment modes
             ctx: Context (contains current_symbol)
 
         Returns:
@@ -56,11 +55,12 @@ class SimpleBuyStrategy:
         """
         self.bars_seen += 1
 
-        # Parse timestamp from ISO string
-        bar_ts = datetime.fromisoformat(bar.trade_datetime)
+        # Use adjusted bar for strategy logic
+        adjusted_bar = bar.adjusted
+        symbol = bar.symbol
 
-        # Get symbol from context
-        symbol = ctx.current_symbol
+        # Parse timestamp from ISO string
+        bar_ts = datetime.fromisoformat(adjusted_bar.trade_datetime)
 
         # Buy on first bar
         if self.bars_seen == 1 and not self.has_bought:

@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from qtrader.api import Context, Strategy
-from qtrader.models.bar import Bar
+from qtrader.data import MultiModeBar
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.risk import Signal, SignalDirection, SignalType
 
@@ -73,34 +73,45 @@ class SMACrossover(Strategy):
         """Called after warmup completes (if enabled)."""
         print(f"Strategy started at {ctx.current_date}")
 
-    def on_bar(self, bar: Bar, ctx: Context) -> Optional[List[Signal]]:
+    def on_bar(self, bar: MultiModeBar, ctx: Context) -> Optional[List[Signal]]:
         """
         Called for each bar.
 
         Computes SMAs and checks for crossovers.
+
+        Args:
+            bar: MultiModeBar with all adjustment modes
+            ctx: Context with indicators and portfolio state
+
+        Returns:
+            List of signals if crossover detected, else None
         """
+        # Use adjusted prices for indicators (consistent across splits)
+        adjusted_bar = bar.adjusted
+        symbol = bar.symbol
+
         # Compute indicators
-        fast_sma = ctx.ind.sma(bar.symbol, self.fast_period)
-        slow_sma = ctx.ind.sma(bar.symbol, self.slow_period)
+        fast_sma = ctx.ind.sma(symbol, self.fast_period)
+        slow_sma = ctx.ind.sma(symbol, self.slow_period)
 
         # Need both indicators to be valid
         if fast_sma is None or slow_sma is None:
             return None
 
         # Track indicators for crossover detection
-        ctx._track_indicator(bar.symbol, "fast_sma", fast_sma)
-        ctx._track_indicator(bar.symbol, "slow_sma", slow_sma)
+        ctx._track_indicator(symbol, "fast_sma", fast_sma)
+        ctx._track_indicator(symbol, "slow_sma", slow_sma)
 
         signals = []
 
         # Check for bullish crossover
-        if ctx.crossed_above(bar.symbol, "fast_sma", "slow_sma"):
+        if ctx.crossed_above(symbol, "fast_sma", "slow_sma"):
             self.signal_counter += 1
             signals.append(
                 Signal(
                     signal_id=f"sma_xover_{self.signal_counter}",
-                    strategy_ts=datetime.now(),
-                    symbol=bar.symbol,
+                    strategy_ts=datetime.fromisoformat(adjusted_bar.trade_datetime),
+                    symbol=symbol,
                     signal_type=SignalType.ENTRY_LONG,
                     direction=SignalDirection.LONG,
                     metadata={
@@ -112,13 +123,13 @@ class SMACrossover(Strategy):
             )
 
         # Check for bearish crossover
-        elif ctx.crossed_below(bar.symbol, "fast_sma", "slow_sma"):
+        elif ctx.crossed_below(symbol, "fast_sma", "slow_sma"):
             self.signal_counter += 1
             signals.append(
                 Signal(
                     signal_id=f"sma_xover_{self.signal_counter}",
-                    strategy_ts=datetime.now(),
-                    symbol=bar.symbol,
+                    strategy_ts=datetime.fromisoformat(adjusted_bar.trade_datetime),
+                    symbol=symbol,
                     signal_type=SignalType.EXIT_LONG,
                     direction=SignalDirection.FLAT,
                     metadata={

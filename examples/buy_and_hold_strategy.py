@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from qtrader.api import Context, Strategy
-from qtrader.models.bar import Bar
+from qtrader.data import MultiModeBar
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.risk import Signal, SignalDirection, SignalType
 
@@ -77,39 +77,38 @@ class BuyAndHold(Strategy):
         """Called after warmup completes (if enabled)."""
         print(f"Buy-and-Hold strategy started at {ctx.current_date}")
 
-    def on_bar(self, bar: Bar, ctx: Context) -> Optional[List[Signal]]:
+    def on_bar(self, bar: MultiModeBar, ctx: Context) -> Optional[List[Signal]]:
         """
-        Called for each bar.
+        Generate buy signals on first bar for each symbol.
 
-        Opens positions on first bar of each symbol only.
+        Args:
+            bar: MultiModeBar with all adjustment modes available
+            ctx: Context with portfolio and market data
+
+        Returns:
+            List of buy signals (one per symbol) on first bar, None thereafter
         """
-        # Only generate signal on first bar of each symbol
-        if bar.symbol not in self.symbols_to_buy:
-            # Check if we already have a position in this symbol
-            assert ctx.portfolio is not None  # Portfolio always exists during backtest
-            position = ctx.portfolio.positions.get_position(bar.symbol)
+        # Use adjusted prices for decision making (consistent across splits)
+        adjusted_bar = bar.adjusted
+        symbol = bar.symbol
 
-            if position is None or position.is_flat():
-                # Mark this symbol as "to buy"
-                self.symbols_to_buy.add(bar.symbol)
+        # Buy all symbols on their first bar
+        if symbol in self.symbols_to_buy:
+            self.symbols_to_buy.remove(symbol)
+            self.signal_counter += 1
 
-                # Open long position
-                self.signal_counter += 1
-                signal = Signal(
-                    signal_id=f"buy_hold_{self.signal_counter}",
-                    strategy_ts=datetime.now(),
-                    symbol=bar.symbol,
-                    signal_type=SignalType.ENTRY_LONG,
-                    direction=SignalDirection.LONG,
-                    metadata={
-                        "strategy": "buy_and_hold",
-                        "reason": "Initial position",
-                        "price": float(bar.close),
-                    },
-                )
-                return [signal]
+            signal = Signal(
+                signal_id=f"BH-{self.signal_counter}",
+                strategy_ts=datetime.fromisoformat(adjusted_bar.trade_datetime),
+                symbol=symbol,
+                signal_type=SignalType.ENTRY_LONG,
+                direction=SignalDirection.LONG,
+                target_weight=Decimal("0.90"),  # Use 90% of available capital
+            )
 
-        # After first bar of each symbol, do nothing (hold)
+            print(f"Buy signal: {symbol} @ ${adjusted_bar.close:.2f} on {adjusted_bar.trade_datetime}")
+            return [signal]
+
         return None
 
     def on_fill(self, fill, ctx: Context) -> None:

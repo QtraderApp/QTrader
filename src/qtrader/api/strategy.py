@@ -1,8 +1,11 @@
 """Base Strategy class for user strategies."""
 
-from typing import List, Optional, Protocol
+from typing import TYPE_CHECKING, List, Optional, Protocol
 
 from qtrader.risk import Signal
+
+if TYPE_CHECKING:
+    from qtrader.data import MultiModeBar
 
 
 class Strategy(Protocol):
@@ -15,6 +18,9 @@ class Strategy(Protocol):
     The RiskManager evaluates signals and creates appropriately sized orders.
 
     Phase 3: Added on_init() hook for custom indicator registration before warmup.
+
+    Phase 5: Strategies now receive MultiModeBar with all adjustment modes available.
+    Strategies explicitly select the mode they want to use (typically 'adjusted').
     """
 
     def on_init(self, ctx) -> None:
@@ -49,12 +55,12 @@ class Strategy(Protocol):
         """
         pass
 
-    def on_bar(self, bar, ctx) -> Optional[List[Signal]]:
+    def on_bar(self, bar: "MultiModeBar", ctx) -> Optional[List[Signal]]:
         """
         Called for each bar in the dataset. Required.
 
         Args:
-            bar: Current Bar object
+            bar: MultiModeBar with all adjustment modes (unadjusted, adjusted, total_return)
             ctx: Context for accessing indicators and portfolio state
 
         Returns:
@@ -62,6 +68,18 @@ class Strategy(Protocol):
 
         Note: Signals represent trading INTENT without position sizing.
         The RiskManager will evaluate signals and create appropriately sized orders.
+
+        Example:
+            def on_bar(self, bar: MultiModeBar, ctx) -> Optional[List[Signal]]:
+                # Use adjusted prices for indicators (consistent across splits)
+                adjusted_bar = bar.adjusted
+                price = adjusted_bar.close
+
+                # Or explicitly get a mode
+                adjusted_bar = bar.get_bar("adjusted")
+
+                # Generate signals...
+                return [signal]
         """
         ...
 
