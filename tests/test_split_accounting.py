@@ -14,6 +14,7 @@ from qtrader.execution.config import ExecutionConfig
 from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
 from qtrader.models.multi_mode_bar import MultiModeBar
 from qtrader.models.portfolio import Portfolio
+from qtrader.risk import RiskManager, RiskPolicy, SizingMethod
 from qtrader.risk.signal import Signal, SignalDirection, SignalType
 
 ET = pytz.timezone("US/Eastern")
@@ -45,8 +46,8 @@ class SimpleBuyHoldSellStrategy(Strategy):
                 )
             ]
 
-        # Sell on bar 5 (after split on bar 3)
-        if self.bar_count == 5 and not self.sell_executed:
+        # Sell on bar 4 (after split on bar 3, with bar 5 available for execution)
+        if self.bar_count == 4 and not self.sell_executed:
             self.sell_executed = True
             # Get current position
             position = ctx.portfolio.positions.get_position(bar.symbol)
@@ -266,7 +267,17 @@ def test_split_accounting_with_unadjusted_execution():
 
     # Create portfolio and context
     portfolio = Portfolio(initial_cash=Decimal("10000"))
-    ctx = Context(portfolio=portfolio)
+
+    # Create risk manager (required for signal processing)
+    # Use FIXED_QUANTITY sizing to respect target_qty in EXIT signals
+    risk_policy = RiskPolicy(
+        sizing_method=SizingMethod.FIXED_QUANTITY,
+        default_position_size=Decimal("1"),  # Default 1 share (signals will override with target_qty)
+        max_position_pct=Decimal("1.0"),  # Allow 100% concentration
+    )
+    risk_manager = RiskManager(policy=risk_policy, portfolio=portfolio)
+
+    ctx = Context(portfolio=portfolio, risk_manager=risk_manager)
 
     # Create strategy and backtest
     strategy = SimpleBuyHoldSellStrategy()
@@ -289,43 +300,43 @@ def test_split_accounting_with_unadjusted_execution():
 
     # Check fills
     fills = backtest.all_fills
-    assert len(fills) == 6, f"Expected 6 fills (1 buy + 4 sells), got {len(fills)}"
+    assert len(fills) == 2, f"Expected 2 fills (1 buy + 1 sell), got {len(fills)}"
 
-    # First fill: Buy 1 share @ ~$500
+    # First fill: Buy 1 share @ ~$498 (next bar open)
     buy_fill = fills[0]
     print(f"\nBuy fill: {buy_fill.qty} shares @ ${float(buy_fill.price):.2f}")
     assert buy_fill.qty == 1
-    assert abs(float(buy_fill.price) - 495.0) < 1.0  # Next bar open (~$495)
+    assert abs(float(buy_fill.price) - 498.0) < 1.0  # Next bar open (~$498)
 
-    # Check position after buy
-    position_after_buy = ctx.portfolio.positions.get_position("AAPL")
-    print(f"Position after buy: {position_after_buy.qty} shares @ ${float(position_after_buy.avg_price):.2f}")
+    # Second fill: Sell 4 shares @ ~$129 (after split, next bar open)
+    sell_fill = fills[1]
+    print(f"Sell fill: {sell_fill.qty} shares @ ${float(sell_fill.price):.2f}")
+    assert sell_fill.qty == 4, f"Expected to sell 4 shares (after split), got {sell_fill.qty}"
+    assert abs(float(sell_fill.price) - 129.0) < 1.0  # Post-split price
 
-    # After split, position should have 4 shares
-    # (splits are processed during the main loop)
+    # Check final position (should be flat)
     final_position = ctx.portfolio.positions.get_position("AAPL")
-    print(f"Final position: {final_position.qty if final_position else 0} shares")
-
-    # Check sell fills (should be 4 separate fills if participation limited, or fewer if not)
-    sell_fills = fills[1:]
-    total_sold = sum(f.qty for f in sell_fills)
-    print(f"Total shares sold: {total_sold}")
+    print(f"Final position: {final_position.qty if final_position and not final_position.is_flat() else 0} shares")
+    assert final_position is None or final_position.is_flat(), "Expected flat position after selling all shares"
 
     # Calculate P&L
-    initial_cash = 10000
+    initial_cash = Decimal("10000")
     final_cash = ctx.portfolio.cash.get_balance()
     profit = final_cash - initial_cash
     print(f"\nP&L: ${float(profit):.2f}")
 
     # Verify accounting:
-    # Buy: ~-$495 (unadjusted price)
-    # Dividend: +$0.82 (unadjusted)
-    # Sell: ~+$520 (4 shares × ~$130 unadjusted)
-    # Expected profit: ~$25 (before commissions)
+    # Buy: -$498 (1 share at unadjusted price)
+    # Dividend: +$0.82 (unadjusted, for 1 share)
+    # Split: 1 → 4 shares @ $124.50 avg cost
+    # Sell: +$516 (4 shares × $129 unadjusted)
+    # Gross: $18.82
+    # Less commissions: -$2.00 (2 fills × $1)
+    # Net: ~$16.82
 
-    # Allow for commissions
+    # Allow for small variations due to commissions and timing
     assert float(profit) > 15.0, f"Expected profit > $15, got ${float(profit):.2f}"
-    assert float(profit) < 30.0, f"Expected profit < $30, got ${float(profit):.2f}"
+    assert float(profit) < 20.0, f"Expected profit < $20, got ${float(profit):.2f}"
 
     print("\n✅ Split accounting test PASSED!")
     print("- Buy at unadjusted price")
