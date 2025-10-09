@@ -250,10 +250,12 @@ class Backtest:
             bar_ts = datetime.fromisoformat(bar.trade_datetime)
             symbol = multi_mode_bar.symbol
 
-            # Update context state for this bar (strategy uses adjusted)
+            # Update context state for this bar
+            # Phase 5: Use UNADJUSTED price for ctx.current_price since execution fills at unadjusted prices
+            # This ensures fill price deviation checks work correctly
             ctx.current_date = bar_ts
             ctx.current_symbol = symbol
-            ctx.current_price = Decimal(str(bar.close))
+            ctx.current_price = Decimal(str(unadjusted_bar.close))  # Use unadjusted for execution context
 
             # Note: Not adding CanonicalBar to history since it lacks symbol field
             # Bar history is legacy - indicators should use data directly
@@ -281,17 +283,21 @@ class Backtest:
                     )
 
                     # Process split (updates position qty and cost basis)
+                    # ratio_change is the split factor: 0.25 = 4:1 split (1 share → 4 shares)
+                    # This is already in AlgoSeek format, so pass it directly
                     split_result = self.split_processor.process_split(
                         symbol=symbol,
-                        adjustment_factor=Decimal("1") / ratio_change,  # Convert to AlgoSeek format
-                        current_price=unadjusted_bar.close,
+                        adjustment_factor=ratio_change,  # ratio_change is already in AlgoSeek format
+                        current_price=Decimal(str(unadjusted_bar.close)),  # Convert float to Decimal
                     )
 
                     if split_result.get("processed"):
+                        # Remove duplicate keys before logging
+                        log_result = {k: v for k, v in split_result.items() if k != "symbol"}
                         logger.info(
                             "backtest.split_processed",
                             symbol=symbol,
-                            **split_result,
+                            **log_result,
                         )
 
             # Store current ratio for next iteration
