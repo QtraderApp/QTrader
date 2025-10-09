@@ -108,7 +108,7 @@ class FillPolicy:
             )
 
         # Fill at next bar open
-        fill_price = next_bar.open
+        fill_price = Decimal(str(next_bar.open))
         logger.debug(
             "fill_policy.market_fill",
             order_id=order.order_id,
@@ -156,10 +156,10 @@ class FillPolicy:
         # Apply slippage based on side
         if order.side == OrderSide.BUY:
             # Buys pay slippage (price increases)
-            fill_price = current_bar.close * (Decimal("1") + slip_factor)
+            fill_price = Decimal(str(current_bar.close)) * (Decimal("1") + slip_factor)
         else:  # SELL
             # Sells pay slippage (price decreases)
-            fill_price = current_bar.close * (Decimal("1") - slip_factor)
+            fill_price = Decimal(str(current_bar.close)) * (Decimal("1") - slip_factor)
 
         logger.debug(
             "fill_policy.moc_fill",
@@ -209,9 +209,9 @@ class FillPolicy:
         # Conservative touch rules
         if order.side == OrderSide.BUY:
             # Buy: need price to touch or go below limit
-            if current_bar.low <= limit_price:
+            if Decimal(str(current_bar.low)) <= limit_price:
                 # Fill at min(limit, close) - best price we could get
-                fill_price = min(limit_price, current_bar.close)
+                fill_price = min(limit_price, Decimal(str(current_bar.close)))
 
                 logger.debug(
                     "fill_policy.limit_buy_fill",
@@ -240,9 +240,9 @@ class FillPolicy:
 
         else:  # SELL
             # Sell: need price to touch or go above limit
-            if current_bar.high >= limit_price:
+            if Decimal(str(current_bar.high)) >= limit_price:
                 # Fill at max(limit, close) - best price we could get
-                fill_price = max(limit_price, current_bar.close)
+                fill_price = max(limit_price, Decimal(str(current_bar.close)))
 
                 logger.debug(
                     "fill_policy.limit_sell_fill",
@@ -301,9 +301,9 @@ class FillPolicy:
         # Conservative touch rules
         if order.side == OrderSide.BUY:
             # Stop Buy: triggered when price goes up to or above stop
-            if current_bar.high >= stop_price:
+            if Decimal(str(current_bar.high)) >= stop_price:
                 # Fill at max(stop, close) - worst price we'd get
-                base_price = max(stop_price, current_bar.close)
+                base_price = max(stop_price, Decimal(str(current_bar.close)))
                 # Add slippage (buys pay more)
                 fill_price = base_price * (Decimal("1") + slip_factor)
 
@@ -336,9 +336,9 @@ class FillPolicy:
 
         else:  # SELL
             # Stop Sell: triggered when price goes down to or below stop
-            if current_bar.low <= stop_price:
+            if Decimal(str(current_bar.low)) <= stop_price:
                 # Fill at min(stop, close) - worst price we'd get
-                base_price = min(stop_price, current_bar.close)
+                base_price = min(stop_price, Decimal(str(current_bar.close)))
                 # Subtract slippage (sells get less)
                 fill_price = base_price * (Decimal("1") - slip_factor)
 

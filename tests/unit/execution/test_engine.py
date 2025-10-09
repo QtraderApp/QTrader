@@ -8,11 +8,15 @@ import pytz
 
 from qtrader.execution.config import ExecutionConfig
 from qtrader.execution.engine import ExecutionEngine
-from qtrader.models.bar import Bar
+from qtrader.models.canonical_bar import CanonicalBar
 from qtrader.models.order import Order, OrderSide, OrderState, OrderType
 from qtrader.models.portfolio import Portfolio
 
 ET = pytz.timezone("US/Eastern")
+
+# Test timestamps
+AAPL_TS_1 = datetime(2023, 1, 15, 9, 30, tzinfo=ET)
+AAPL_TS_2 = datetime(2023, 1, 15, 9, 31, tzinfo=ET)
 
 
 @pytest.fixture
@@ -26,13 +30,12 @@ def engine():
 @pytest.fixture
 def aapl_bar():
     """Sample AAPL bar."""
-    return Bar(
-        ts=datetime(2023, 1, 15, 9, 30, tzinfo=ET),
-        symbol="AAPL",
-        open=Decimal("150.00"),
-        high=Decimal("152.00"),
-        low=Decimal("149.00"),
-        close=Decimal("151.00"),
+    return CanonicalBar(
+        trade_datetime=AAPL_TS_1.isoformat(),
+        open=150.00,
+        high=152.00,
+        low=149.00,
+        close=151.00,
         volume=1000000,
     )
 
@@ -40,13 +43,12 @@ def aapl_bar():
 @pytest.fixture
 def aapl_bar_2():
     """Second AAPL bar."""
-    return Bar(
-        ts=datetime(2023, 1, 15, 9, 31, tzinfo=ET),
-        symbol="AAPL",
-        open=Decimal("151.50"),
-        high=Decimal("153.00"),
-        low=Decimal("150.50"),
-        close=Decimal("152.00"),
+    return CanonicalBar(
+        trade_datetime=AAPL_TS_2.isoformat(),
+        open=151.50,
+        high=153.00,
+        low=150.50,
+        close=152.00,
         volume=1200000,
     )
 
@@ -62,7 +64,7 @@ def test_submit_moc_order(engine, aapl_bar):
     """Submitting MOC order adds to pending queue and fills immediately."""
     order = Order(
         order_id="order-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.BUY,
         qty=100,
@@ -74,7 +76,7 @@ def test_submit_moc_order(engine, aapl_bar):
     assert "order-1" in engine.pending_orders
 
     # Process bar - MOC should fill
-    fills = engine.on_bar(aapl_bar)
+    fills = engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
     assert len(fills) == 1
     assert fills[0].symbol == "AAPL"
     assert fills[0].qty == 100
@@ -88,24 +90,24 @@ def test_submit_market_order_waits_for_next_bar(engine, aapl_bar, aapl_bar_2):
     """Market orders don't fill on submission bar."""
     order = Order(
         order_id="order-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.BUY,
         qty=100,
         order_type=OrderType.MARKET,
         state=OrderState.SUBMITTED,
-        submission_bar_ts=aapl_bar.ts,
+        submission_bar_ts=AAPL_TS_1,
     )
 
     engine.submit_order(order)
 
     # First bar: no fill
-    fills1 = engine.on_bar(aapl_bar)
+    fills1 = engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
     assert len(fills1) == 0
     assert "order-1" in engine.pending_orders
 
     # Second bar with next_bar: fills
-    fills2 = engine.on_bar(aapl_bar_2, next_bar=aapl_bar_2)
+    fills2 = engine.on_bar(aapl_bar_2, symbol="AAPL", ts=AAPL_TS_2, next_bar=aapl_bar_2)
     assert len(fills2) == 1
     assert "order-1" not in engine.pending_orders
 
@@ -116,7 +118,7 @@ def test_portfolio_updated_after_fill(engine, aapl_bar):
 
     order = Order(
         order_id="order-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.BUY,
         qty=100,
@@ -125,7 +127,7 @@ def test_portfolio_updated_after_fill(engine, aapl_bar):
     )
 
     engine.submit_order(order)
-    fills = engine.on_bar(aapl_bar)
+    fills = engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
 
     # Cash decreased
     assert engine.portfolio.cash.get_balance() < initial_cash
@@ -148,7 +150,7 @@ def test_buy_then_sell_round_trip(engine, aapl_bar):
     # Buy
     buy_order = Order(
         order_id="buy-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.BUY,
         qty=100,
@@ -156,12 +158,12 @@ def test_buy_then_sell_round_trip(engine, aapl_bar):
         state=OrderState.SUBMITTED,
     )
     engine.submit_order(buy_order)
-    engine.on_bar(aapl_bar)
+    engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
 
     # Sell
     sell_order = Order(
         order_id="sell-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.SELL,
         qty=100,
@@ -169,7 +171,7 @@ def test_buy_then_sell_round_trip(engine, aapl_bar):
         state=OrderState.SUBMITTED,
     )
     engine.submit_order(sell_order)
-    engine.on_bar(aapl_bar)
+    engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
 
     # Position flat
     position = engine.portfolio.positions.get_position("AAPL")
@@ -183,7 +185,7 @@ def test_short_position(engine, aapl_bar):
     """Can create short positions."""
     order = Order(
         order_id="short-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.SELL,
         qty=100,
@@ -192,7 +194,7 @@ def test_short_position(engine, aapl_bar):
     )
 
     engine.submit_order(order)
-    engine.on_bar(aapl_bar)
+    engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
 
     position = engine.portfolio.positions.get_position("AAPL")
     assert position is not None
@@ -204,7 +206,7 @@ def test_multiple_fills_accumulate(engine, aapl_bar):
     # First buy
     order1 = Order(
         order_id="buy-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.BUY,
         qty=100,
@@ -212,14 +214,14 @@ def test_multiple_fills_accumulate(engine, aapl_bar):
         state=OrderState.SUBMITTED,
     )
     engine.submit_order(order1)
-    engine.on_bar(aapl_bar)
+    engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
 
     assert engine.portfolio.positions.get_position("AAPL").qty == 100
 
     # Second buy
     order2 = Order(
         order_id="buy-2",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.BUY,
         qty=50,
@@ -227,7 +229,7 @@ def test_multiple_fills_accumulate(engine, aapl_bar):
         state=OrderState.SUBMITTED,
     )
     engine.submit_order(order2)
-    engine.on_bar(aapl_bar)
+    engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
 
     assert engine.portfolio.positions.get_position("AAPL").qty == 150
 
@@ -238,7 +240,7 @@ def test_commission_deducted_from_cash(engine, aapl_bar):
 
     order = Order(
         order_id="order-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.BUY,
         qty=100,
@@ -247,7 +249,7 @@ def test_commission_deducted_from_cash(engine, aapl_bar):
     )
 
     engine.submit_order(order)
-    fills = engine.on_bar(aapl_bar)
+    fills = engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
 
     fill = fills[0]
     # Cash = initial - (price * qty) - fees
@@ -259,7 +261,7 @@ def test_order_state_transitions(engine, aapl_bar):
     """Orders should transition to FILLED state."""
     order = Order(
         order_id="order-1",
-        strategy_ts=aapl_bar.ts,
+        strategy_ts=AAPL_TS_1,
         symbol="AAPL",
         side=OrderSide.BUY,
         qty=100,
@@ -268,7 +270,7 @@ def test_order_state_transitions(engine, aapl_bar):
     )
 
     engine.submit_order(order)
-    fills = engine.on_bar(aapl_bar)
+    fills = engine.on_bar(aapl_bar, symbol="AAPL", ts=AAPL_TS_1)
 
     filled_order = engine.filled_orders.get("order-1")
     assert filled_order is not None

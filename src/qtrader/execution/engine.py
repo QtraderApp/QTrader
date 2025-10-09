@@ -91,6 +91,7 @@ class ExecutionEngine:
 
         # Bar tracking (for Market orders that need next bar)
         self.current_bar: Optional[CanonicalBar] = None
+        self.current_ts: Optional[datetime] = None
         self.next_bar: Optional[CanonicalBar] = None
 
         logger.info(
@@ -122,12 +123,12 @@ class ExecutionEngine:
 
         # Determine bar timestamp
         if bar_ts is None:
-            if self.current_bar is not None:
-                bar_ts = self.current_bar.ts
+            if self.current_ts is not None:
+                bar_ts = self.current_ts
             elif order.strategy_ts is not None:
                 bar_ts = order.strategy_ts
             else:
-                raise ValueError("bar_ts must be provided when current_bar is None")
+                raise ValueError("bar_ts must be provided when current_ts is None")
 
         # Set order to SUBMITTED state if not already
         if order.state != OrderState.SUBMITTED:
@@ -188,6 +189,7 @@ class ExecutionEngine:
             List of fills generated on this bar
         """
         self.current_bar = bar
+        self.current_ts = ts
         self.next_bar = next_bar
 
         # Update portfolio with current prices (convert float to Decimal)
