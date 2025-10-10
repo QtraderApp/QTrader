@@ -1,5 +1,7 @@
 """Backtest runner and config loader."""
 
+import csv
+import json
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -539,7 +541,103 @@ class Backtest:
                 "filled_orders": len(self.execution_engine.filled_orders),
             }
 
+        # Save backtest results to output directory
+        self._save_results(out_dir, metadata, symbols)
+
         return metadata
+
+    def _save_results(self, out_dir: Path, metadata: Dict[str, Any], symbols: List[str]):
+        """
+        Save backtest results to output directory.
+
+        Saves:
+        - metadata.json: Run statistics and configuration
+        - portfolio_snapshots.csv: Portfolio value over time (equity curve)
+        - fills.csv: All trade executions
+
+        Args:
+            out_dir: Output directory path
+            metadata: Run metadata dictionary
+            symbols: List of symbols backtested
+        """
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save metadata
+        metadata_file = out_dir / "metadata.json"
+        metadata_with_symbols = {**metadata, "symbols": symbols}
+        with open(metadata_file, "w") as f:
+            json.dump(metadata_with_symbols, f, indent=2, default=str)
+        logger.info("backtest.saved_metadata", file=str(metadata_file))
+
+        # Save portfolio snapshots (equity curve)
+        if self.portfolio_snapshots:
+            snapshots_file = out_dir / "portfolio_snapshots.csv"
+            # Define all possible fieldnames from snapshot structure
+            fieldnames = [
+                "timestamp",
+                "symbol",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "dividend_per_share_unadjusted",
+                "dividend_per_share_adjusted",
+                "signal",
+                "order_id",
+                "order_type",
+                "fill_qty",
+                "fill_price",
+                "commission",
+                "initial_cash",
+                "cash_debits",
+                "cash_credits",
+                "end_cash",
+                "initial_portfolio_value",
+                "daily_mtm",
+                "end_portfolio_value",
+                "position_qty",
+                "position_avg_cost",
+                "total_value",
+                "num_positions",
+            ]
+            with open(snapshots_file, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(self.portfolio_snapshots)
+            logger.info(
+                "backtest.saved_snapshots",
+                file=str(snapshots_file),
+                count=len(self.portfolio_snapshots),
+            )
+
+        # Save fills
+        if self.all_fills:
+            fills_file = out_dir / "fills.csv"
+            with open(fills_file, "w", newline="") as f:
+                # Get fill attributes
+                fill_dict = [
+                    {
+                        "fill_id": fill.fill_id,
+                        "order_id": fill.order_id,
+                        "execution_ts": fill.execution_ts.isoformat(),
+                        "symbol": fill.symbol,
+                        "side": fill.side.value,
+                        "qty": fill.qty,
+                        "price": float(fill.price),
+                        "slippage_bps": fill.slippage_bps,
+                        "fees": float(fill.fees),
+                        "participation": fill.participation,
+                        "partial_index": fill.partial_index,
+                    }
+                    for fill in self.all_fills
+                ]
+                if fill_dict:
+                    writer = csv.DictWriter(f, fieldnames=fill_dict[0].keys())
+                    writer.writeheader()
+                    writer.writerows(fill_dict)
+            logger.info("backtest.saved_fills", file=str(fills_file), count=len(self.all_fills))
 
 
 def run_backtest(config_path: Path, strategy_class, out_dir: Path):

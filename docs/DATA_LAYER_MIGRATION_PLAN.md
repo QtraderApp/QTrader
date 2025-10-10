@@ -972,6 +972,110 @@ if ratio_changed:
 
 ______________________________________________________________________
 
+### Phase 6a: CLI Rebuild (1 day)
+
+**Status**: 📋 **TODO**\
+**Objective**: Rebuild CLI to work with new data architecture and simplify interface.
+
+**Rationale**: Current CLI references legacy adapter names and has unnecessary complexity. Need clean, simple CLI that works with Instrument-based architecture.
+
+#### 6a.1 DataSourceResolver Fix
+
+**File**: `src/qtrader/adapters/resolver.py`
+
+**Current Issue**:
+
+```python
+adapter_map = {
+    "algoseekOHLC": "qtrader.adapters.algoseek_legacy.AlgoseekOHLCAdapterLegacy",  # ❌ Wrong
+    ...
+}
+```
+
+**Fix**:
+
+```python
+adapter_map = {
+    "algoseekOHLC": "qtrader.adapters.algoseek.AlgoseekOHLCVendorAdapter",  # ✅ Correct
+    ...
+}
+```
+
+#### 6a.2 CLI Simplification
+
+**File**: `src/qtrader/cli.py`
+
+**Design Principles**:
+
+- Strategy files are self-contained (config + backtest_config + Strategy class)
+- CLI takes minimal arguments: `--strategy-file`, `--out`, `--debug`, `--verbose`
+- No `--set` overrides (config is in strategy file)
+- Remove all legacy code and functions
+
+**Strategy File Format** (enforced):
+
+```python
+# Strategy configuration (optional)
+config = {
+    "fast_period": 10,
+    "slow_period": 30,
+}
+
+# Backtest configuration (required)
+backtest_config = {
+    "instruments": [
+        Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK),
+    ],
+    "initial_cash": 100000.0,
+    "position_size": 5000.0,
+    "max_position_pct": 0.10,
+    "allow_shorting": False,
+    "warmup": False,
+}
+
+# Strategy class (required)
+class MyStrategy(Strategy):
+    def on_bar(self, bar: MultiModeBar, ctx: Context) -> List[Signal]:
+        ...
+```
+
+**CLI Interface**:
+
+```bash
+# Basic usage
+qtrader backtest --strategy-file strategies/sma_crossover.py
+
+# With custom output and debug
+qtrader backtest --strategy-file strategies/buy_and_hold.py --out results/test1 --debug --verbose
+```
+
+**Functions to Keep** (simplified):
+
+- `_load_strategy_module()` - Load strategy file as module
+- `_find_strategy_class()` - Find Strategy class in module
+- `_extract_strategy_config()` - Extract config dict
+- `_extract_backtest_config()` - Extract backtest_config dict
+- `_load_data_from_instruments()` - Load data via resolver
+- `_load_adjustments_from_instruments()` - Load adjustment events
+- `_export_output_files()` - Export results (simplified)
+
+**Functions to Remove**:
+
+- `_apply_config_overrides()` - No CLI overrides
+- `_load_strategy_class()` - Deprecated module path loading
+- `_load_data_files()` - Legacy file-based loading
+- `_export_debug_files()` - Redundant with \_export_output_files()
+
+**Deliverables**:
+
+- [ ] DataSourceResolver fixed to use new adapter
+- [ ] CLI rebuilt with simplified interface
+- [ ] Legacy code removed
+- [ ] Tested with buy_and_hold_strategy.py
+- [ ] All example strategies working
+
+______________________________________________________________________
+
 ### Phase 7: Performance and Reporting (2 days)
 
 **Status**: 📋 **TODO**\
@@ -1306,6 +1410,7 @@ ______________________________________________________________________
 - [x] Phase 4: Backtest engine update ✅ Complete (Oct 8, 2025)
 - [x] Phase 5: Execution engine update ✅ Complete (Oct 8, 2025 - integrated with Phase 4)
 - [x] Phase 6: Portfolio update ✅ Complete (Oct 9, 2025)
+- [ ] Phase 6a: CLI Rebuild
 - [ ] Phase 7: Performance and Reporting
 - [x] Phase 8: Test suite migration ✅ Complete (321/321 tests passing, Oct 9, 2025)
 - [ ] Phase 9: Cleanup

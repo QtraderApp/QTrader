@@ -179,7 +179,7 @@ class DataSourceResolver:
 
         # Map adapter names to classes
         adapter_map = {
-            "algoseekOHLC": "qtrader.adapters.algoseek.AlgoseekOHLCAdapter",
+            "algoseekOHLC": "qtrader.adapters.algoseek.AlgoseekOHLCVendorAdapter",
             "csv": "qtrader.adapters.csv_adapter.CSVAdapter",
             # Add more adapters as needed
         }
