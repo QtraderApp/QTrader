@@ -8,8 +8,10 @@ as the main entry point for loading price data in the QTrader system.
 
 from typing import Dict, List
 
+from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.canonical_bar import CanonicalPriceSeries
+from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
 
 
@@ -144,8 +146,6 @@ class DataLoader:
             - Returns raw vendor bars (no transformation)
             - Transformation happens in load_data() via to_canonical_series()
         """
-        from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
-        from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 
         # Validate adapter configuration
         if "adapter" not in self.config:
