@@ -386,6 +386,116 @@ def get_historical_data(
     return data
 
 
+def check_data_availability(
+    access_token: str,
+    symbol: str = "AAPL",
+    frequency_type: str = "daily",
+) -> dict:
+    """Check how far back historical data is available for a symbol.
+
+    Args:
+        access_token: OAuth access token
+        symbol: Stock symbol (default: AAPL)
+        frequency_type: Frequency type - minute, daily, weekly, monthly (default: daily)
+
+    Returns:
+        Dictionary containing data availability information
+    """
+    print(f"\nChecking data availability for {symbol} ({frequency_type})...")
+
+    # Request maximum period to see how far back data goes
+    period_map = {
+        "minute": ("day", 10),  # Max 10 days for minute data
+        "daily": ("year", 20),  # Max 20 years for daily data
+        "weekly": ("year", 20),  # Max 20 years for weekly data
+        "monthly": ("year", 20),  # Max 20 years for monthly data
+    }
+
+    period_type, max_period = period_map.get(frequency_type, ("year", 20))
+
+    try:
+        data = get_historical_data(
+            access_token,
+            symbol=symbol,
+            period_type=period_type,
+            period=max_period,
+            frequency_type=frequency_type,
+            frequency=1,
+        )
+
+        candles = data.get("candles", [])
+
+        from datetime import datetime
+
+        # Display results header
+        print("\n" + "=" * 70)
+        print(f"Data Availability Report: {symbol}")
+        print("=" * 70)
+        print(f"\nFrequency Type: {frequency_type}")
+
+        if not candles:
+            # No data available - show N/A for all fields
+            result = {
+                "symbol": symbol,
+                "frequency_type": frequency_type,
+                "available": False,
+                "first_date": None,
+                "last_date": None,
+                "total_candles": 0,
+                "days_available": 0,
+                "years_available": 0,
+            }
+
+            print("First Available: N/A")
+            print("Last Available:  N/A")
+            print("Total Candles:   0")
+            print("Days of Data:    0")
+            print("Years of Data:   0.00")
+            print("\n⚠ No data available (symbol may be delisted or invalid)")
+            print("=" * 70 + "\n")
+
+            return result
+
+        # Data available - calculate statistics
+        first_candle = candles[0]
+        last_candle = candles[-1]
+
+        first_date = datetime.fromtimestamp(first_candle["datetime"] / 1000)
+        last_date = datetime.fromtimestamp(last_candle["datetime"] / 1000)
+
+        days_available = (last_date - first_date).days
+        years_available = days_available / 365.25
+
+        result = {
+            "symbol": symbol,
+            "frequency_type": frequency_type,
+            "available": True,
+            "first_date": first_date.strftime("%Y-%m-%d"),
+            "last_date": last_date.strftime("%Y-%m-%d"),
+            "total_candles": len(candles),
+            "days_available": days_available,
+            "years_available": round(years_available, 2),
+        }
+
+        print(f"First Available: {result['first_date']}")
+        print(f"Last Available:  {result['last_date']}")
+        print(f"Total Candles:   {result['total_candles']:,}")
+        print(f"Days of Data:    {result['days_available']:,}")
+        print(f"Years of Data:   {result['years_available']:.2f}")
+        print("\n" + "=" * 70 + "\n")
+
+        return result
+
+    except Exception as e:
+        print(f"\n❌ Error checking data availability: {e}\n")
+        return {
+            "symbol": symbol,
+            "frequency_type": frequency_type,
+            "available": False,
+            "error": str(e),
+        }
+
+
 def display_historical_candles(data: dict, limit: int | None = 10) -> None:
     """Display historical candles in a readable format.
 
@@ -636,15 +746,25 @@ async def main() -> None:
     print("Choose mode:")
     print("  1. Historical data (REST API - daily/minute candles)")
     print("  2. Streaming data (WebSocket - live 1-minute candles)")
+    print("  3. Check data availability (how far back does history go?)")
     print()
 
     # Get mode from user or environment variable
     mode = os.environ.get("SCHWAB_MODE", "").lower()
-    if mode not in ["historical", "streaming", "1", "2"]:
-        mode_input = input("Enter mode [1/2]: ").strip()
-        mode = "historical" if mode_input == "1" else "streaming"
+    if mode not in ["historical", "streaming", "availability", "1", "2", "3"]:
+        mode_input = input("Enter mode [1/2/3]: ").strip()
+        if mode_input == "1":
+            mode = "historical"
+        elif mode_input == "2":
+            mode = "streaming"
+        elif mode_input == "3":
+            mode = "availability"
+        else:
+            mode = "historical"
     elif mode in ["1", "historical"]:
         mode = "historical"
+    elif mode in ["3", "availability"]:
+        mode = "availability"
     else:
         mode = "streaming"
 
@@ -655,7 +775,26 @@ async def main() -> None:
     # Step 1: Authenticate and get access token
     access_token = get_access_token()
 
-    if mode == "historical":
+    if mode == "availability":
+        # Data availability check mode
+        print("\n" + "=" * 70)
+        print("Data Availability Check")
+        print("=" * 70)
+
+        symbol = input("\nSymbol (default: AAPL): ").strip().upper() or "AAPL"
+
+        print("\nFrequency Type:")
+        print("  1. minute (max 10 days)")
+        print("  2. daily (max 20 years) - default")
+        print("  3. weekly (max 20 years)")
+        print("  4. monthly (max 20 years)")
+        freq_type_choice = input("Choice [1-4]: ").strip()
+        freq_type_map = {"1": "minute", "2": "daily", "3": "weekly", "4": "monthly"}
+        frequency_type = freq_type_map.get(freq_type_choice, "daily")
+
+        check_data_availability(access_token, symbol, frequency_type)
+
+    elif mode == "historical":
         # Historical data mode - REST API
         print("\n" + "=" * 70)
         print("Historical Data Options")
