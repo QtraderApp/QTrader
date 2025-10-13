@@ -8,7 +8,8 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
     from qtrader.indicators.manager import IndicatorManager
-    from qtrader.models import Bar, OrderBase, Portfolio
+    from qtrader.models import OrderBase, Portfolio
+    from qtrader.models.canonical_bar import CanonicalBar
     from qtrader.risk import RiskDecision, RiskManager, Signal
 
 
@@ -44,7 +45,7 @@ class Context:
 
         # Indicator support (Phase 3)
         self._indicator_manager: Optional["IndicatorManager"] = None
-        self._bar_history: dict[str, list["Bar"]] = defaultdict(list)
+        self._bar_history: dict[str, list["CanonicalBar"]] = defaultdict(list)
         self._indicator_tracking: dict[tuple[str, str], Optional[float]] = {}  # (symbol, key) -> value
 
     # ========================================================================
@@ -154,7 +155,7 @@ class Context:
             self._indicator_manager = IndicatorManager(self)
         return self._indicator_manager
 
-    def get_bar_history(self, symbol: str, lookback: int) -> list["Bar"]:
+    def get_bar_history(self, symbol: str, lookback: int) -> list["CanonicalBar"]:
         """
         Get historical bars for symbol.
 
@@ -172,7 +173,7 @@ class Context:
         history = self._bar_history.get(symbol, [])
         return history[-lookback:] if lookback > 0 else history
 
-    def current_bar(self, symbol: str) -> Optional["Bar"]:
+    def current_bar(self, symbol: str) -> Optional["CanonicalBar"]:
         """
         Get current bar for symbol.
 
@@ -314,7 +315,7 @@ class Context:
 
         return crossed_below_threshold(curr, prev, threshold)
 
-    def _add_bar_to_history(self, bar: "Bar") -> None:
+    def _add_bar_to_history(self, bar: "CanonicalBar") -> None:
         """
         Add bar to history (called by engine).
 

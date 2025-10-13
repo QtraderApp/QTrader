@@ -1,4 +1,8 @@
-"""Adapter for CSV files (e.g., security master or exported CSVs)."""
+"""Adapter for CSV files (e.g., security master or exported CSVs).
+
+DEPRECATED: This adapter uses the legacy Bar model. Will be migrated to new
+CanonicalBar architecture in a future phase.
+"""
 
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -9,7 +13,8 @@ import pytz
 
 from qtrader.config.data_config import DataConfig
 from qtrader.config.logging_config import LoggerFactory
-from qtrader.models.bar import AdjustmentEvent, Bar, DataMode, PriceSeries
+from qtrader.models.bar import AdjustmentEvent, DataMode
+from qtrader.models.bar_legacy import Bar, PriceSeries
 from qtrader.models.instrument import Instrument
 
 logger = LoggerFactory.get_logger()

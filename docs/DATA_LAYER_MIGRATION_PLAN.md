@@ -1216,41 +1216,66 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-### Phase 9: Cleanup & Validation (1 day)
+### Phase 9: Cleanup & Validation 🔄 IN PROGRESS
 
-**Objective**: Remove old code and validate system.
+**Status**: 🔄 **IN PROGRESS** (October 13, 2025)\
+**Priority**: **HIGH** - Complete before CLI rebuild and analytics\
+**Objective**: Remove all legacy code and validate system integrity.
 
-#### 9.1 Remove Old Code
+**Rationale**: Project has not been released, so no backward compatibility needed. Clean slate approach allows for complete removal of deprecated code without bridge/compatibility layers.
+
+#### 9.1 Remove Legacy Code
 
 **Delete**:
 
-- `src/qtrader/models/bar.py` (old Bar/PriceSeries)
-- `src/qtrader/adapters/algoseek_legacy.py`
-- Old adapter tests
+- ✅ `src/qtrader/models/bar.py` - Legacy Bar model (only TYPE_CHECKING usage remains)
+- ✅ `src/qtrader/adapters/algoseek_legacy.py` - Deprecated adapter
+- ✅ Legacy adapter imports from `__init__.py`
+- ✅ Any remaining references to old Bar model
 
-**Rename**:
+**Update**:
 
-- `canonical_bar.py` → `bar.py` (becomes primary)
-- `algoseek_vendor_adapter.py` → `algoseek.py`
+- ✅ `src/qtrader/execution/warmup.py` - Remove Bar import, use CanonicalBar
+- ✅ Remove deprecation warnings (code will be deleted)
+
+**Verify No References**:
+
+```bash
+# Ensure no code imports old Bar
+grep -r "from qtrader.models.bar import Bar" src/
+grep -r "AlgoseekOHLCAdapterLegacy" src/
+```
 
 #### 9.2 Run Full Test Suite
 
 ```bash
-# Run all tests
-pytest tests/ -v
+# Run all tests with coverage
+pytest tests/ -v --cov=src/qtrader --cov-report=html
 
-# Run with coverage
-pytest tests/ --cov=src/qtrader --cov-report=html
+# Verify all 321+ tests passing
+# Expected: 321 passed, 6 skipped, 0 warnings
+```
 
-# Verify golden output
-python scripts/generate_goldens.py
+#### 9.3 Code Quality Checks
+
+```bash
+# Format and lint
+make qa
+
+# Type checking
+mypy src/qtrader --check-untyped-defs
+
+# Verify no regressions
 ```
 
 **Deliverables**:
 
-- ⏳ Old code removed
-- ⏳ All tests passing (400+ tests including Phase 7)
-- ⏳ Coverage >95%
+- 🔄 Legacy Bar model removed
+- 🔄 Legacy adapter removed
+- 🔄 All deprecation warnings eliminated
+- 🔄 All tests passing (321+)
+- 🔄 No legacy code references
+- 🔄 Clean codebase ready for Phase 6a (CLI) and Phase 7 (Analytics)
 
 ______________________________________________________________________
 
@@ -1317,31 +1342,27 @@ ______________________________________________________________________
 
 ## Timeline Summary
 
-| Phase                        | Duration | Deliverables                    | Status      | Completion Date |
-| ---------------------------- | -------- | ------------------------------- | ----------- | --------------- |
-| 1. Core Models               | 1 day    | Data layer models               | ✅ COMPLETE | Oct 7, 2025     |
-| 2. Iterator Infrastructure   | 1 day    | Iterator, DataLoader            | ✅ COMPLETE | Oct 7, 2025     |
-| 3. Adapter Refactoring       | 1 day    | Simplified adapters             | ✅ COMPLETE | Oct 7, 2025     |
-| 4. Backtest Engine           | 3 days   | Updated runner                  | ✅ COMPLETE | Oct 8, 2025     |
-| 5. Execution Engine          | 2 days   | Updated execution               | ✅ COMPLETE | Oct 8, 2025\*   |
-| 6. Portfolio Update          | 1 day    | Updated portfolio               | ✅ COMPLETE | Oct 9, 2025     |
-| 7. Performance and Reporting | 2 days   | Analytics, metrics, reporting   | 📋 TODO     | -               |
-| 8. Test Suite                | 3 days   | All tests passing               | ✅ COMPLETE | Oct 9, 2025\*\* |
-| 9. Cleanup                   | 1 day    | Remove old code, validate       | 📋 TODO     | -               |
-| 10. Documentation            | 2 days   | Docs, examples, migration guide | 📋 TODO     | -               |
-
-**Total**: 19 days (~4 weeks)\
-**Completed**: 7 days (Phases 1-6, 8)\
-**Remaining**: 5 days (Phases 7, 9-10)
-
-\* *Phase 5 was integrated into Phase 4 Part 4 due to interdependencies. All objectives achieved.*\
-\*\* *Core test migration complete; Phase 7 tests will be added during that phase.*
+| Phase                        | Duration | Deliverables                    | Status         | Completion Date |
+| ---------------------------- | -------- | ------------------------------- | -------------- | --------------- |
+| 1. Core Models               | 1 day    | Data layer models               | ✅ COMPLETE    | Oct 7, 2025     |
+| 2. Iterator Infrastructure   | 1 day    | Iterator, DataLoader            | ✅ COMPLETE    | Oct 7, 2025     |
+| 3. Adapter Refactoring       | 1 day    | Simplified adapters             | ✅ COMPLETE    | Oct 7, 2025     |
+| 4. Backtest Engine           | 3 days   | Updated runner                  | ✅ COMPLETE    | Oct 8, 2025     |
+| 5. Execution Engine          | 2 days   | Updated execution               | ✅ COMPLETE    | Oct 8, 2025\*   |
+| 6. Portfolio Update          | 1 day    | Updated portfolio               | ✅ COMPLETE    | Oct 9, 2025     |
+| 8. Test Suite                | 3 days   | All tests passing               | ✅ COMPLETE    | Oct 9, 2025\*\* |
+| **9. Cleanup (PRIORITY)**    | 1 day    | Remove old code, validate       | 🔄 IN PROGRESS | Oct 13, 2025    |
+| 6a. CLI Rebuild              | 1 day    | Simplified CLI                  | 📋 TODO        | -               |
+| 7. Performance and Reporting | 2 days   | Analytics, metrics, reporting   | 📋 TODO        | -               |
+| 10. Documentation            | 2 days   | Docs, examples, migration guide | 📋 TODO        | -               |
 
 **Total**: 17 days (~3.5 weeks)\
-**Completed**: 7 days (Phases 1-5, 7)\
-**Remaining**: 3 days (Phases 6, 8-9)
+**Completed**: 9 days (Phases 1-6, 8)\
+**In Progress**: Phase 9 (Cleanup - 1 day)\
+**Remaining**: 4 days (Phases 6a, 7, 10)
 
-\* *Phase 5 was integrated into Phase 4 Part 4 due to interdependencies. All objectives achieved.*
+\* *Phase 5 was integrated into Phase 4 Part 4 due to interdependencies.*\
+\*\* *Phase 9 (Cleanup) prioritized before CLI rebuild and analytics work.*
 
 ______________________________________________________________________
 

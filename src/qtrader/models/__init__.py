@@ -1,6 +1,6 @@
 """Core data models for QTrader."""
 
-from qtrader.models.bar import AdjustmentEvent, Bar, BarFrequency, DataMode, OHLCPolicy
+from qtrader.models.bar import AdjustmentEvent, BarFrequency, DataMode, OHLCPolicy
 from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
 from qtrader.models.ledger import CashLedger, CashTransaction
 from qtrader.models.multi_mode_bar import MultiModeBar
@@ -9,11 +9,10 @@ from qtrader.models.portfolio import Portfolio
 from qtrader.models.position import Position, PositionTracker
 
 __all__ = [
-    # Bar models (legacy - will be deprecated)
-    "Bar",
+    # Bar enums and types
     "AdjustmentEvent",
     "BarFrequency",
-    "DataMode",
+    "DataMode",  # Deprecated - use MultiModeBar modes instead
     "OHLCPolicy",
     # Canonical bar models (new data layer)
     "CanonicalBar",

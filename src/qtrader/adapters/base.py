@@ -1,9 +1,14 @@
-"""Protocol for data adapters that normalize vendor data to canonical Bar."""
+"""Protocol for data adapters that normalize vendor data to canonical Bar.
+
+DEPRECATED: This protocol uses the legacy Bar model. New adapters should follow
+the AlgoseekOHLCVendorAdapter pattern (return vendor models, not Bar).
+"""
 
 from typing import Iterator, Protocol
 
 from qtrader.config.data_config import DataConfig
-from qtrader.models.bar import AdjustmentEvent, Bar, DataMode
+from qtrader.models.bar import AdjustmentEvent, DataMode
+from qtrader.models.bar_legacy import Bar
 
 
 class DataAdapter(Protocol):
