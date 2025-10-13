@@ -148,7 +148,7 @@ class WarmupProcessor:
 
         return bar_index < self.warmup_bars
 
-    def process_warmup_bar(self, ctx: "Context", bar: "CanonicalBar", symbols: List[str]) -> None:
+    def process_warmup_bar(self, ctx: "Context", symbol: str, bar: "CanonicalBar", symbols: List[str]) -> None:
         """
         Process a single warmup bar.
 
@@ -157,6 +157,7 @@ class WarmupProcessor:
 
         Args:
             ctx: Context to update
+            symbol: Symbol for the bar
             bar: CanonicalBar to process
             symbols: List of symbols to process indicators for
         """
@@ -164,7 +165,7 @@ class WarmupProcessor:
             return
 
         # Add bar to history
-        ctx._add_bar_to_history(bar)
+        ctx._add_bar_to_history(symbol, bar)
 
         # Compute all registered indicators for all symbols
         # This builds up their internal state

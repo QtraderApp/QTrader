@@ -187,10 +187,10 @@ class Backtest:
                     bar = multi_mode_bar.adjusted
 
                     # Add bar to context history for indicators
-                    ctx._add_bar_to_history(bar)
+                    ctx._add_bar_to_history(multi_mode_bar.symbol, bar)
 
                     # Process bar for indicators only (don't call on_bar)
-                    warmup_processor.process_warmup_bar(ctx, bar, symbols)
+                    warmup_processor.process_warmup_bar(ctx, multi_mode_bar.symbol, bar, symbols)
 
                 # Mark warmup complete
                 warmup_processor.complete_warmup()

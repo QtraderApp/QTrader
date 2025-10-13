@@ -315,16 +315,17 @@ class Context:
 
         return crossed_below_threshold(curr, prev, threshold)
 
-    def _add_bar_to_history(self, bar: "CanonicalBar") -> None:
+    def _add_bar_to_history(self, symbol: str, bar: "CanonicalBar") -> None:
         """
         Add bar to history (called by engine).
 
         Internal method - not for strategy use.
 
         Args:
+            symbol: Symbol for the bar
             bar: Bar to add
         """
-        self._bar_history[bar.symbol].append(bar)
+        self._bar_history[symbol].append(bar)
 
     def _save_indicator_state(self) -> None:
         """
