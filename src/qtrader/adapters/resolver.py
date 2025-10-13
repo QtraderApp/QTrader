@@ -13,7 +13,6 @@ from typing import Any, Dict
 import structlog
 import yaml
 
-from qtrader.adapters.base import DataAdapter
 from qtrader.models.instrument import Instrument
 
 logger = structlog.get_logger()
@@ -39,10 +38,6 @@ class DataSourceResolver:
             mode: standard_adjusted
             path_template: "{root_path}/SecId={secid}/*.parquet"
             symbol_map: "data/equity_security_master_sample.csv"
-
-          csv_samples:
-            adapter: csv
-            root_path: "data/csv"
 
           database:
             adapter: postgres_adapter
@@ -166,7 +161,7 @@ class DataSourceResolver:
         Get adapter class by name.
 
         Args:
-            adapter_name: Adapter identifier (e.g., "algoseekOHLC", "csv").
+            adapter_name: Adapter identifier (e.g., "algoseekOHLC").
 
         Returns:
             Adapter class.
@@ -180,7 +175,6 @@ class DataSourceResolver:
         # Map adapter names to classes
         adapter_map = {
             "algoseekOHLC": "qtrader.adapters.algoseek.AlgoseekOHLCVendorAdapter",
-            "csv": "qtrader.adapters.csv_adapter.CSVAdapter",
             # Add more adapters as needed
         }
 
@@ -195,7 +189,7 @@ class DataSourceResolver:
         self._adapter_cache[adapter_name] = adapter_class
         return adapter_class
 
-    def resolve(self, instrument: Instrument) -> DataAdapter:
+    def resolve(self, instrument: Instrument):
         """
         Resolve instrument to data adapter.
 
@@ -224,7 +218,7 @@ class DataSourceResolver:
         adapter_class = self._get_adapter_class(adapter_name)
 
         # Instantiate adapter with config and instrument
-        adapter: DataAdapter = adapter_class(source_config, instrument)
+        adapter = adapter_class(source_config, instrument)
         return adapter
 
     def list_sources(self) -> list[str]:
