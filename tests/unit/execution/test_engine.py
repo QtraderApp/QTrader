@@ -8,7 +8,7 @@ import pytz
 
 from qtrader.execution.config import ExecutionConfig
 from qtrader.execution.engine import ExecutionEngine
-from qtrader.models.canonical_bar import CanonicalBar
+from qtrader.models.bar import Bar
 from qtrader.models.order import Order, OrderSide, OrderState, OrderType
 from qtrader.models.portfolio import Portfolio
 
@@ -30,7 +30,7 @@ def engine():
 @pytest.fixture
 def aapl_bar():
     """Sample AAPL bar."""
-    return CanonicalBar(
+    return Bar(
         trade_datetime=AAPL_TS_1.isoformat(),
         open=150.00,
         high=152.00,
@@ -43,7 +43,7 @@ def aapl_bar():
 @pytest.fixture
 def aapl_bar_2():
     """Second AAPL bar."""
-    return CanonicalBar(
+    return Bar(
         trade_datetime=AAPL_TS_2.isoformat(),
         open=151.50,
         high=153.00,

@@ -10,7 +10,7 @@ from qtrader.execution.commission import CommissionCalculator
 from qtrader.execution.config import ExecutionConfig
 from qtrader.execution.engine import ExecutionEngine
 from qtrader.execution.fill_policy import FillPolicy
-from qtrader.models.canonical_bar import CanonicalBar
+from qtrader.models.bar import Bar
 from qtrader.models.order import Order, OrderSide, OrderState, OrderType, TimeInForce
 from qtrader.models.portfolio import Portfolio
 
@@ -84,7 +84,7 @@ class TestVolumeParticipation:
 
     def test_order_fits_within_participation(self, engine):
         """Order quantity < participation cap fills completely."""
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime=datetime(2023, 1, 3, 16, 0, tzinfo=ET).isoformat(),
             open=150.00,
             high=152.00,
@@ -93,7 +93,7 @@ class TestVolumeParticipation:
             volume=100_000,  # Cap = 10% = 10,000 shares
         )
 
-        next_bar = CanonicalBar(
+        next_bar = Bar(
             trade_datetime=datetime(2023, 1, 4, 16, 0, tzinfo=ET).isoformat(),
             open=151.00,
             high=153.00,
@@ -125,7 +125,7 @@ class TestVolumeParticipation:
 
     def test_order_exceeds_participation_cap(self, engine):
         """Order quantity > participation cap results in partial fill."""
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime=datetime(2023, 1, 3, 16, 0, tzinfo=ET).isoformat(),
             open=150.00,
             high=152.00,
@@ -134,7 +134,7 @@ class TestVolumeParticipation:
             volume=100_000,  # Cap = 10% = 10,000 shares
         )
 
-        next_bar = CanonicalBar(
+        next_bar = Bar(
             trade_datetime=datetime(2023, 1, 4, 16, 0, tzinfo=ET).isoformat(),
             open=151.00,
             high=153.00,
@@ -178,7 +178,7 @@ class TestResidualQueuing:
 
     def test_residual_fills_over_multiple_bars(self, engine):
         """Residual quantity fills over subsequent bars."""
-        bar1 = CanonicalBar(
+        bar1 = Bar(
             trade_datetime=datetime(2023, 1, 3, 16, 0, tzinfo=ET).isoformat(),
             open=150.00,
             high=152.00,
@@ -187,7 +187,7 @@ class TestResidualQueuing:
             volume=100_000,  # Cap = 10,000
         )
 
-        bar2 = CanonicalBar(
+        bar2 = Bar(
             trade_datetime=datetime(2023, 1, 4, 16, 0, tzinfo=ET).isoformat(),
             open=151.00,
             high=153.00,
@@ -196,7 +196,7 @@ class TestResidualQueuing:
             volume=100_000,
         )
 
-        bar3 = CanonicalBar(
+        bar3 = Bar(
             trade_datetime=datetime(2023, 1, 5, 16, 0, tzinfo=ET).isoformat(),
             open=152.00,
             high=154.00,
@@ -232,7 +232,7 @@ class TestResidualQueuing:
         assert engine.all_fills[1].partial_index == 2
 
         # Bar 3: Final 5,000 shares
-        bar4 = CanonicalBar(
+        bar4 = Bar(
             trade_datetime=datetime(2023, 1, 6, 16, 0, tzinfo=ET).isoformat(),
             open=153.00,
             high=155.00,
@@ -256,7 +256,7 @@ class TestResidualQueuing:
     def test_residual_expires_after_queue_bars(self, engine):
         """Residual expires after queue_bars without filling."""
         # Create 5 bars (days 3-7)
-        bar1 = CanonicalBar(
+        bar1 = Bar(
             trade_datetime=BAR_TS_DAY3.isoformat(),
             open=150.00,
             high=152.00,
@@ -264,7 +264,7 @@ class TestResidualQueuing:
             close=151.00,
             volume=100_000,  # Cap = 10,000
         )
-        bar2 = CanonicalBar(
+        bar2 = Bar(
             trade_datetime=BAR_TS_DAY4.isoformat(),
             open=150.00,
             high=152.00,
@@ -272,7 +272,7 @@ class TestResidualQueuing:
             close=151.00,
             volume=100_000,
         )
-        bar3 = CanonicalBar(
+        bar3 = Bar(
             trade_datetime=BAR_TS_DAY5.isoformat(),
             open=150.00,
             high=152.00,
@@ -280,7 +280,7 @@ class TestResidualQueuing:
             close=151.00,
             volume=100_000,
         )
-        bar4 = CanonicalBar(
+        bar4 = Bar(
             trade_datetime=BAR_TS_DAY6.isoformat(),
             open=150.00,
             high=152.00,
@@ -288,7 +288,7 @@ class TestResidualQueuing:
             close=151.00,
             volume=100_000,
         )
-        bar5 = CanonicalBar(
+        bar5 = Bar(
             trade_datetime=BAR_TS_DAY7.isoformat(),
             open=150.00,
             high=152.00,
@@ -381,7 +381,7 @@ class TestPartialFillAccounting:
     def test_avg_fill_price_calculated_correctly(self, engine):
         """Average fill price calculated correctly across partials."""
         # Bar 1: Fill at $150
-        bar1 = CanonicalBar(
+        bar1 = Bar(
             trade_datetime=datetime(2023, 1, 3, 16, 0, tzinfo=ET).isoformat(),
             open=150.00,
             high=152.00,
@@ -390,7 +390,7 @@ class TestPartialFillAccounting:
             volume=100_000,
         )
 
-        bar2 = CanonicalBar(
+        bar2 = Bar(
             trade_datetime=datetime(2023, 1, 4, 16, 0, tzinfo=ET).isoformat(),
             open=152.00,
             high=154.00,
@@ -399,7 +399,7 @@ class TestPartialFillAccounting:
             volume=100_000,
         )
 
-        bar3 = CanonicalBar(
+        bar3 = Bar(
             trade_datetime=datetime(2023, 1, 5, 16, 0, tzinfo=ET).isoformat(),
             open=153.00,
             high=155.00,
@@ -430,7 +430,7 @@ class TestPartialFillAccounting:
 
     def test_commissions_applied_per_partial(self, engine):
         """Commissions applied to each partial fill separately."""
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime=datetime(2023, 1, 3, 16, 0, tzinfo=ET).isoformat(),
             open=150.00,
             high=152.00,
@@ -439,7 +439,7 @@ class TestPartialFillAccounting:
             volume=100_000,  # Cap = 10,000
         )
 
-        bar2 = CanonicalBar(
+        bar2 = Bar(
             trade_datetime=datetime(2023, 1, 4, 16, 0, tzinfo=ET).isoformat(),
             open=151.00,
             high=153.00,
@@ -448,7 +448,7 @@ class TestPartialFillAccounting:
             volume=100_000,
         )
 
-        bar3 = CanonicalBar(
+        bar3 = Bar(
             trade_datetime=datetime(2023, 1, 5, 16, 0, tzinfo=ET).isoformat(),
             open=152.00,
             high=154.00,
@@ -502,7 +502,7 @@ class TestPartialFillsWithLimitOrders:
 
     def test_limit_order_partial_fill(self, engine):
         """Limit order can be partially filled."""
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime=datetime(2023, 1, 3, 16, 0, tzinfo=ET).isoformat(),
             open=150.00,
             high=149.00,  # Touches limit

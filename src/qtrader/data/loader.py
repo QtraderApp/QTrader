@@ -10,7 +10,7 @@ from typing import Dict, List
 
 from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.models.canonical_bar import CanonicalPriceSeries
+from qtrader.models.bar import PriceSeries
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
 
@@ -111,7 +111,7 @@ class DataLoader:
         vendor_series = AlgoseekPriceSeries(symbol=symbol, bars=raw_bars)
 
         # Step 3: Transform to canonical (all 3 modes)
-        canonical_series_dict: Dict[str, CanonicalPriceSeries]
+        canonical_series_dict: Dict[str, PriceSeries]
         canonical_series_dict = vendor_series.to_canonical_series()
 
         # Step 4: Return iterator with all modes

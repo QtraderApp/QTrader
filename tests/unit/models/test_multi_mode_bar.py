@@ -4,8 +4,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.models.canonical_bar import CanonicalBar
-from qtrader.models.multi_mode_bar import MultiModeBar
+from qtrader.models.bar import Bar
+from qtrader.models.multi_bar import MultiModeBar
 
 
 class TestMultiModeBarCreation:
@@ -14,7 +14,7 @@ class TestMultiModeBarCreation:
     def test_create_multi_mode_bar(self):
         """Test creating a valid MultiModeBar."""
         # Arrange: Create bars for each mode
-        unadj_bar = CanonicalBar(
+        unadj_bar = Bar(
             trade_datetime="2020-08-31T00:00:00",
             open=100.0,
             high=105.0,
@@ -22,7 +22,7 @@ class TestMultiModeBarCreation:
             close=104.0,
             volume=1000000,
         )
-        adj_bar = CanonicalBar(
+        adj_bar = Bar(
             trade_datetime="2020-08-31T00:00:00",
             open=25.0,
             high=26.25,
@@ -30,7 +30,7 @@ class TestMultiModeBarCreation:
             close=26.0,
             volume=1000000,
         )
-        tr_bar = CanonicalBar(
+        tr_bar = Bar(
             trade_datetime="2020-08-31T00:00:00",
             open=25.5,
             high=26.75,
@@ -59,7 +59,7 @@ class TestMultiModeBarCreation:
     def test_multi_mode_bar_immutable(self):
         """Test that MultiModeBar is immutable (frozen)."""
         # Arrange: Create MultiModeBar
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime="2020-01-01T00:00:00",
             open=100.0,
             high=105.0,
@@ -86,7 +86,7 @@ class TestMultiModeBarModeAccess:
     @pytest.fixture
     def sample_multi_bar(self) -> MultiModeBar:
         """Create sample MultiModeBar for testing."""
-        unadj = CanonicalBar(
+        unadj = Bar(
             trade_datetime="2020-08-31T00:00:00",
             open=100.0,
             high=105.0,
@@ -94,7 +94,7 @@ class TestMultiModeBarModeAccess:
             close=104.0,
             volume=1000000,
         )
-        adj = CanonicalBar(
+        adj = Bar(
             trade_datetime="2020-08-31T00:00:00",
             open=25.0,
             high=26.25,
@@ -102,7 +102,7 @@ class TestMultiModeBarModeAccess:
             close=26.0,
             volume=1000000,
         )
-        tr = CanonicalBar(
+        tr = Bar(
             trade_datetime="2020-08-31T00:00:00",
             open=25.5,
             high=26.75,
@@ -186,7 +186,7 @@ class TestMultiModeBarUseCases:
         multi_bar = MultiModeBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T00:00:00",
-            unadjusted=CanonicalBar(
+            unadjusted=Bar(
                 trade_datetime="2020-08-31T00:00:00",
                 open=100.0,
                 high=105.0,
@@ -194,7 +194,7 @@ class TestMultiModeBarUseCases:
                 close=104.0,
                 volume=1000000,
             ),
-            adjusted=CanonicalBar(
+            adjusted=Bar(
                 trade_datetime="2020-08-31T00:00:00",
                 open=25.0,
                 high=26.25,
@@ -202,7 +202,7 @@ class TestMultiModeBarUseCases:
                 close=26.0,
                 volume=1000000,
             ),
-            total_return=CanonicalBar(
+            total_return=Bar(
                 trade_datetime="2020-08-31T00:00:00",
                 open=25.0,
                 high=26.25,
@@ -225,7 +225,7 @@ class TestMultiModeBarUseCases:
         multi_bar = MultiModeBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T00:00:00",
-            unadjusted=CanonicalBar(
+            unadjusted=Bar(
                 trade_datetime="2020-08-31T00:00:00",
                 open=100.0,
                 high=105.0,
@@ -233,7 +233,7 @@ class TestMultiModeBarUseCases:
                 close=104.0,
                 volume=1000000,
             ),
-            adjusted=CanonicalBar(
+            adjusted=Bar(
                 trade_datetime="2020-08-31T00:00:00",
                 open=25.0,
                 high=26.25,
@@ -241,7 +241,7 @@ class TestMultiModeBarUseCases:
                 close=26.0,
                 volume=1000000,
             ),
-            total_return=CanonicalBar(
+            total_return=Bar(
                 trade_datetime="2020-08-31T00:00:00",
                 open=25.0,
                 high=26.25,
@@ -271,7 +271,7 @@ class TestMultiModeBarUseCases:
         multi_bar = MultiModeBar(
             symbol="AAPL",
             trade_datetime="2020-08-07T00:00:00",
-            unadjusted=CanonicalBar(
+            unadjusted=Bar(
                 trade_datetime="2020-08-07T00:00:00",
                 open=100.0,
                 high=105.0,
@@ -280,7 +280,7 @@ class TestMultiModeBarUseCases:
                 volume=1000000,
                 dividend=Decimal("0.82"),
             ),
-            adjusted=CanonicalBar(
+            adjusted=Bar(
                 trade_datetime="2020-08-07T00:00:00",
                 open=100.0,
                 high=105.0,
@@ -289,7 +289,7 @@ class TestMultiModeBarUseCases:
                 volume=1000000,
                 dividend=Decimal("0.82"),
             ),
-            total_return=CanonicalBar(
+            total_return=Bar(
                 trade_datetime="2020-08-07T00:00:00",
                 open=100.82,
                 high=105.87,

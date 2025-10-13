@@ -9,7 +9,7 @@ from qtrader.config.logging_config import LoggerFactory
 from qtrader.execution.commission import CommissionCalculator
 from qtrader.execution.config import ExecutionConfig
 from qtrader.execution.fill_policy import FillDecision, FillPolicy
-from qtrader.models.canonical_bar import CanonicalBar
+from qtrader.models.bar import Bar
 from qtrader.models.order import Fill, OrderBase, OrderSide, OrderState, TimeInForce
 from qtrader.models.portfolio import Portfolio
 
@@ -90,9 +90,9 @@ class ExecutionEngine:
         self.bar_participation: Dict[tuple, int] = {}  # (bar_ts, symbol, side) -> filled_qty
 
         # Bar tracking (for Market orders that need next bar)
-        self.current_bar: Optional[CanonicalBar] = None
+        self.current_bar: Optional[Bar] = None
         self.current_ts: Optional[datetime] = None
-        self.next_bar: Optional[CanonicalBar] = None
+        self.next_bar: Optional[Bar] = None
 
         logger.info(
             "execution_engine.initialized",
@@ -169,17 +169,17 @@ class ExecutionEngine:
 
     def on_bar(
         self,
-        bar: CanonicalBar,
+        bar: Bar,
         symbol: str,
         ts: datetime,
-        next_bar: Optional[CanonicalBar] = None,
+        next_bar: Optional[Bar] = None,
         is_close_only: bool = False,
     ) -> List[Fill]:
         """
-        Process bar and generate fills (Phase 4 CanonicalBar architecture).
+        Process bar and generate fills (Phase 4 Bar architecture).
 
         Args:
-            bar: Current bar to process (CanonicalBar - no symbol/ts fields)
+            bar: Current bar to process (Bar - no symbol/ts fields)
             symbol: Symbol for this bar (from MultiModeBar)
             ts: Timestamp for this bar (parsed from bar.trade_datetime)
             next_bar: Next bar (needed for Market orders)
@@ -407,19 +407,19 @@ class ExecutionEngine:
         self,
         order: OrderBase,
         decision: FillDecision,
-        bar: CanonicalBar,
+        bar: Bar,
         symbol: str,
         ts: datetime,
         fill_qty: int,
         partial_index: int,
     ) -> Fill:
         """
-        Generate fill from order and decision (Phase 4 CanonicalBar architecture).
+        Generate fill from order and decision (Phase 4 Bar architecture).
 
         Args:
             order: Order being filled
             decision: Fill decision with price
-            bar: Current bar (CanonicalBar - no symbol/ts fields)
+            bar: Current bar (Bar - no symbol/ts fields)
             symbol: Symbol for this bar
             ts: Timestamp for this bar
             fill_qty: Quantity to fill (may be less than order.remaining_qty)
@@ -445,7 +445,7 @@ class ExecutionEngine:
         # Calculate participation (fill_qty / bar.volume)
         participation = float(fill_qty) / float(bar.volume) if bar.volume > 0 else 0.0
 
-        # Ensure fill_price is Decimal (CanonicalBar prices are float)
+        # Ensure fill_price is Decimal (Bar prices are float)
         fill_price_decimal = (
             Decimal(str(decision.fill_price)) if not isinstance(decision.fill_price, Decimal) else decision.fill_price
         )
@@ -502,12 +502,12 @@ class ExecutionEngine:
             )
             raise
 
-    def _calculate_participation_cap(self, bar: CanonicalBar, symbol: str, ts: datetime, side: OrderSide) -> int:
+    def _calculate_participation_cap(self, bar: Bar, symbol: str, ts: datetime, side: OrderSide) -> int:
         """
-        Calculate participation cap for this bar and side (Phase 4 CanonicalBar architecture).
+        Calculate participation cap for this bar and side (Phase 4 Bar architecture).
 
         Args:
-            bar: Current bar (CanonicalBar)
+            bar: Current bar (Bar)
             symbol: Symbol for this bar
             ts: Timestamp for this bar
             side: Order side (BUY or SELL)
@@ -546,7 +546,7 @@ class ExecutionEngine:
 
         Args:
             order: Order with signal_price
-            fill_price: Proposed fill price (may be float from CanonicalBar)
+            fill_price: Proposed fill price (may be float from Bar)
             max_deviation_pct: Maximum allowed deviation (e.g., 0.10 = 10%)
 
         Returns:
@@ -558,7 +558,7 @@ class ExecutionEngine:
         if order.signal_price is None:
             return (True, "No signal price to check", 0.0)
 
-        # Ensure fill_price is Decimal for comparison (CanonicalBar uses float)
+        # Ensure fill_price is Decimal for comparison (Bar uses float)
         if not isinstance(fill_price, Decimal):
             fill_price = Decimal(str(fill_price))
 
@@ -577,7 +577,7 @@ class ExecutionEngine:
 
     def _update_participation(self, symbol: str, ts: datetime, side: OrderSide, filled_qty: int) -> None:
         """
-        Update participation tracking after a fill (Phase 4 CanonicalBar architecture).
+        Update participation tracking after a fill (Phase 4 Bar architecture).
 
         Args:
             symbol: Symbol for this bar

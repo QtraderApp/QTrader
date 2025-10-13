@@ -16,7 +16,7 @@ from typing import ClassVar, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
-class CanonicalBar(BaseModel):
+class Bar(BaseModel):
     """
     Canonical OHLC Bar - vendor agnostic.
 
@@ -51,7 +51,7 @@ class CanonicalBar(BaseModel):
     model_config = {"frozen": True}  # Make immutable
 
     @model_validator(mode="after")
-    def validate_ohlc(self) -> "CanonicalBar":
+    def validate_ohlc(self) -> "Bar":
         """
         Validate OHLC relationships.
 
@@ -69,7 +69,7 @@ class CanonicalBar(BaseModel):
         return self
 
 
-class CanonicalPriceSeries(BaseModel):
+class PriceSeries(BaseModel):
     """
     Canonical OHLCV Price Series for a specific adjustment mode.
 
@@ -98,12 +98,12 @@ class CanonicalPriceSeries(BaseModel):
     # Instance fields
     mode: str = Field(..., description="Adjustment mode (unadjusted|adjusted|total_return)")
     symbol: str = Field(..., description="Ticker symbol")
-    bars: list[CanonicalBar] = Field(..., description="List of canonical bars")
+    bars: list[Bar] = Field(..., description="List of canonical bars")
 
     model_config = {"frozen": True}  # Make immutable
 
     @model_validator(mode="after")
-    def validate_mode(self) -> "CanonicalPriceSeries":
+    def validate_mode(self) -> "PriceSeries":
         """
         Validate that mode is one of the valid modes.
 
@@ -115,7 +115,7 @@ class CanonicalPriceSeries(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_bars(self) -> "CanonicalPriceSeries":
+    def validate_bars(self) -> "PriceSeries":
         """
         Validate bars consistency.
 

@@ -6,7 +6,7 @@ from qtrader.config.logging_config import LoggerFactory
 
 if TYPE_CHECKING:
     from qtrader.api.context import Context
-    from qtrader.models.canonical_bar import CanonicalBar
+    from qtrader.models.bar import Bar
 
 logger = LoggerFactory.get_logger()
 
@@ -148,7 +148,7 @@ class WarmupProcessor:
 
         return bar_index < self.warmup_bars
 
-    def process_warmup_bar(self, ctx: "Context", symbol: str, bar: "CanonicalBar", symbols: List[str]) -> None:
+    def process_warmup_bar(self, ctx: "Context", symbol: str, bar: "Bar", symbols: List[str]) -> None:
         """
         Process a single warmup bar.
 
@@ -158,7 +158,7 @@ class WarmupProcessor:
         Args:
             ctx: Context to update
             symbol: Symbol for the bar
-            bar: CanonicalBar to process
+            bar: Bar to process
             symbols: List of symbols to process indicators for
         """
         if not self.enable_warmup or self.warmup_complete:

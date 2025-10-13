@@ -1,18 +1,18 @@
-"""Unit tests for CanonicalBar and CanonicalPriceSeries models."""
+"""Unit tests for Bar and PriceSeries models."""
 
 from decimal import Decimal
 
 import pytest
 
-from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
+from qtrader.models.bar import Bar, PriceSeries
 
 
-class TestCanonicalBar:
-    """Test CanonicalBar model validation and behavior."""
+class TestBar:
+    """Test Bar model validation and behavior."""
 
     def test_create_valid_bar(self) -> None:
         """Should create valid bar with all required fields."""
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime="2023-01-15",
             open=100.0,
             high=105.0,
@@ -32,7 +32,7 @@ class TestCanonicalBar:
 
     def test_bar_with_dividend(self) -> None:
         """Should accept valid dividend amount."""
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime="2023-06-15",
             open=100.0,
             high=105.0,
@@ -46,7 +46,7 @@ class TestCanonicalBar:
 
     def test_bar_is_immutable(self) -> None:
         """Bar should be frozen (immutable)."""
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime="2023-01-15",
             open=100.0,
             high=105.0,
@@ -61,7 +61,7 @@ class TestCanonicalBar:
     def test_high_must_be_greater_than_or_equal_to_low(self) -> None:
         """Should enforce High >= Low."""
         # Valid: High == Low
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime="2023-01-15",
             open=100.0,
             high=100.0,
@@ -73,7 +73,7 @@ class TestCanonicalBar:
 
         # Invalid: High < Low
         with pytest.raises(ValueError, match="High.*< Low"):
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-01-15",
                 open=100.0,
                 high=99.0,  # Less than low!
@@ -85,7 +85,7 @@ class TestCanonicalBar:
     def test_prices_must_be_positive(self) -> None:
         """Should reject negative or zero prices."""
         with pytest.raises(ValueError):
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-01-15",
                 open=0.0,  # Zero not allowed
                 high=105.0,
@@ -95,7 +95,7 @@ class TestCanonicalBar:
             )
 
         with pytest.raises(ValueError):
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-01-15",
                 open=100.0,
                 high=105.0,
@@ -107,7 +107,7 @@ class TestCanonicalBar:
     def test_volume_must_be_non_negative(self) -> None:
         """Should accept zero volume but reject negative."""
         # Zero volume allowed
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime="2023-01-15",
             open=100.0,
             high=105.0,
@@ -119,7 +119,7 @@ class TestCanonicalBar:
 
         # Negative not allowed
         with pytest.raises(ValueError):
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-01-15",
                 open=100.0,
                 high=105.0,
@@ -131,7 +131,7 @@ class TestCanonicalBar:
     def test_dividend_must_be_non_negative(self) -> None:
         """Should reject negative dividend amounts."""
         with pytest.raises(ValueError):
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-06-15",
                 open=100.0,
                 high=105.0,
@@ -142,13 +142,13 @@ class TestCanonicalBar:
             )
 
 
-class TestCanonicalPriceSeries:
-    """Test CanonicalPriceSeries model validation and behavior."""
+class TestPriceSeries:
+    """Test PriceSeries model validation and behavior."""
 
     def test_create_valid_series(self) -> None:
         """Should create valid price series with bars."""
         bars = [
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-01-15",
                 open=100.0,
                 high=105.0,
@@ -156,7 +156,7 @@ class TestCanonicalPriceSeries:
                 close=103.0,
                 volume=1000000,
             ),
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-01-16",
                 open=103.0,
                 high=108.0,
@@ -166,7 +166,7 @@ class TestCanonicalPriceSeries:
             ),
         ]
 
-        series = CanonicalPriceSeries(mode="unadjusted", symbol="AAPL", bars=bars)
+        series = PriceSeries(mode="unadjusted", symbol="AAPL", bars=bars)
 
         assert series.mode == "unadjusted"
         assert series.symbol == "AAPL"
@@ -176,7 +176,7 @@ class TestCanonicalPriceSeries:
     def test_series_is_immutable(self) -> None:
         """Price series should be frozen (immutable)."""
         bars = [
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-01-15",
                 open=100.0,
                 high=105.0,
@@ -185,7 +185,7 @@ class TestCanonicalPriceSeries:
                 volume=1000000,
             )
         ]
-        series = CanonicalPriceSeries(mode="unadjusted", symbol="AAPL", bars=bars)
+        series = PriceSeries(mode="unadjusted", symbol="AAPL", bars=bars)
 
         with pytest.raises(Exception):  # Pydantic raises validation error
             series.symbol = "MSFT"  # type: ignore
@@ -193,7 +193,7 @@ class TestCanonicalPriceSeries:
     def test_valid_modes(self) -> None:
         """Should accept only valid adjustment modes."""
         bars = [
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-01-15",
                 open=100.0,
                 high=105.0,
@@ -205,16 +205,16 @@ class TestCanonicalPriceSeries:
 
         # Valid modes
         for mode in ["unadjusted", "adjusted", "total_return"]:
-            series = CanonicalPriceSeries(mode=mode, symbol="AAPL", bars=bars)
+            series = PriceSeries(mode=mode, symbol="AAPL", bars=bars)
             assert series.mode == mode
 
         # Invalid mode
         with pytest.raises(ValueError, match="Invalid mode"):
-            CanonicalPriceSeries(mode="invalid_mode", symbol="AAPL", bars=bars)
+            PriceSeries(mode="invalid_mode", symbol="AAPL", bars=bars)
 
     def test_empty_series(self) -> None:
         """Should allow empty bar list."""
-        series = CanonicalPriceSeries(mode="unadjusted", symbol="AAPL", bars=[])
+        series = PriceSeries(mode="unadjusted", symbol="AAPL", bars=[])
 
         assert series.mode == "unadjusted"
         assert series.symbol == "AAPL"
@@ -223,7 +223,7 @@ class TestCanonicalPriceSeries:
     def test_series_with_dividend_bar(self) -> None:
         """Should handle bars with dividend information."""
         bars = [
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-06-14",
                 open=100.0,
                 high=105.0,
@@ -232,7 +232,7 @@ class TestCanonicalPriceSeries:
                 volume=1000000,
                 dividend=None,
             ),
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-06-15",  # Ex-dividend date
                 open=98.0,
                 high=102.0,
@@ -241,7 +241,7 @@ class TestCanonicalPriceSeries:
                 volume=1500000,
                 dividend=Decimal("0.50"),
             ),
-            CanonicalBar(
+            Bar(
                 trade_datetime="2023-06-16",
                 open=100.0,
                 high=104.0,
@@ -252,7 +252,7 @@ class TestCanonicalPriceSeries:
             ),
         ]
 
-        series = CanonicalPriceSeries(mode="unadjusted", symbol="AAPL", bars=bars)
+        series = PriceSeries(mode="unadjusted", symbol="AAPL", bars=bars)
 
         assert series.bars[0].dividend is None
         assert series.bars[1].dividend == Decimal("0.50")

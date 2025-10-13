@@ -10,7 +10,7 @@ to canonical bars. It shows how data flows through the system:
    ↓
 3. AlgoseekPriceSeries (vendor-specific series)
    ↓
-4. CanonicalPriceSeries (standardized format, 3 adjustment modes)
+4. PriceSeries (standardized format, 3 adjustment modes)
    ↓
 5. PriceSeriesIterator (streams multi-mode bars)
    ↓

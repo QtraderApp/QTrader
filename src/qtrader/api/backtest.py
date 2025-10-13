@@ -259,13 +259,13 @@ class Backtest:
             ctx.current_symbol = symbol
             ctx.current_price = Decimal(str(unadjusted_bar.close))  # Use unadjusted for execution context
 
-            # Note: Not adding CanonicalBar to history since it lacks symbol field
+            # Note: Not adding Bar to history since it lacks symbol field
             # Bar history is legacy - indicators should use data directly
             # This will be addressed in Phase 4 Part 4 when strategies receive MultiModeBar
 
             # Detect and process splits (before dividends and trading)
             # Compare unadjusted/adjusted price ratio to detect splits
-            # CanonicalBar prices are float, so convert to Decimal for calculation
+            # Bar prices are float, so convert to Decimal for calculation
             adjustment_ratio = Decimal(str(unadjusted_bar.close)) / Decimal(str(bar.close))
             prev_ratio = self._prev_adjustment_ratios.get(symbol)
 
@@ -468,8 +468,8 @@ class Backtest:
 
                 snapshot = {
                     # Bar OHLC data
-                    "timestamp": bar.trade_datetime,  # CanonicalBar uses trade_datetime (ISO string)
-                    "symbol": symbol,  # From MultiModeBar, not CanonicalBar
+                    "timestamp": bar.trade_datetime,  # Bar uses trade_datetime (ISO string)
+                    "symbol": symbol,  # From MultiModeBar, not Bar
                     "open": float(bar.open),
                     "high": float(bar.high),
                     "low": float(bar.low),

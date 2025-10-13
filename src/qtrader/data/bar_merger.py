@@ -9,7 +9,7 @@ from typing import Dict, Optional
 
 from qtrader.config.logging_config import LoggerFactory
 from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.models.multi_mode_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiModeBar
 
 logger = LoggerFactory.get_logger()
 

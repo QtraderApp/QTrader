@@ -8,8 +8,8 @@ The iterator supports peek-ahead functionality for strategy warmup.
 
 from typing import Dict, Iterator, Optional
 
-from qtrader.models.canonical_bar import CanonicalPriceSeries
-from qtrader.models.multi_mode_bar import MultiModeBar
+from qtrader.models.bar import PriceSeries
+from qtrader.models.multi_bar import MultiModeBar
 
 
 class PriceSeriesIterator:
@@ -45,13 +45,13 @@ class PriceSeriesIterator:
         ...     current_bar = next(iterator)
     """
 
-    def __init__(self, series_dict: Dict[str, CanonicalPriceSeries]) -> None:
+    def __init__(self, series_dict: Dict[str, PriceSeries]) -> None:
         """
         Initialize iterator.
 
         Args:
             series_dict: Dict with keys 'unadjusted', 'adjusted', 'total_return',
-                        each mapping to a CanonicalPriceSeries
+                        each mapping to a PriceSeries
 
         Raises:
             ValueError: If required keys are missing or series lengths don't match

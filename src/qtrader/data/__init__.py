@@ -3,6 +3,6 @@
 from qtrader.data.bar_merger import BarMerger
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.data.loader import DataLoader
-from qtrader.models.multi_mode_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiModeBar
 
 __all__ = ["BarMerger", "PriceSeriesIterator", "DataLoader", "MultiModeBar"]

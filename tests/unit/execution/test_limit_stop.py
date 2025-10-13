@@ -9,7 +9,7 @@ import pytz
 from qtrader.execution.config import ExecutionConfig
 from qtrader.execution.engine import ExecutionEngine
 from qtrader.execution.fill_policy import FillPolicy
-from qtrader.models.canonical_bar import CanonicalBar
+from qtrader.models.bar import Bar
 from qtrader.models.order import Order, OrderSide, OrderState, OrderType, TimeInForce
 from qtrader.models.portfolio import Portfolio
 
@@ -44,7 +44,7 @@ def fill_policy():
 @pytest.fixture
 def bar_high():
     """Bar with high price reached."""
-    return CanonicalBar(
+    return Bar(
         trade_datetime=BAR_TS_1.isoformat(),
         open=150.00,
         high=155.00,
@@ -57,7 +57,7 @@ def bar_high():
 @pytest.fixture
 def bar_low():
     """Bar with low price reached."""
-    return CanonicalBar(
+    return Bar(
         trade_datetime=BAR_TS_1.isoformat(),
         open=150.00,
         high=151.00,
@@ -70,7 +70,7 @@ def bar_low():
 @pytest.fixture
 def bar_no_touch():
     """Bar that doesn't touch limit/stop levels."""
-    return CanonicalBar(
+    return Bar(
         trade_datetime=BAR_TS_1.isoformat(),
         open=150.00,
         high=151.00,
@@ -413,7 +413,7 @@ def test_close_only_bar_allows_moc_orders(fill_policy, bar_high):
 def test_day_order_expires_next_day(engine):
     """DAY orders expire when a new day arrives."""
     # First day bar
-    bar1 = CanonicalBar(
+    bar1 = Bar(
         trade_datetime=BAR_TS_DAY1_END.isoformat(),
         open=150.00,
         high=151.00,
@@ -442,7 +442,7 @@ def test_day_order_expires_next_day(engine):
     assert "order-1" in engine.pending_orders
 
     # Next day bar - order should expire
-    bar2 = CanonicalBar(
+    bar2 = Bar(
         trade_datetime=BAR_TS_DAY2_START.isoformat(),  # New day
         open=151.00,
         high=152.00,
@@ -460,7 +460,7 @@ def test_day_order_expires_next_day(engine):
 def test_day_order_survives_same_day_bars(engine):
     """DAY orders persist across multiple bars on the same day."""
     # First bar
-    bar1 = CanonicalBar(
+    bar1 = Bar(
         trade_datetime=BAR_TS_1.isoformat(),
         open=150.00,
         high=151.00,
@@ -486,7 +486,7 @@ def test_day_order_survives_same_day_bars(engine):
     engine.on_bar(bar1, symbol="AAPL", ts=BAR_TS_DAY1_END)
 
     # Second bar same day - order should still be pending
-    bar2 = CanonicalBar(
+    bar2 = Bar(
         trade_datetime=BAR_TS_DAY1_LATER.isoformat(),  # Same day, later time
         open=150.50,
         high=151.50,
@@ -509,7 +509,7 @@ def test_engine_fills_limit_buy_and_updates_portfolio(engine):
     """Engine correctly fills limit buy and updates portfolio."""
     initial_cash = engine.portfolio.cash.get_balance()
 
-    bar = CanonicalBar(
+    bar = Bar(
         trade_datetime=BAR_TS_1.isoformat(),
         open=150.00,
         high=152.00,
@@ -544,7 +544,7 @@ def test_engine_fills_limit_buy_and_updates_portfolio(engine):
 def test_engine_fills_stop_sell_and_updates_portfolio(engine):
     """Engine correctly fills stop sell and updates portfolio."""
     # First create a position
-    bar1 = CanonicalBar(
+    bar1 = Bar(
         trade_datetime=BAR_TS_1.isoformat(),
         open=150.00,
         high=152.00,
@@ -567,7 +567,7 @@ def test_engine_fills_stop_sell_and_updates_portfolio(engine):
     engine.on_bar(bar1, symbol="AAPL", ts=BAR_TS_1)
 
     # Now submit stop sell
-    bar2 = CanonicalBar(
+    bar2 = Bar(
         trade_datetime=BAR_TS_DAY1_LATER.isoformat(),
         open=148.00,
         high=149.00,

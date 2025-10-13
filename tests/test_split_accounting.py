@@ -11,8 +11,8 @@ from qtrader.api.context import Context
 from qtrader.api.strategy import Strategy
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.execution.config import ExecutionConfig
-from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
-from qtrader.models.multi_mode_bar import MultiModeBar
+from qtrader.models.bar import Bar, PriceSeries
+from qtrader.models.multi_bar import MultiModeBar
 from qtrader.models.portfolio import Portfolio
 from qtrader.risk import RiskManager, RiskPolicy, SizingMethod
 from qtrader.risk.signal import Signal, SignalDirection, SignalType
@@ -93,7 +93,7 @@ def test_split_accounting_with_unadjusted_execution():
         MultiModeBar(
             symbol="AAPL",
             trade_datetime="2020-08-01T16:00:00",
-            unadjusted=CanonicalBar(
+            unadjusted=Bar(
                 trade_datetime=datetime(2020, 8, 1, 16, 0).isoformat(),
                 open=495,
                 high=505,
@@ -102,7 +102,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=1000000,
                 dividend=None,
             ),
-            adjusted=CanonicalBar(
+            adjusted=Bar(
                 trade_datetime=datetime(2020, 8, 1, 16, 0).isoformat(),
                 open=123.75,
                 high=126.25,
@@ -111,7 +111,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=1000000,
                 dividend=None,
             ),
-            total_return=CanonicalBar(
+            total_return=Bar(
                 trade_datetime=datetime(2020, 8, 1, 16, 0).isoformat(),
                 open=123.75,
                 high=126.25,
@@ -125,7 +125,7 @@ def test_split_accounting_with_unadjusted_execution():
         MultiModeBar(
             symbol="AAPL",
             trade_datetime="2020-08-07T16:00:00",
-            unadjusted=CanonicalBar(
+            unadjusted=Bar(
                 trade_datetime=datetime(2020, 8, 7, 16, 0).isoformat(),
                 open=498,
                 high=508,
@@ -134,7 +134,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=1000000,
                 dividend=0.82,  # Unadjusted dividend
             ),
-            adjusted=CanonicalBar(
+            adjusted=Bar(
                 trade_datetime=datetime(2020, 8, 7, 16, 0).isoformat(),
                 open=124.50,
                 high=127.00,
@@ -143,7 +143,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=1000000,
                 dividend=0.205,  # Split-adjusted dividend
             ),
-            total_return=CanonicalBar(
+            total_return=Bar(
                 trade_datetime=datetime(2020, 8, 7, 16, 0).isoformat(),
                 open=124.50,
                 high=127.00,
@@ -158,7 +158,7 @@ def test_split_accounting_with_unadjusted_execution():
         MultiModeBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T16:00:00",
-            unadjusted=CanonicalBar(
+            unadjusted=Bar(
                 trade_datetime=datetime(2020, 8, 31, 16, 0).isoformat(),
                 open=126,  # Post-split price
                 high=132,
@@ -167,7 +167,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=4000000,  # Volume also adjusts
                 dividend=None,
             ),
-            adjusted=CanonicalBar(
+            adjusted=Bar(
                 trade_datetime=datetime(2020, 8, 31, 16, 0).isoformat(),
                 open=126.00,
                 high=132.00,
@@ -176,7 +176,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=4000000,
                 dividend=None,
             ),
-            total_return=CanonicalBar(
+            total_return=Bar(
                 trade_datetime=datetime(2020, 8, 31, 16, 0).isoformat(),
                 open=126.00,
                 high=132.00,
@@ -190,7 +190,7 @@ def test_split_accounting_with_unadjusted_execution():
         MultiModeBar(
             symbol="AAPL",
             trade_datetime="2020-09-01T16:00:00",
-            unadjusted=CanonicalBar(
+            unadjusted=Bar(
                 trade_datetime=datetime(2020, 9, 1, 16, 0).isoformat(),
                 open=128,
                 high=134,
@@ -199,7 +199,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=3500000,
                 dividend=None,
             ),
-            adjusted=CanonicalBar(
+            adjusted=Bar(
                 trade_datetime=datetime(2020, 9, 1, 16, 0).isoformat(),
                 open=128.00,
                 high=134.00,
@@ -208,7 +208,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=3500000,
                 dividend=None,
             ),
-            total_return=CanonicalBar(
+            total_return=Bar(
                 trade_datetime=datetime(2020, 9, 1, 16, 0).isoformat(),
                 open=128.00,
                 high=134.00,
@@ -222,7 +222,7 @@ def test_split_accounting_with_unadjusted_execution():
         MultiModeBar(
             symbol="AAPL",
             trade_datetime="2020-09-20T16:00:00",
-            unadjusted=CanonicalBar(
+            unadjusted=Bar(
                 trade_datetime=datetime(2020, 9, 20, 16, 0).isoformat(),
                 open=129,
                 high=135,
@@ -231,7 +231,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=3000000,
                 dividend=None,
             ),
-            adjusted=CanonicalBar(
+            adjusted=Bar(
                 trade_datetime=datetime(2020, 9, 20, 16, 0).isoformat(),
                 open=129.00,
                 high=135.00,
@@ -240,7 +240,7 @@ def test_split_accounting_with_unadjusted_execution():
                 volume=3000000,
                 dividend=None,
             ),
-            total_return=CanonicalBar(
+            total_return=Bar(
                 trade_datetime=datetime(2020, 9, 20, 16, 0).isoformat(),
                 open=129.00,
                 high=135.00,
@@ -258,9 +258,9 @@ def test_split_accounting_with_unadjusted_execution():
     total_return_bars = [bar.total_return for bar in bars]
 
     series_dict = {
-        "unadjusted": CanonicalPriceSeries(mode="unadjusted", symbol="AAPL", bars=unadjusted_bars),
-        "adjusted": CanonicalPriceSeries(mode="adjusted", symbol="AAPL", bars=adjusted_bars),
-        "total_return": CanonicalPriceSeries(mode="total_return", symbol="AAPL", bars=total_return_bars),
+        "unadjusted": PriceSeries(mode="unadjusted", symbol="AAPL", bars=unadjusted_bars),
+        "adjusted": PriceSeries(mode="adjusted", symbol="AAPL", bars=adjusted_bars),
+        "total_return": PriceSeries(mode="total_return", symbol="AAPL", bars=total_return_bars),
     }
 
     iterator = PriceSeriesIterator(series_dict)

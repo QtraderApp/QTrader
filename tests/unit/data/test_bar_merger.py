@@ -4,15 +4,15 @@ import pytest
 
 from qtrader.data.bar_merger import BarMerger
 from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
-from qtrader.models.multi_mode_bar import MultiModeBar
+from qtrader.models.bar import Bar, PriceSeries
+from qtrader.models.multi_bar import MultiModeBar
 
 
 @pytest.fixture
 def aapl_bars():
     """Create AAPL test bars."""
     return [
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-02",
             open=100.0,
             high=105.0,
@@ -20,7 +20,7 @@ def aapl_bars():
             close=103.0,
             volume=1000000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-03",
             open=103.0,
             high=107.0,
@@ -28,7 +28,7 @@ def aapl_bars():
             close=106.0,
             volume=1100000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-06",
             open=106.0,
             high=108.0,
@@ -43,7 +43,7 @@ def aapl_bars():
 def msft_bars():
     """Create MSFT test bars."""
     return [
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-02",
             open=200.0,
             high=205.0,
@@ -51,7 +51,7 @@ def msft_bars():
             close=203.0,
             volume=2000000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-03",
             open=203.0,
             high=207.0,
@@ -59,7 +59,7 @@ def msft_bars():
             close=205.0,
             volume=2100000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-07",
             open=205.0,
             high=210.0,
@@ -74,7 +74,7 @@ def msft_bars():
 def googl_bars():
     """Create GOOGL test bars (starts later)."""
     return [
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-03",
             open=1300.0,
             high=1320.0,
@@ -82,7 +82,7 @@ def googl_bars():
             close=1315.0,
             volume=500000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-06",
             open=1315.0,
             high=1330.0,
@@ -96,9 +96,9 @@ def googl_bars():
 def create_iterator(bars, symbol="AAPL"):
     """Helper to create price series iterator."""
     # Create 3 separate series for each mode
-    unadj_series = CanonicalPriceSeries(symbol=symbol, mode="unadjusted", bars=bars)
-    adj_series = CanonicalPriceSeries(symbol=symbol, mode="adjusted", bars=bars)
-    total_series = CanonicalPriceSeries(symbol=symbol, mode="total_return", bars=bars)
+    unadj_series = PriceSeries(symbol=symbol, mode="unadjusted", bars=bars)
+    adj_series = PriceSeries(symbol=symbol, mode="adjusted", bars=bars)
+    total_series = PriceSeries(symbol=symbol, mode="total_return", bars=bars)
 
     # Create series dict for all 3 modes
     series_dict = {

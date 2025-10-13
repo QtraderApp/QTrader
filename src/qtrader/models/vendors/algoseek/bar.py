@@ -43,7 +43,7 @@ class AlgoseekBar(BaseModel):
     Notes:
         - Includes OHLC validation with 10% tolerance for adjustment artifacts
         - TradeDate is auto-converted from DuckDB Timestamp to string
-        - This is vendor-specific; use adapters to convert to CanonicalBar
+        - This is vendor-specific; use adapters to convert to Bar
     """
 
     TradeDate: datetime.datetime

@@ -3,8 +3,8 @@
 import pytest
 
 from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
-from qtrader.models.multi_mode_bar import MultiModeBar
+from qtrader.models.bar import Bar, PriceSeries
+from qtrader.models.multi_bar import MultiModeBar
 
 
 @pytest.fixture
@@ -12,7 +12,7 @@ def sample_canonical_series_dict():
     """Create sample canonical series for all modes."""
     # Create 3 bars for each mode
     unadj_bars = [
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-01T00:00:00",
             open=100.0,
             high=105.0,
@@ -20,7 +20,7 @@ def sample_canonical_series_dict():
             close=104.0,
             volume=1000000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-02T00:00:00",
             open=104.0,
             high=108.0,
@@ -28,7 +28,7 @@ def sample_canonical_series_dict():
             close=107.0,
             volume=1100000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-03T00:00:00",
             open=107.0,
             high=110.0,
@@ -39,7 +39,7 @@ def sample_canonical_series_dict():
     ]
 
     adj_bars = [
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-01T00:00:00",
             open=25.0,
             high=26.25,
@@ -47,7 +47,7 @@ def sample_canonical_series_dict():
             close=26.0,
             volume=1000000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-02T00:00:00",
             open=26.0,
             high=27.0,
@@ -55,7 +55,7 @@ def sample_canonical_series_dict():
             close=26.75,
             volume=1100000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-03T00:00:00",
             open=26.75,
             high=27.5,
@@ -66,7 +66,7 @@ def sample_canonical_series_dict():
     ]
 
     tr_bars = [
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-01T00:00:00",
             open=25.5,
             high=26.75,
@@ -74,7 +74,7 @@ def sample_canonical_series_dict():
             close=26.5,
             volume=1000000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-02T00:00:00",
             open=26.5,
             high=27.5,
@@ -82,7 +82,7 @@ def sample_canonical_series_dict():
             close=27.25,
             volume=1100000,
         ),
-        CanonicalBar(
+        Bar(
             trade_datetime="2020-01-03T00:00:00",
             open=27.25,
             high=28.0,
@@ -93,9 +93,9 @@ def sample_canonical_series_dict():
     ]
 
     return {
-        "unadjusted": CanonicalPriceSeries(symbol="AAPL", mode="unadjusted", bars=unadj_bars),
-        "adjusted": CanonicalPriceSeries(symbol="AAPL", mode="adjusted", bars=adj_bars),
-        "total_return": CanonicalPriceSeries(symbol="AAPL", mode="total_return", bars=tr_bars),
+        "unadjusted": PriceSeries(symbol="AAPL", mode="unadjusted", bars=unadj_bars),
+        "adjusted": PriceSeries(symbol="AAPL", mode="adjusted", bars=adj_bars),
+        "total_return": PriceSeries(symbol="AAPL", mode="total_return", bars=tr_bars),
     }
 
 
@@ -116,8 +116,8 @@ class TestPriceSeriesIteratorCreation:
         """Test creating iterator with missing mode raises error."""
         # Arrange: Only two modes
         incomplete_dict = {
-            "unadjusted": CanonicalPriceSeries(symbol="AAPL", mode="unadjusted", bars=[]),
-            "adjusted": CanonicalPriceSeries(symbol="AAPL", mode="adjusted", bars=[]),
+            "unadjusted": PriceSeries(symbol="AAPL", mode="unadjusted", bars=[]),
+            "adjusted": PriceSeries(symbol="AAPL", mode="adjusted", bars=[]),
         }
 
         # Act & Assert
@@ -127,7 +127,7 @@ class TestPriceSeriesIteratorCreation:
     def test_create_iterator_length_mismatch(self):
         """Test creating iterator with mismatched lengths raises error."""
         # Arrange: Different lengths
-        bar1 = CanonicalBar(
+        bar1 = Bar(
             trade_datetime="2020-01-01T00:00:00",
             open=100.0,
             high=105.0,
@@ -135,7 +135,7 @@ class TestPriceSeriesIteratorCreation:
             close=104.0,
             volume=1000,
         )
-        bar2 = CanonicalBar(
+        bar2 = Bar(
             trade_datetime="2020-01-02T00:00:00",
             open=104.0,
             high=108.0,
@@ -145,9 +145,9 @@ class TestPriceSeriesIteratorCreation:
         )
 
         mismatched_dict = {
-            "unadjusted": CanonicalPriceSeries(symbol="AAPL", mode="unadjusted", bars=[bar1, bar2]),
-            "adjusted": CanonicalPriceSeries(symbol="AAPL", mode="adjusted", bars=[bar1]),  # Only 1 bar
-            "total_return": CanonicalPriceSeries(symbol="AAPL", mode="total_return", bars=[bar1, bar2]),
+            "unadjusted": PriceSeries(symbol="AAPL", mode="unadjusted", bars=[bar1, bar2]),
+            "adjusted": PriceSeries(symbol="AAPL", mode="adjusted", bars=[bar1]),  # Only 1 bar
+            "total_return": PriceSeries(symbol="AAPL", mode="total_return", bars=[bar1, bar2]),
         }
 
         # Act & Assert
@@ -157,7 +157,7 @@ class TestPriceSeriesIteratorCreation:
     def test_create_iterator_symbol_mismatch(self):
         """Test creating iterator with mismatched symbols raises error."""
         # Arrange: Different symbols
-        bar = CanonicalBar(
+        bar = Bar(
             trade_datetime="2020-01-01T00:00:00",
             open=100.0,
             high=105.0,
@@ -167,9 +167,9 @@ class TestPriceSeriesIteratorCreation:
         )
 
         mismatched_dict = {
-            "unadjusted": CanonicalPriceSeries(symbol="AAPL", mode="unadjusted", bars=[bar]),
-            "adjusted": CanonicalPriceSeries(symbol="MSFT", mode="adjusted", bars=[bar]),  # Wrong symbol
-            "total_return": CanonicalPriceSeries(symbol="AAPL", mode="total_return", bars=[bar]),
+            "unadjusted": PriceSeries(symbol="AAPL", mode="unadjusted", bars=[bar]),
+            "adjusted": PriceSeries(symbol="MSFT", mode="adjusted", bars=[bar]),  # Wrong symbol
+            "total_return": PriceSeries(symbol="AAPL", mode="total_return", bars=[bar]),
         }
 
         # Act & Assert
@@ -224,9 +224,9 @@ class TestPriceSeriesIteratorIteration:
         """Test iterating empty series."""
         # Arrange: Empty series
         empty_dict = {
-            "unadjusted": CanonicalPriceSeries(symbol="AAPL", mode="unadjusted", bars=[]),
-            "adjusted": CanonicalPriceSeries(symbol="AAPL", mode="adjusted", bars=[]),
-            "total_return": CanonicalPriceSeries(symbol="AAPL", mode="total_return", bars=[]),
+            "unadjusted": PriceSeries(symbol="AAPL", mode="unadjusted", bars=[]),
+            "adjusted": PriceSeries(symbol="AAPL", mode="adjusted", bars=[]),
+            "total_return": PriceSeries(symbol="AAPL", mode="total_return", bars=[]),
         }
         iterator = PriceSeriesIterator(empty_dict)
 

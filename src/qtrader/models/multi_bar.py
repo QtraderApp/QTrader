@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from qtrader.models.canonical_bar import CanonicalBar
+from qtrader.models.bar import Bar
 
 AdjustmentMode = Literal["unadjusted", "adjusted", "total_return"]
 
@@ -56,13 +56,13 @@ class MultiModeBar(BaseModel):
 
     symbol: str = Field(..., description="Ticker symbol")
     trade_datetime: str = Field(..., description="Trade datetime (ISO format)")
-    unadjusted: CanonicalBar = Field(..., description="Unadjusted prices (actual traded)")
-    adjusted: CanonicalBar = Field(..., description="Split-adjusted prices")
-    total_return: CanonicalBar = Field(..., description="Split + dividend adjusted")
+    unadjusted: Bar = Field(..., description="Unadjusted prices (actual traded)")
+    adjusted: Bar = Field(..., description="Split-adjusted prices")
+    total_return: Bar = Field(..., description="Split + dividend adjusted")
 
     model_config = ConfigDict(frozen=True)  # Immutable
 
-    def get_bar(self, mode: AdjustmentMode) -> CanonicalBar:
+    def get_bar(self, mode: AdjustmentMode) -> Bar:
         """
         Get bar for specific adjustment mode.
 
@@ -70,7 +70,7 @@ class MultiModeBar(BaseModel):
             mode: Adjustment mode ('unadjusted', 'adjusted', 'total_return')
 
         Returns:
-            CanonicalBar for requested mode
+            Bar for requested mode
 
         Raises:
             ValueError: If mode is invalid

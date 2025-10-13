@@ -10,7 +10,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from qtrader.models.canonical_bar import CanonicalBar, CanonicalPriceSeries
+from qtrader.models.bar import Bar, PriceSeries
 
 from .bar import AlgoseekBar
 
@@ -46,7 +46,7 @@ class AlgoseekPriceSeries(BaseModel):
     symbol: str = Field(..., description="Ticker symbol")
     bars: list[AlgoseekBar] = Field(..., description="List of raw Algoseek bars")
 
-    def to_canonical_series(self) -> dict[str, CanonicalPriceSeries]:
+    def to_canonical_series(self) -> dict[str, PriceSeries]:
         """
         Compute all 3 canonical price series from raw Algoseek bars.
 
@@ -57,13 +57,13 @@ class AlgoseekPriceSeries(BaseModel):
 
         Returns:
             Dictionary with keys: 'unadjusted', 'adjusted', 'total_return'
-            Each value is a CanonicalPriceSeries object
+            Each value is a PriceSeries object
         """
         if not self.bars:
             return {
-                "unadjusted": CanonicalPriceSeries(mode="unadjusted", symbol=self.symbol, bars=[]),
-                "adjusted": CanonicalPriceSeries(mode="adjusted", symbol=self.symbol, bars=[]),
-                "total_return": CanonicalPriceSeries(mode="total_return", symbol=self.symbol, bars=[]),
+                "unadjusted": PriceSeries(mode="unadjusted", symbol=self.symbol, bars=[]),
+                "adjusted": PriceSeries(mode="adjusted", symbol=self.symbol, bars=[]),
+                "total_return": PriceSeries(mode="total_return", symbol=self.symbol, bars=[]),
             }
 
         # Get the last bar's cumulative factors (reference point for backward adjustment)
@@ -90,7 +90,7 @@ class AlgoseekPriceSeries(BaseModel):
                 dividend_amount = bar.get_dividend_amount(prev_bar.Close)
 
             # 1. Unadjusted (raw prices, no adjustment)
-            unadj_bar = CanonicalBar(
+            unadj_bar = Bar(
                 trade_datetime=trade_date,
                 open=bar.Open,
                 high=bar.High,
@@ -111,7 +111,7 @@ class AlgoseekPriceSeries(BaseModel):
             if dividend_amount is not None:
                 adjusted_dividend = dividend_amount / vol_factor_ratio
 
-            adjusted_bar = CanonicalBar(
+            adjusted_bar = Bar(
                 trade_datetime=trade_date,
                 open=float(Decimal(str(bar.Open)) / vol_factor_ratio),
                 high=float(Decimal(str(bar.High)) / vol_factor_ratio),
@@ -153,7 +153,7 @@ class AlgoseekPriceSeries(BaseModel):
             else:
                 tr_ratio = tr_close / Decimal(str(bar.Close))
 
-            total_return_bar = CanonicalBar(
+            total_return_bar = Bar(
                 trade_datetime=trade_date,
                 open=float(Decimal(str(bar.Open)) * tr_ratio),
                 high=float(Decimal(str(bar.High)) * tr_ratio),
@@ -172,7 +172,7 @@ class AlgoseekPriceSeries(BaseModel):
             prev_bar = bar  # Track previous bar for dividend calculation
 
         return {
-            "unadjusted": CanonicalPriceSeries(mode="unadjusted", symbol=self.symbol, bars=unadjusted_bars),
-            "adjusted": CanonicalPriceSeries(mode="adjusted", symbol=self.symbol, bars=adjusted_bars),
-            "total_return": CanonicalPriceSeries(mode="total_return", symbol=self.symbol, bars=total_return_bars),
+            "unadjusted": PriceSeries(mode="unadjusted", symbol=self.symbol, bars=unadjusted_bars),
+            "adjusted": PriceSeries(mode="adjusted", symbol=self.symbol, bars=adjusted_bars),
+            "total_return": PriceSeries(mode="total_return", symbol=self.symbol, bars=total_return_bars),
         }
