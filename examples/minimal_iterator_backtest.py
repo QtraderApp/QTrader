@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 from qtrader.config.logging_config import LoggerFactory
 from qtrader.data import BarMerger, DataLoader
-from qtrader.models.multi_mode_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiModeBar
 
 logger = LoggerFactory.get_logger()
 
