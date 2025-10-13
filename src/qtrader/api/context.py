@@ -337,23 +337,3 @@ class Context:
         for (symbol, key), value in list(self._indicator_tracking.items()):
             if not key.startswith("prev_"):
                 self._indicator_tracking[(symbol, f"prev_{key}")] = value
-
-    # ========================================================================
-    # Legacy Order API (deprecated - use signals instead)
-    # ========================================================================
-
-    def buy_market(self, qty: int) -> str:
-        """
-        Submit market buy order (legacy API).
-
-        DEPRECATED: Use Signal-based API instead for proper risk management.
-        """
-        raise NotImplementedError("Use Signal-based API instead")
-
-    def sell_market(self, qty: int) -> str:
-        """
-        Submit market sell order (legacy API).
-
-        DEPRECATED: Use Signal-based API instead for proper risk management.
-        """
-        raise NotImplementedError("Use Signal-based API instead")
