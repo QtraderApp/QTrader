@@ -1,10 +1,16 @@
 """
 Example: Buy-and-Hold strategy for golden baseline testing.
 
+Demonstrates:
+- Using StrategyConfig for type-safe configuration
+- Simple buy-and-hold logic
+- Equal weight allocation
+- YAML-based backtest configuration
+
 This strategy:
 - Buys equal weight of all symbols on first bar
 - Holds positions until end of backtest
-- Does not rebalance
+- Optionally rebalances (configurable)
 
 Used as a golden baseline to validate:
 - Basic execution (market orders)
@@ -18,54 +24,50 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
+from pydantic import Field
+
 from qtrader.api import Context, Strategy
+from qtrader.api.strategy import StrategyConfig
 from qtrader.data import MultiBar
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.risk import Signal, SignalDirection, SignalType
 
-# Strategy configuration (no parameters needed for buy-and-hold)
-config = {
-    "rebalance": False,  # Never rebalance
-}
 
-# Backtest configuration for golden baseline
-backtest_config = {
-    # Data configuration - multiple symbols for diversification
-    "instruments": [
-        Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK),
-    ],
-    # Portfolio configuration
-    "initial_cash": 100_000.0,
-    "position_size": 0.90,
-    "max_position_pct": 1.00,
-    "allow_shorting": False,
-    # Execution configuration
-    "max_fill_price_deviation_pct": Decimal("0.1"),
-    "max_participation": 0.10,
-    # Warmup configuration
-    "warmup": False,
-    "warmup_bars": 0,
-    # Date range
-    "start_date": "2019-01-01",
-    "end_date": "2023-12-29",
-}
+class BuyHoldConfig(StrategyConfig):
+    """Configuration for Buy and Hold strategy.
+
+    This is loaded from YAML and provides type safety, validation,
+    and IDE autocomplete support.
+    """
+
+    rebalance: bool = Field(False, description="Whether to rebalance positions periodically")
+    target_weight: Decimal = Field(
+        Decimal("0.90"), gt=0, le=1, description="Target weight for positions (fraction of capital)"
+    )
 
 
-class BuyAndHold(Strategy):
+class BuyAndHoldStrategy(Strategy):
     """
     Buy-and-hold strategy for regression testing.
 
     Buys all symbols on first bar with equal weight allocation,
     then holds until end of backtest.
+
+    Configuration is provided via BuyHoldConfig, which is loaded from
+    the YAML backtest configuration file.
     """
 
-    def __init__(self, rebalance: bool = False):
+    def __init__(self, rebalance: bool = False, target_weight: Decimal = Decimal("0.90")):
         """
         Initialize buy-and-hold strategy.
 
         Args:
-            rebalance: Ignored for this strategy (always False).
+            rebalance: Whether to rebalance positions (default False)
+            target_weight: Target weight for positions (default 0.90)
+
+        Note: When used with YAML config, parameters are passed from
+              the strategy_config section automatically.
         """
+        self.config = BuyHoldConfig(rebalance=rebalance, target_weight=target_weight)
         self.symbols_to_buy: set[str] = set()
         self.signal_counter = 0
 
@@ -76,6 +78,8 @@ class BuyAndHold(Strategy):
     def on_start(self, ctx: Context) -> None:
         """Called after warmup completes (if enabled)."""
         print(f"Buy-and-Hold strategy started at {ctx.current_date}")
+        print(f"  Rebalance: {self.config.rebalance}")
+        print(f"  Target weight: {self.config.target_weight}")
 
     def on_bar(self, bar: MultiBar, ctx: Context) -> Optional[List[Signal]]:
         """
@@ -103,7 +107,11 @@ class BuyAndHold(Strategy):
                 symbol=symbol,
                 signal_type=SignalType.ENTRY_LONG,
                 direction=SignalDirection.LONG,
-                target_weight=Decimal("0.90"),  # Use 90% of available capital
+                target_weight=self.config.target_weight,
+                metadata={
+                    "price": adjusted_bar.close,
+                    "reason": "Initial entry",
+                },
             )
 
             print(f"Buy signal: {symbol} @ ${adjusted_bar.close:.2f} on {adjusted_bar.trade_datetime}")

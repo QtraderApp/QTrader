@@ -2,54 +2,53 @@
 Example: SMA Crossover strategy with indicators.
 
 Demonstrates:
+- Using StrategyConfig for type-safe configuration
 - Using built-in indicators (SMA)
 - Indicator tracking for crossover detection
 - Signal-based trading with risk management
-- Strategy configuration pattern
-- New Instrument-based data configuration
+- YAML-based backtest configuration
 """
 
 from datetime import datetime
 from typing import List, Optional
 
+from pydantic import Field, field_validator
+
 from qtrader.api import Context, Strategy
+from qtrader.api.strategy import StrategyConfig
 from qtrader.data import MultiBar
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.risk import Signal, SignalDirection, SignalType
 
-# Strategy configuration (can be overridden via CLI --set)
-config = {
-    "fast_period": 20,
-    "slow_period": 50,
-}
 
-# Backtest configuration (portfolio, execution, and data settings)
-backtest_config = {
-    # Data configuration - uses Instrument abstraction
-    # The Instrument pattern separates logical instrument specification
-    # from physical data location (configured in config/data_sources.yaml)
-    "instruments": [
-        Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK),
-    ],
-    # Portfolio configuration
-    "initial_cash": 100000.0,
-    "position_size": 0.05,  # 5% of portfolio per position
-    "max_position_pct": 0.10,
-    "allow_shorting": False,
-    # Execution configuration
-    "max_participation": 0.10,
-    # Warmup configuration
-    "warmup": True,  # Auto-detect warmup period from indicators
-    "warmup_bars": None,  # None = auto-detect, or specify explicit count
-}
+class SMAConfig(StrategyConfig):
+    """Configuration for SMA Crossover strategy.
+
+    This is loaded from YAML and provides type safety, validation,
+    and IDE autocomplete support.
+    """
+
+    fast_period: int = Field(20, gt=0, description="Fast SMA period")
+    slow_period: int = Field(50, gt=0, description="Slow SMA period")
+
+    @field_validator("slow_period")
+    @classmethod
+    def slow_must_be_greater(cls, v: int, info) -> int:
+        """Ensure slow period is greater than fast period."""
+        fast = info.data.get("fast_period")
+        if fast and v <= fast:
+            raise ValueError(f"slow_period ({v}) must be > fast_period ({fast})")
+        return v
 
 
-class SMACrossover(Strategy):
+class SMACrossoverStrategy(Strategy):
     """
     Simple Moving Average crossover strategy.
 
     Buys when fast SMA crosses above slow SMA (bullish).
     Sells when fast SMA crosses below slow SMA (bearish).
+
+    Configuration is provided via SMAConfig, which is loaded from
+    the YAML backtest configuration file.
     """
 
     def __init__(self, fast_period: int = 20, slow_period: int = 50):
@@ -59,9 +58,12 @@ class SMACrossover(Strategy):
         Args:
             fast_period: Fast SMA period (default 20)
             slow_period: Slow SMA period (default 50)
+
+        Note: When used with YAML config, parameters are passed from
+              the strategy_config section automatically.
         """
-        self.fast_period = fast_period
-        self.slow_period = slow_period
+        # Validate parameters using the config class
+        self.config = SMAConfig(fast_period=fast_period, slow_period=slow_period)
         self.signal_counter = 0
 
     def on_init(self, ctx: Context) -> None:
@@ -71,7 +73,9 @@ class SMACrossover(Strategy):
 
     def on_start(self, ctx: Context) -> None:
         """Called after warmup completes (if enabled)."""
-        print(f"Strategy started at {ctx.current_date}")
+        print(f"SMA Crossover strategy started at {ctx.current_date}")
+        print(f"  Fast period: {self.config.fast_period}")
+        print(f"  Slow period: {self.config.slow_period}")
 
     def on_bar(self, bar: MultiBar, ctx: Context) -> Optional[List[Signal]]:
         """
@@ -90,9 +94,9 @@ class SMACrossover(Strategy):
         adjusted_bar = bar.adjusted
         symbol = bar.symbol
 
-        # Compute indicators
-        fast_sma = ctx.ind.sma(symbol, self.fast_period)
-        slow_sma = ctx.ind.sma(symbol, self.slow_period)
+        # Compute indicators using config values
+        fast_sma = ctx.ind.sma(symbol, self.config.fast_period)
+        slow_sma = ctx.ind.sma(symbol, self.config.slow_period)
 
         # Need both indicators to be valid
         if fast_sma is None or slow_sma is None:
@@ -117,6 +121,8 @@ class SMACrossover(Strategy):
                     metadata={
                         "fast_sma": fast_sma,
                         "slow_sma": slow_sma,
+                        "fast_period": self.config.fast_period,
+                        "slow_period": self.config.slow_period,
                         "reason": "Bullish crossover",
                     },
                 )
@@ -135,6 +141,8 @@ class SMACrossover(Strategy):
                     metadata={
                         "fast_sma": fast_sma,
                         "slow_sma": slow_sma,
+                        "fast_period": self.config.fast_period,
+                        "slow_period": self.config.slow_period,
                         "reason": "Bearish crossover",
                     },
                 )
@@ -148,4 +156,5 @@ class SMACrossover(Strategy):
 
     def on_end(self, ctx: Context) -> None:
         """Called after backtest completes."""
-        print("Strategy completed")
+        print("SMA Crossover strategy completed")
+        print(f"Total signals generated: {self.signal_counter}")
