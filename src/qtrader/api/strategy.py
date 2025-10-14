@@ -2,10 +2,48 @@
 
 from typing import TYPE_CHECKING, List, Optional, Protocol
 
+from pydantic import BaseModel
+
 from qtrader.risk import Signal
 
 if TYPE_CHECKING:
     from qtrader.data import MultiBar
+
+
+class StrategyConfig(BaseModel):
+    """Base class for strategy-specific configuration.
+
+    Strategies should subclass this to define their parameters with type safety
+    and validation. Provides automatic validation, IDE autocomplete, and
+    self-documenting configuration.
+
+    Example:
+        >>> class SMAConfig(StrategyConfig):
+        ...     fast_period: int = Field(50, gt=0, description="Fast SMA period")
+        ...     slow_period: int = Field(200, gt=0, description="Slow SMA period")
+        ...
+        ...     @validator("slow_period")
+        ...     def slow_gt_fast(cls, v, values):
+        ...         if "fast_period" in values and v <= values["fast_period"]:
+        ...             raise ValueError("slow_period must be > fast_period")
+        ...         return v
+
+        >>> config = SMAConfig(fast_period=50, slow_period=200)
+        >>> # Validation happens automatically
+
+    Benefits:
+        - Type safety: Catch configuration errors at load time
+        - IDE support: Autocomplete and type hints
+        - Validation: Pydantic validators ensure constraints
+        - Documentation: Field descriptions serve as inline docs
+        - Serialization: Easy conversion to/from YAML, JSON
+    """
+
+    class Config:
+        frozen = True  # Immutable after creation
+        validate_assignment = True  # Validate on attribute changes
+        extra = "forbid"  # Reject unknown fields
+        use_enum_values = True  # Use enum values instead of enum objects
 
 
 class Strategy(Protocol):
