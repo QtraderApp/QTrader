@@ -46,7 +46,7 @@ dev = [
 # Tool configurations
 
 [tool.uv]
-package = true  # Enable package installation for entry points
+package = true # Enable package installation for entry points
 
 [tool.ruff]
 line-length = 120
@@ -70,8 +70,8 @@ ensure_newline_before_comments = true
 src_paths = ["src"]
 
 [tool.mdformat]
-wrap = "no"  # Do not wrap lines
-end_of_line = "lf"  # Use LF line endings (Unix style)
+wrap = "no"        # Do not wrap lines
+end_of_line = "lf" # Use LF line endings (Unix style)
 
 [tool.mypy]
 python_version = "3.13"
