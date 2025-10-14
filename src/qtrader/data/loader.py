@@ -80,7 +80,7 @@ class DataLoader:
             end_date: End date (ISO format, e.g., '2020-12-31')
 
         Returns:
-            PriceSeriesIterator yielding MultiModeBar (all 3 modes)
+            PriceSeriesIterator yielding MultiBar (all 3 modes)
 
         Raises:
             ValueError: If adapter configuration missing
@@ -174,7 +174,7 @@ class DataLoader:
             vendor_series: AlgoseekPriceSeries with raw data
 
         Returns:
-            PriceSeriesIterator yielding MultiModeBar
+            PriceSeriesIterator yielding MultiBar
 
         Examples:
             >>> # For testing with golden data

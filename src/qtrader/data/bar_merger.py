@@ -87,7 +87,7 @@ class BarMerger:
         Get next bar across all symbols (earliest timestamp).
 
         Returns:
-            Tuple of (symbol, MultiModeBar) for earliest timestamp
+            Tuple of (symbol, MultiBar) for earliest timestamp
 
         Raises:
             StopIteration: If all iterators exhausted
@@ -142,7 +142,7 @@ class BarMerger:
         Peek at next bar without consuming it.
 
         Returns:
-            Tuple of (symbol, MultiModeBar) for next bar, or None if exhausted
+            Tuple of (symbol, MultiBar) for next bar, or None if exhausted
 
         Notes:
             - Does not advance any iterators

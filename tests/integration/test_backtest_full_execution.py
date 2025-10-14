@@ -47,7 +47,7 @@ class SimpleBuyStrategy:
         Buy on bar 1, sell on last bar.
 
         Args:
-            bar: MultiModeBar with all adjustment modes
+            bar: MultiBar with all adjustment modes
             ctx: Context (contains current_symbol)
 
         Returns:

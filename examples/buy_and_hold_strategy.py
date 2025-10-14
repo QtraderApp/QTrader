@@ -35,7 +35,7 @@ backtest_config = {
         Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK),
     ],
     # Portfolio configuration
-    "initial_cash": 100000.0,
+    "initial_cash": 100_000.0,
     "position_size": 0.90,
     "max_position_pct": 1.00,
     "allow_shorting": False,
@@ -82,7 +82,7 @@ class BuyAndHold(Strategy):
         Generate buy signals on first bar for each symbol.
 
         Args:
-            bar: MultiModeBar with all adjustment modes available
+            bar: MultiBar with all adjustment modes available
             ctx: Context with portfolio and market data
 
         Returns:

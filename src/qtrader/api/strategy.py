@@ -19,7 +19,7 @@ class Strategy(Protocol):
 
     Phase 3: Added on_init() hook for custom indicator registration before warmup.
 
-    Phase 5: Strategies now receive MultiModeBar with all adjustment modes available.
+    Phase 5: Strategies now receive MultiBar with all adjustment modes available.
     Strategies explicitly select the mode they want to use (typically 'adjusted').
     """
 
@@ -60,7 +60,7 @@ class Strategy(Protocol):
         Called for each bar in the dataset. Required.
 
         Args:
-            bar: MultiModeBar with all adjustment modes (unadjusted, adjusted, total_return)
+            bar: MultiBar with all adjustment modes (unadjusted, adjusted, total_return)
             ctx: Context for accessing indicators and portfolio state
 
         Returns:
@@ -70,7 +70,7 @@ class Strategy(Protocol):
         The RiskManager will evaluate signals and create appropriately sized orders.
 
         Example:
-            def on_bar(self, bar: MultiModeBar, ctx) -> Optional[List[Signal]]:
+            def on_bar(self, bar: MultiBar, ctx) -> Optional[List[Signal]]:
                 # Use adjusted prices for indicators (consistent across splits)
                 adjusted_bar = bar.adjusted
                 price = adjusted_bar.close

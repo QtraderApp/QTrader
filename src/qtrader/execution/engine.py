@@ -180,7 +180,7 @@ class ExecutionEngine:
 
         Args:
             bar: Current bar to process (Bar - no symbol/ts fields)
-            symbol: Symbol for this bar (from MultiModeBar)
+            symbol: Symbol for this bar (from MultiBar)
             ts: Timestamp for this bar (parsed from bar.trade_datetime)
             next_bar: Next bar (needed for Market orders)
             is_close_only: If True, skip limit/stop evaluation (malformed OHLC bar)

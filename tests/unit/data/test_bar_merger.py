@@ -391,16 +391,16 @@ class TestBarMergerStatistics:
 
 
 class TestBarMergerMultiModeIntegration:
-    """Test BarMerger works correctly with MultiModeBar."""
+    """Test BarMerger works correctly with MultiBar."""
 
     def test_yields_multi_mode_bars(self, aapl_bars):
-        """Test merger yields MultiModeBar with all modes."""
+        """Test merger yields MultiBar with all modes."""
         aapl_iter = create_iterator(aapl_bars, "AAPL")
         merger = BarMerger({"AAPL": aapl_iter})
 
         symbol, bar = merger.get_next_bar()
 
-        # Should be MultiModeBar
+        # Should be MultiBar
         assert isinstance(bar, MultiBar)
 
         # Should have all 3 modes

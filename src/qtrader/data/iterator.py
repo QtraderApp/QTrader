@@ -2,7 +2,7 @@
 Price series iterator for streaming multi-mode bars.
 
 This module provides the PriceSeriesIterator class which wraps canonical price
-series dictionaries and yields MultiModeBar instances for streaming data access.
+series dictionaries and yields MultiBar instances for streaming data access.
 The iterator supports peek-ahead functionality for strategy warmup.
 """
 
@@ -20,7 +20,7 @@ class PriceSeriesIterator:
     simultaneously. Supports peek (look at next bar without consuming) for
     strategy warmup and lookahead functionality.
 
-    The iterator yields MultiModeBar instances, each containing the same bar
+    The iterator yields MultiBar instances, each containing the same bar
     data in all three adjustment modes (unadjusted, adjusted, total_return).
 
     Attributes:
@@ -90,7 +90,7 @@ class PriceSeriesIterator:
         Get next multi-mode bar.
 
         Returns:
-            MultiModeBar containing all three adjustment modes
+            MultiBar containing all three adjustment modes
 
         Raises:
             StopIteration: When no more bars available
@@ -107,7 +107,7 @@ class PriceSeriesIterator:
         if self._index >= len(unadj_bars):
             raise StopIteration
 
-        # Build MultiModeBar from all three series
+        # Build MultiBar from all three series
         multi_bar = MultiBar(
             symbol=self.symbol,
             trade_datetime=unadj_bars[self._index].trade_datetime,
@@ -127,7 +127,7 @@ class PriceSeriesIterator:
         The peeked bar will be returned by the next call to __next__().
 
         Returns:
-            Next MultiModeBar or None if at end
+            Next MultiBar or None if at end
 
         Examples:
             >>> # Check next bar before consuming

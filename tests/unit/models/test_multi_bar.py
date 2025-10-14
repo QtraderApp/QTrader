@@ -1,4 +1,4 @@
-"""Tests for MultiModeBar model."""
+"""Tests for MultiBar model."""
 
 from decimal import Decimal
 
@@ -8,11 +8,11 @@ from qtrader.models.bar import Bar
 from qtrader.models.multi_bar import MultiBar
 
 
-class TestMultiModeBarCreation:
-    """Test MultiModeBar creation and validation."""
+class TestMultiBarCreation:
+    """Test MultiBar creation and validation."""
 
     def test_create_multi_mode_bar(self):
-        """Test creating a valid MultiModeBar."""
+        """Test creating a valid MultiBar."""
         # Arrange: Create bars for each mode
         unadj_bar = Bar(
             trade_datetime="2020-08-31T00:00:00",
@@ -40,7 +40,7 @@ class TestMultiModeBarCreation:
             dividend=Decimal("0.205"),
         )
 
-        # Act: Create MultiModeBar
+        # Act: Create MultiBar
         multi_bar = MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T00:00:00",
@@ -57,8 +57,8 @@ class TestMultiModeBarCreation:
         assert multi_bar.total_return == tr_bar
 
     def test_multi_mode_bar_immutable(self):
-        """Test that MultiModeBar is immutable (frozen)."""
-        # Arrange: Create MultiModeBar
+        """Test that MultiBar is immutable (frozen)."""
+        # Arrange: Create MultiBar
         bar = Bar(
             trade_datetime="2020-01-01T00:00:00",
             open=100.0,
@@ -80,12 +80,12 @@ class TestMultiModeBarCreation:
             multi_bar.symbol = "MSFT"  # type: ignore
 
 
-class TestMultiModeBarModeAccess:
+class TestMultiBarModeAccess:
     """Test accessing different adjustment modes."""
 
     @pytest.fixture
     def sample_multi_bar(self) -> MultiBar:
-        """Create sample MultiModeBar for testing."""
+        """Create sample MultiBar for testing."""
         unadj = Bar(
             trade_datetime="2020-08-31T00:00:00",
             open=100.0,
@@ -177,7 +177,7 @@ class TestMultiModeBarModeAccess:
         assert perf_bar.close == 26.5  # total_return
 
 
-class TestMultiModeBarUseCases:
+class TestMultiBarUseCases:
     """Test real-world usage patterns."""
 
     def test_strategy_uses_adjusted(self):

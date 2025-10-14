@@ -80,7 +80,7 @@ class SMACrossover(Strategy):
         Computes SMAs and checks for crossovers.
 
         Args:
-            bar: MultiModeBar with all adjustment modes
+            bar: MultiBar with all adjustment modes
             ctx: Context with indicators and portfolio state
 
         Returns:

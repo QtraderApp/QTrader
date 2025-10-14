@@ -95,7 +95,7 @@ class TestDataLoaderFromSeries:
         assert iterator.symbol == "AAPL"
 
     def test_load_from_series_yields_multi_mode_bars(self, sample_algoseek_bars):
-        """Test that iterator yields MultiModeBar instances."""
+        """Test that iterator yields MultiBar instances."""
         # Arrange
         loader = DataLoader({})
         vendor_series = AlgoseekPriceSeries(symbol="AAPL", bars=sample_algoseek_bars)
@@ -104,7 +104,7 @@ class TestDataLoaderFromSeries:
         iterator = loader.load_data_from_series(vendor_series)
         first_bar = next(iterator)
 
-        # Assert: MultiModeBar with all three modes
+        # Assert: MultiBar with all three modes
         assert first_bar.symbol == "AAPL"
         assert first_bar.unadjusted is not None
         assert first_bar.adjusted is not None

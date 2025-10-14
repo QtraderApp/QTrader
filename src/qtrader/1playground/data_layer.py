@@ -14,7 +14,7 @@ to canonical bars. It shows how data flows through the system:
    ↓
 5. PriceSeriesIterator (streams multi-mode bars)
    ↓
-6. MultiModeBar (bar with all 3 adjustment modes)
+6. MultiBar (bar with all 3 adjustment modes)
 
 Usage:
     python -m qtrader.1playground.data_layer

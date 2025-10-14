@@ -6,7 +6,7 @@ modifying the existing backtest engine. It shows:
 
 1. Loading data using DataLoader (returns PriceSeriesIterator)
 2. Using BarMerger for multi-symbol coordination
-3. Strategy receiving MultiModeBar and selecting appropriate mode
+3. Strategy receiving MultiBar and selecting appropriate mode
 4. Execution using unadjusted prices
 5. Performance tracking using total_return prices
 
@@ -26,10 +26,10 @@ logger = LoggerFactory.get_logger()
 
 class MinimalStrategy:
     """
-    Minimal strategy demonstrating MultiModeBar usage.
+    Minimal strategy demonstrating MultiBar usage.
 
     Shows how strategies will work in Phase 4:
-    - Receive MultiModeBar (all 3 modes)
+    - Receive MultiBar (all 3 modes)
     - Select adjusted mode for signal generation
     - Return signal decisions
     """
@@ -46,7 +46,7 @@ class MinimalStrategy:
 
         Args:
             symbol: Symbol for this bar
-            bar: MultiModeBar with all 3 adjustment modes
+            bar: MultiBar with all 3 adjustment modes
 
         Returns:
             Signal string ("BUY", "SELL", "HOLD") or None
@@ -77,7 +77,7 @@ class MinimalExecutionEngine:
     Minimal execution engine demonstrating mode selection.
 
     Shows how execution will work in Phase 4:
-    - Receive MultiModeBar (all 3 modes)
+    - Receive MultiBar (all 3 modes)
     - Select unadjusted mode for realistic fills
     - Track position and cash
     """
@@ -95,7 +95,7 @@ class MinimalExecutionEngine:
         Args:
             symbol: Symbol for this signal
             signal: Signal type ("BUY", "SELL", "HOLD")
-            bar: MultiModeBar with all 3 modes
+            bar: MultiBar with all 3 modes
 
         Returns:
             Fill dict or None
@@ -147,7 +147,7 @@ class MinimalPortfolio:
     Minimal portfolio demonstrating performance tracking.
 
     Shows how portfolio will work in Phase 4:
-    - Receive MultiModeBar (all 3 modes)
+    - Receive MultiBar (all 3 modes)
     - Select total_return mode for accurate performance
     - Track value over time
     """
@@ -178,7 +178,7 @@ class MinimalPortfolio:
 
         Args:
             symbol: Symbol to update
-            bar: MultiModeBar with all 3 modes
+            bar: MultiBar with all 3 modes
         """
         if symbol not in self.positions or self.positions[symbol] == 0:
             return

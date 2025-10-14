@@ -8,15 +8,10 @@ from qtrader.models.portfolio import Portfolio
 from qtrader.models.position import Position, PositionTracker
 
 __all__ = [
-    # Bar enums and types
-    # "AdjustmentEvent",
-    # "BarFrequency",
-    # "DataMode",  # Deprecated - use MultiModeBar modes instead
-    # "OHLCPolicy",
     # Canonical bar models (new data layer)
     "Bar",
     "PriceSeries",
-    "MultiBar",  # Phase 2: Multi-mode architecture
+    "MultiBar",
     # Order models
     "Order",
     "OrderBase",
@@ -31,6 +26,6 @@ __all__ = [
     # Ledger models
     "CashLedger",
     "CashTransaction",
-    # Portfolio
+    # Portfolio model
     "Portfolio",
 ]

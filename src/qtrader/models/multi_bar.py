@@ -1,7 +1,7 @@
 """
 Multi-mode bar model - container for all adjustment modes.
 
-This module defines the MultiModeBar model which contains all three adjustment
+This module defines the MultiBar model which contains all three adjustment
 modes (unadjusted, adjusted, total_return) in a single container. This allows
 different components to select the optimal mode for their purpose:
 

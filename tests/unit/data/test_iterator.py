@@ -196,14 +196,14 @@ class TestPriceSeriesIteratorIteration:
         assert bars[2].trade_datetime == "2020-01-03T00:00:00"
 
     def test_iterate_yields_multi_mode_bars(self, sample_canonical_series_dict):
-        """Test that iteration yields MultiModeBar instances."""
+        """Test that iteration yields MultiBar instances."""
         # Arrange
         iterator = PriceSeriesIterator(sample_canonical_series_dict)
 
         # Act
         first_bar = next(iterator)
 
-        # Assert: MultiModeBar with all three modes
+        # Assert: MultiBar with all three modes
         assert isinstance(first_bar, MultiBar)
         assert first_bar.symbol == "AAPL"
         assert first_bar.unadjusted.close == 104.0

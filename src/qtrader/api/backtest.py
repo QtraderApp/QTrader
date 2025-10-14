@@ -108,8 +108,8 @@ class Backtest:
         Phase 4 Changes:
             - Uses BarMerger to coordinate multi-symbol streams
             - Processes bars chronologically across all symbols
-            - Strategy still receives Bar (from MultiModeBar.adjusted)
-            - Full MultiModeBar support comes in Phase 4 Part 4
+            - Strategy still receives Bar (from MultiBar.adjusted)
+            - Full MultiBar support comes in Phase 4 Part 4
         """
         # Phase 4: Use BarMerger to coordinate multi-symbol streams
         logger.info(
@@ -120,12 +120,12 @@ class Backtest:
 
         # Use BarMerger to coordinate multi-symbol streams
         merger = BarMerger(data_iterators)
-        bars_list = []  # Will contain MultiModeBar objects
+        bars_list = []  # Will contain MultiBar objects
 
-        # Extract MultiModeBar objects (Phase 5: strategy receives full MultiModeBar)
+        # Extract MultiBar objects (Phase 5: strategy receives full MultiBar)
         while merger.has_next():
             symbol, multi_mode_bar = merger.get_next_bar()
-            bars_list.append(multi_mode_bar)  # Store full MultiModeBar
+            bars_list.append(multi_mode_bar)  # Store full MultiBar
 
         logger.info(
             "backtest.iterator_conversion_complete",
@@ -215,7 +215,7 @@ class Backtest:
         first_bar = bars_list[start_idx] if start_idx < len(bars_list) else None
         initial_snapshot = {
             "timestamp": first_bar.adjusted.trade_datetime if first_bar else None,  # Use adjusted bar
-            "symbol": first_bar.symbol if first_bar else None,  # Symbol from MultiModeBar
+            "symbol": first_bar.symbol if first_bar else None,  # Symbol from MultiBar
             # Cash tracking
             "initial_cash": float(initial_cash),
             "cash_debits": 0.0,
@@ -239,7 +239,7 @@ class Backtest:
         logger.info("backtest.trading_loop_starting", start_idx=start_idx, total_bars=len(bars_list))
 
         for bar_idx in range(start_idx, len(bars_list)):
-            multi_mode_bar = bars_list[bar_idx]  # Get MultiModeBar
+            multi_mode_bar = bars_list[bar_idx]  # Get MultiBar
 
             # Extract bars for different purposes (Phase 5 architecture)
             bar = multi_mode_bar.adjusted  # For strategy indicators
@@ -248,7 +248,7 @@ class Backtest:
             # Get next bar for execution engine lookahead
             next_unadjusted_bar = bars_list[bar_idx + 1].unadjusted if bar_idx + 1 < len(bars_list) else None
 
-            # Parse timestamp and symbol from MultiModeBar
+            # Parse timestamp and symbol from MultiBar
             bar_ts = datetime.fromisoformat(bar.trade_datetime)
             symbol = multi_mode_bar.symbol
 
@@ -261,7 +261,7 @@ class Backtest:
 
             # Note: Not adding Bar to history since it lacks symbol field
             # Bar history is legacy - indicators should use data directly
-            # This will be addressed in Phase 4 Part 4 when strategies receive MultiModeBar
+            # This will be addressed in Phase 4 Part 4 when strategies receive MultiBar
 
             # Detect and process splits (before dividends and trading)
             # Compare unadjusted/adjusted price ratio to detect splits
@@ -348,7 +348,7 @@ class Backtest:
                             total_amount=float(unadjusted_bar.dividend * abs(position.qty)),
                         )
 
-            # Call strategy.on_bar() - returns signals (Phase 5: receives MultiModeBar)
+            # Call strategy.on_bar() - returns signals (Phase 5: receives MultiBar)
             signals = self.strategy.on_bar(multi_mode_bar, ctx)
 
             # Process signals through risk manager
@@ -469,7 +469,7 @@ class Backtest:
                 snapshot = {
                     # Bar OHLC data
                     "timestamp": bar.trade_datetime,  # Bar uses trade_datetime (ISO string)
-                    "symbol": symbol,  # From MultiModeBar, not Bar
+                    "symbol": symbol,  # From MultiBar, not Bar
                     "open": float(bar.open),
                     "high": float(bar.high),
                     "low": float(bar.low),
