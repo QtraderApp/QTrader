@@ -21,7 +21,7 @@ output:
   # Default base directory for backtest results
   # Can be overridden with CLI --out flag
   # SYSTEM SETTING: Controls where framework saves output
-  default_results_dir: "backtest_results"
+  default_results_dir: "output/backtests"
 
   # Whether to create timestamped subdirectories
   # Format: <strategy_name>_<timestamp>
@@ -33,12 +33,12 @@ output:
   # Files to generate in output directory
   # SYSTEM SETTING: Controls what files framework generates
   generate_files:
-    metadata: true        # metadata.json - Backtest summary
-    trades: true          # trades.csv - Trade history
-    fills: true           # fills.csv - Fill details
-    portfolio: true       # portfolio.csv - Portfolio state over time
-    positions: true       # positions.csv - Position history
-    equity_curve: true    # equity_curve.csv - Daily equity values
+    metadata: true # metadata.json - Backtest summary
+    trades: true # trades.csv - Trade history
+    fills: true # fills.csv - Fill details
+    portfolio: true # portfolio.csv - Portfolio state over time
+    positions: true # positions.csv - Position history
+    equity_curve: true # equity_curve.csv - Daily equity values
 
   # Whether to create subdirectories for organization
   # If true: results_dir/YYYY-MM-DD/strategy_name_timestamp/
@@ -80,29 +80,29 @@ execution:
   # Commission calculation settings
   # SYSTEM SETTING: HOW commissions are calculated (not the amount per trade)
   commission:
-    model: "per_share"        # per_share, fixed, percentage, tiered
-    per_share: 0.0         # $0.0005 per share (if model=per_share)
-    minimum: 0.00             # Minimum commission per trade
-    maximum: null             # Maximum commission per trade (null = no max)
+    model: "per_share" # per_share, fixed, percentage, tiered
+    per_share: 0.0 # $0.0005 per share (if model=per_share)
+    minimum: 0.00 # Minimum commission per trade
+    maximum: null # Maximum commission per trade (null = no max)
 
   # Slippage model settings
   # SYSTEM SETTING: HOW slippage is simulated
   slippage:
-    market_order_bps: 0      # Basis points for market orders
-    limit_order_bps: 0        # Basis points for limit orders
-    stop_order_bps: 0         # Basis points for stop orders
-    mode: "conservative"      # conservative, aggressive, realistic
+    market_order_bps: 0 # Basis points for market orders
+    limit_order_bps: 0 # Basis points for limit orders
+    stop_order_bps: 0 # Basis points for stop orders
+    mode: "conservative" # conservative, aggressive, realistic
 
   # Fill simulation settings
   # SYSTEM SETTING: HOW orders are filled (simulation rules)
   fill_policy:
-    limit_mode: "conservative"     # conservative, aggressive, realistic
+    limit_mode: "conservative" # conservative, aggressive, realistic
     stop_mode: "conservative"
-    moc_slip_bps: 0                # Market-on-close slippage
+    moc_slip_bps: 0 # Market-on-close slippage
 
   # Order queue management
   # SYSTEM SETTING: HOW long unfilled orders stay in queue
-  queue_bars: 3                    # Max bars to keep unfilled orders
+  queue_bars: 3 # Max bars to keep unfilled orders
 
 # ============================================================
 # Data Configuration
@@ -191,7 +191,7 @@ development:
 
   # Save intermediate states for debugging (NOT YET IMPLEMENTED)
   save_debug_snapshots: false
-  debug_snapshot_interval: 100   # Every N bars
+  debug_snapshot_interval: 100 # Every N bars
 
 # ============================================================
 # Reporting Configuration
@@ -211,10 +211,10 @@ reporting:
   # Report formats to generate
   # SYSTEM SETTING: What file formats to create
   formats:
-    json: true      # Currently generated
-    csv: true       # Currently generated
-    html: false     # Not yet implemented
-    pdf: false      # Not yet implemented
+    json: true # Currently generated
+    csv: true # Currently generated
+    html: false # Not yet implemented
+    pdf: false # Not yet implemented
 
   # Number of decimal places in reports
   decimal_places: 4
