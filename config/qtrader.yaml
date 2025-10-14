@@ -43,7 +43,7 @@ output:
   # Whether to create subdirectories for organization
   # If true: results_dir/YYYY-MM-DD/strategy_name_timestamp/
   # If false: results_dir/strategy_name_timestamp/
-  organize_by_date: false
+  organize_by_date: true
 
 # ============================================================
 # Logging Configuration
@@ -143,7 +143,7 @@ data:
 
   # Price decimal precision
   # SYSTEM SETTING: Decimal places for price calculations
-  price_decimals: 4
+  price_decimals: 6
 
   # Whether to validate data on load
   # SYSTEM SETTING: Enable/disable data validation checks
