@@ -558,10 +558,6 @@ class ExecutionEngine:
         if order.signal_price is None:
             return (True, "No signal price to check", 0.0)
 
-        # Ensure fill_price is Decimal for comparison (Bar uses float)
-        if not isinstance(fill_price, Decimal):
-            fill_price = Decimal(str(fill_price))
-
         # Calculate absolute deviation percentage
         deviation = abs(fill_price - order.signal_price) / order.signal_price
         deviation_pct = float(deviation)

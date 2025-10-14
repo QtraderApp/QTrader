@@ -71,7 +71,7 @@ class PositionTracker:
     - Flipping positions (long→short or short→long)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty position tracker."""
         self._positions: Dict[str, Position] = {}
         logger.info("position_tracker.initialized")

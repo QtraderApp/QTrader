@@ -66,7 +66,7 @@ class BuyAndHold(Strategy):
         Args:
             rebalance: Ignored for this strategy (always False).
         """
-        self.symbols_to_buy = set()
+        self.symbols_to_buy: set[str] = set()
         self.signal_counter = 0
 
     def on_init(self, ctx: Context) -> None:
