@@ -86,12 +86,12 @@ def load_cached_token() -> dict | None:
 
     try:
         with open(TOKEN_CACHE_FILE) as f:
-            token_data = json.load(f)
+            token_data: dict[str, object] = json.load(f)
 
         # Check if token is expired
         expires_at = token_data.get("expires_at", 0)
-        if time.time() < expires_at:
-            remaining = int((expires_at - time.time()) / 60)
+        if time.time() < expires_at:  # type: ignore[operator]
+            remaining = int((expires_at - time.time()) / 60)  # type: ignore[operator]
             print(f"✓ Using cached token (expires in {remaining} minutes)\n")
             return token_data
         else:
@@ -141,7 +141,7 @@ def get_access_token(force_new: bool = False) -> str:
     if not force_new:
         cached = load_cached_token()
         if cached:
-            return cached["access_token"]
+            return str(cached["access_token"])
 
     print("No valid cached token - starting OAuth flow...")
 
@@ -172,7 +172,7 @@ def get_access_token(force_new: bool = False) -> str:
         print("5. Paste it below")
         print("\nExample URL after redirect:")
         print(f"{REDIRECT_URI}?code=ABC123XYZ&session=...")
-        print("                      ^^^^^^^^^^")
+        print("                     ^^^^^^^^^")
         print("                   Copy this part")
         print("\nTIP: You can paste the entire URL or just the code!\n")
 
@@ -256,7 +256,7 @@ def get_access_token(force_new: bool = False) -> str:
         raise
 
     token_data = response.json()
-    access_token = token_data["access_token"]
+    access_token = str(token_data["access_token"])
 
     print(f"✓ Got access token (expires in {token_data.get('expires_in', 'unknown')}s)")
 
@@ -279,7 +279,7 @@ def get_user_preferences(access_token: str) -> dict:
     try:
         response = requests.get(f"{API_BASE}/trader/v1/userPreference", headers=headers)
         response.raise_for_status()
-        preferences = response.json()
+        preferences: dict = response.json()
         print("✓ Got user preferences\n")
         return preferences
     except requests.exceptions.HTTPError as e:
@@ -341,7 +341,7 @@ def get_historical_data(
     print(f"  Frequency: {frequency} {frequency_type}")
 
     headers = {"Authorization": f"Bearer {access_token}"}
-    params = {
+    params: dict[str, str | int] = {
         "symbol": symbol,
         "periodType": period_type,
         "period": period,
@@ -378,7 +378,7 @@ def get_historical_data(
             print(f"Response: {e.response.text}")
             raise
 
-    data = response.json()
+    data: dict = response.json()
     candles = data.get("candles", [])
 
     print(f"✓ Received {len(candles)} candles\n")
@@ -723,7 +723,9 @@ async def stream_chart_data(access_token: str, streamer_url: str, customer_id: s
 
             await websocket.send(json.dumps(logout_request))
             response = await websocket.recv()
-            print(f"LOGOUT response: {response}")
+            # Decode bytes if needed, or use repr for debugging
+            response_str = response.decode() if isinstance(response, bytes) else str(response)
+            print(f"LOGOUT response: {response_str}")
 
 
 async def main() -> None:
@@ -812,8 +814,8 @@ async def main() -> None:
         period_type_map = {"1": "day", "2": "month", "3": "year", "4": "ytd"}
         period_type = period_type_map.get(period_type_choice, "month")
 
-        period = input(f"Number of {period_type}s (default: 1): ").strip()
-        period = int(period) if period else 1
+        period_input = input(f"Number of {period_type}s (default: 1): ").strip()
+        period: int = int(period_input) if period_input else 1
 
         print("\nFrequency Type:")
         print("  1. minute")
@@ -827,8 +829,8 @@ async def main() -> None:
         if frequency_type == "minute":
             print("\nFrequency (minutes):")
             print("  1, 5, 10, 15, 30")
-            frequency = input("Choice (default: 5): ").strip()
-            frequency = int(frequency) if frequency else 5
+            frequency_input = input("Choice (default: 5): ").strip()
+            frequency: int = int(frequency_input) if frequency_input else 5
         else:
             frequency = 1
 
