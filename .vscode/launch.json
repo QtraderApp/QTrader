@@ -1,0 +1,91 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "QTrader: Backtest",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "qtrader.cli",
+            "args": [
+                "backtest",
+                "--strategy-file",
+                "${workspaceFolder}/examples/sma_crossover_strategy.py"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "QTrader: Backtest Buy and Hold",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "qtrader.cli",
+            "args": [
+                "backtest",
+                "--strategy-file",
+                "${workspaceFolder}/examples/buy_and_hold_strategy.py"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "QTrader: Backtest with Config Override",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "qtrader.cli",
+            "args": [
+                "backtest",
+                "--strategy-file",
+                "${workspaceFolder}/examples/sma_crossover_strategy.py",
+                "--set",
+                "fast_period=10",
+                "--set",
+                "slow_period=30",
+                "--output-dir",
+                "${workspaceFolder}/backtest_results/debug_run"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "QTrader: Debug Current Strategy File",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "qtrader.cli",
+            "args": [
+                "backtest",
+                "--strategy-file",
+                "${file}"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        },
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        }
+    ]
+}
