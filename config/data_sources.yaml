@@ -17,11 +17,6 @@ data_sources:
     path_template: "{root_path}/SecId={secid}/*.parquet"
     symbol_map: "data/equity_security_master_sample.csv"
 
-  # CSV files (general CSV adapter for OHLC data)
-  csv_file:
-    adapter: csv
-    root_path: "data/csv"
-
   # Database (PostgreSQL example - requires environment variables)
   # database:
   #   adapter: postgres_adapter
