@@ -1,0 +1,74 @@
+# Single Strategy SMA Crossover Backtest Configuration
+#
+# This demonstrates the new YAML-based configuration for a simple single-strategy backtest.
+# The SMA crossover strategy trades when fast and slow moving averages cross.
+
+name: "Single Strategy SMA Crossover"
+description: "SMA crossover strategy on 5 tech stocks"
+
+# Backtest time period
+start_date: "2020-01-01"
+end_date: "2023-12-31"
+
+# Portfolio settings
+initial_capital: 100000.00
+
+# Execution settings
+execution:
+  warmup: false
+  warmup_bars: null
+  slippage_model: "fixed"
+  slippage_bps: 5.0
+  commission_per_share: 0.01
+
+# Global risk defaults
+risk:
+  default_position_size: 5000.00
+  default_max_position_pct: 0.20
+  default_allow_shorting: false
+
+# Output settings
+output:
+  save_trades: true
+  save_equity_curve: true
+  generate_strategy_reports: true
+
+# Strategy definitions
+strategies:
+  - name: "SMA_Tech"
+    description: "SMA Crossover on tech stocks"
+
+    # Strategy implementation
+    strategy_class: "examples.sma_crossover_strategy.SMACrossoverStrategy"
+
+    # Strategy-specific configuration
+    strategy_config:
+      fast_period: 20
+      slow_period: 50
+
+    # Capital allocation (100% for single strategy)
+    initial_allocation_pct: 1.0
+
+    # Trading universe for this strategy
+    instruments:
+      - symbol: "AAPL"
+        secid: 47896
+      - symbol: "MSFT"
+        secid: 59328
+      - symbol: "GOOGL"
+        secid: 98163
+      - symbol: "NVDA"
+        secid: 67461
+      - symbol: "META"
+        secid: 98426
+
+    # Per-strategy risk settings (optional overrides)
+    risk:
+      position_size: 5000.00
+      max_position_pct: 0.20
+      allow_shorting: false
+      max_positions: null
+
+    # Reallocation policy (not needed for single strategy)
+    reallocation:
+      policy: "fixed"

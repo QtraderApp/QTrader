@@ -1,0 +1,119 @@
+# Multi-Strategy Backtest: SMA Crossover vs Buy-and-Hold (50/50 Split)
+#
+# This configuration demonstrates running two different strategies
+# side-by-side with equal capital allocation:
+#
+# 1. SMA Crossover (50%) - Tactical strategy with entries/exits
+# 2. Buy-and-Hold (50%) - Strategic baseline for comparison
+#
+# Both strategies trade different symbols to avoid conflicts.
+# This setup is useful for:
+# - Comparing active vs passive strategies
+# - Risk-adjusted performance analysis
+# - Portfolio diversification studies
+
+backtest:
+  # Time range for backtest
+  start_date: "2019-01-01"
+  end_date: "2023-12-29"
+
+  # Total capital to split across strategies
+  initial_cash: 100000.0
+
+  # Strategies to run (allocations must sum to 1.0)
+  strategies:
+    # Strategy 1: SMA Crossover on tech stocks
+    - name: "sma_tech"
+      strategy_class: "examples.sma_crossover_strategy.SMACrossoverStrategy"
+      initial_allocation_pct: 0.50 # 50% of total capital ($50,000)
+
+      # Strategy-specific universe
+      instruments:
+        - symbol: "AAPL"
+          type: "EQUITY"
+          data_source: "ALGOSEEK"
+        - symbol: "MSFT"
+          type: "EQUITY"
+          data_source: "ALGOSEEK"
+
+      # Strategy-specific configuration (passed to SMACrossoverStrategy.__init__)
+      strategy_config:
+        fast_period: 20
+        slow_period: 50
+
+      # Per-strategy risk parameters
+      risk:
+        position_size: 0.45 # Use 45% of strategy capital per position
+        max_position_pct: 0.50 # Max 50% in any single position
+        allow_shorting: false
+
+      # Per-strategy execution parameters
+      execution:
+        max_participation: 0.10 # Max 10% of bar volume
+        max_fill_price_deviation_pct: 0.10
+
+      # Warmup configuration for indicators
+      warmup:
+        enabled: true
+        bars: null # Auto-detect from indicators (needs 50 bars for slow SMA)
+
+    # Strategy 2: Buy-and-Hold on large-cap ETFs
+    - name: "buy_hold_etf"
+      strategy_class: "examples.buy_and_hold_strategy.BuyAndHoldStrategy"
+      initial_allocation_pct: 0.50 # 50% of total capital ($50,000)
+
+      # Strategy-specific universe (different from SMA strategy)
+      instruments:
+        - symbol: "QQQ"
+          type: "ETF"
+          data_source: "ALGOSEEK"
+
+      # Strategy-specific configuration (passed to BuyAndHoldStrategy.__init__)
+      strategy_config:
+        rebalance: false
+        target_weight: 0.90
+
+      # Per-strategy risk parameters
+      risk:
+        position_size: 0.90 # Use 90% of strategy capital
+        max_position_pct: 1.0 # Can go all-in (buy-and-hold)
+        allow_shorting: false
+
+      # Per-strategy execution parameters
+      execution:
+        max_participation: 0.10
+        max_fill_price_deviation_pct: 0.10
+
+      # No warmup needed for buy-and-hold
+      warmup:
+        enabled: false
+        bars: 0
+
+  # Reallocation policy (optional)
+  # Uncomment to enable periodic reallocation between strategies
+  # reallocation:
+  #   type: "FixedAllocation"
+  #   frequency: "monthly"  # quarterly, yearly
+
+  # Global defaults (can be overridden per strategy)
+  defaults:
+    risk:
+      position_size: 0.50
+      max_position_pct: 0.20
+      allow_shorting: false
+
+    execution:
+      max_participation: 0.10
+      max_fill_price_deviation_pct: 0.10
+
+    warmup:
+      enabled: true
+      bars: null
+# Usage:
+# python -m qtrader.cli --config config/backtests/sma_vs_buy_hold_50_50.yaml
+#
+# Expected output:
+# - Per-strategy performance metrics (returns, Sharpe, drawdown)
+# - Combined portfolio metrics
+# - Strategy comparison table
+# - Individual strategy equity curves
