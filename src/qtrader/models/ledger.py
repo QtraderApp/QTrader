@@ -1,7 +1,7 @@
 """Cash ledger with Decimal precision."""
 
 from decimal import Decimal
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Optional
 
 from qtrader.config.logging_config import LoggerFactory
 
@@ -16,6 +16,7 @@ class CashTransaction(NamedTuple):
     amount: Decimal  # Positive for credit, negative for debit
     description: str
     balance_after: Decimal
+    strategy_name: Optional[str] = None  # Track which strategy generated this transaction
 
 
 class CashLedger:
@@ -59,7 +60,14 @@ class CashLedger:
         """Get current cash balance."""
         return self._balance
 
-    def debit(self, amount: Decimal, timestamp: str, transaction_type: str, description: str) -> Decimal:
+    def debit(
+        self,
+        amount: Decimal,
+        timestamp: str,
+        transaction_type: str,
+        description: str,
+        strategy_name: Optional[str] = None,
+    ) -> Decimal:
         """
         Debit (subtract) from cash.
 
@@ -68,6 +76,7 @@ class CashLedger:
             timestamp: ISO format timestamp
             transaction_type: Type of transaction
             description: Human-readable description
+            strategy_name: Optional strategy identifier
 
         Returns:
             New balance
@@ -87,6 +96,7 @@ class CashLedger:
                 amount=-amount,  # Negative for debit
                 description=description,
                 balance_after=self._balance,
+                strategy_name=strategy_name,
             )
         )
 
@@ -95,11 +105,19 @@ class CashLedger:
             amount=float(amount),
             type=transaction_type,
             balance=float(self._balance),
+            strategy_name=strategy_name,
         )
 
         return self._balance
 
-    def credit(self, amount: Decimal, timestamp: str, transaction_type: str, description: str) -> Decimal:
+    def credit(
+        self,
+        amount: Decimal,
+        timestamp: str,
+        transaction_type: str,
+        description: str,
+        strategy_name: Optional[str] = None,
+    ) -> Decimal:
         """
         Credit (add) to cash.
 
@@ -108,6 +126,7 @@ class CashLedger:
             timestamp: ISO format timestamp
             transaction_type: Type of transaction
             description: Human-readable description
+            strategy_name: Optional strategy identifier
 
         Returns:
             New balance
@@ -127,6 +146,7 @@ class CashLedger:
                 amount=amount,  # Positive for credit
                 description=description,
                 balance_after=self._balance,
+                strategy_name=strategy_name,
             )
         )
 
@@ -135,6 +155,7 @@ class CashLedger:
             amount=float(amount),
             type=transaction_type,
             balance=float(self._balance),
+            strategy_name=strategy_name,
         )
 
         return self._balance
@@ -155,6 +176,31 @@ class CashLedger:
     def get_transactions(self) -> List[CashTransaction]:
         """Get all transactions (read-only copy)."""
         return list(self._transactions)
+
+    def get_transactions_by_strategy(self, strategy_name: str) -> List[CashTransaction]:
+        """
+        Get all transactions for a specific strategy.
+
+        Args:
+            strategy_name: Strategy identifier
+
+        Returns:
+            List of transactions for this strategy
+        """
+        return [t for t in self._transactions if t.strategy_name == strategy_name]
+
+    def get_strategy_pnl(self, strategy_name: str) -> Decimal:
+        """
+        Calculate net cash flow for a specific strategy.
+
+        Args:
+            strategy_name: Strategy identifier
+
+        Returns:
+            Net P&L from this strategy's transactions
+        """
+        strategy_transactions = self.get_transactions_by_strategy(strategy_name)
+        return sum((t.amount for t in strategy_transactions), Decimal("0.0"))
 
     def get_net_flow(self) -> Decimal:
         """
