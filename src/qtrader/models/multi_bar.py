@@ -19,7 +19,7 @@ from qtrader.models.bar import Bar
 AdjustmentMode = Literal["unadjusted", "adjusted", "total_return"]
 
 
-class MultiModeBar(BaseModel):
+class MultiBar(BaseModel):
     """
     Bar containing all adjustment modes.
 

@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from qtrader.api import Context, Strategy
-from qtrader.data import MultiModeBar
+from qtrader.data import MultiBar
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.risk import Signal, SignalDirection, SignalType
 
@@ -77,7 +77,7 @@ class BuyAndHold(Strategy):
         """Called after warmup completes (if enabled)."""
         print(f"Buy-and-Hold strategy started at {ctx.current_date}")
 
-    def on_bar(self, bar: MultiModeBar, ctx: Context) -> Optional[List[Signal]]:
+    def on_bar(self, bar: MultiBar, ctx: Context) -> Optional[List[Signal]]:
         """
         Generate buy signals on first bar for each symbol.
 

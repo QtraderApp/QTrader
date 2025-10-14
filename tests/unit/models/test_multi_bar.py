@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from qtrader.models.bar import Bar
-from qtrader.models.multi_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiBar
 
 
 class TestMultiModeBarCreation:
@@ -41,7 +41,7 @@ class TestMultiModeBarCreation:
         )
 
         # Act: Create MultiModeBar
-        multi_bar = MultiModeBar(
+        multi_bar = MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T00:00:00",
             unadjusted=unadj_bar,
@@ -67,7 +67,7 @@ class TestMultiModeBarCreation:
             close=104.0,
             volume=1000,
         )
-        multi_bar = MultiModeBar(
+        multi_bar = MultiBar(
             symbol="AAPL",
             trade_datetime="2020-01-01T00:00:00",
             unadjusted=bar,
@@ -84,7 +84,7 @@ class TestMultiModeBarModeAccess:
     """Test accessing different adjustment modes."""
 
     @pytest.fixture
-    def sample_multi_bar(self) -> MultiModeBar:
+    def sample_multi_bar(self) -> MultiBar:
         """Create sample MultiModeBar for testing."""
         unadj = Bar(
             trade_datetime="2020-08-31T00:00:00",
@@ -111,7 +111,7 @@ class TestMultiModeBarModeAccess:
             volume=1000000,
             dividend=Decimal("0.205"),
         )
-        return MultiModeBar(
+        return MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T00:00:00",
             unadjusted=unadj,
@@ -183,7 +183,7 @@ class TestMultiModeBarUseCases:
     def test_strategy_uses_adjusted(self):
         """Test strategy component uses adjusted mode for indicators."""
         # Arrange: AAPL after 4:1 split
-        multi_bar = MultiModeBar(
+        multi_bar = MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T00:00:00",
             unadjusted=Bar(
@@ -222,7 +222,7 @@ class TestMultiModeBarUseCases:
     def test_execution_uses_unadjusted(self):
         """Test execution component uses unadjusted for realistic fills."""
         # Arrange: Same AAPL bar
-        multi_bar = MultiModeBar(
+        multi_bar = MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T00:00:00",
             unadjusted=Bar(
@@ -268,7 +268,7 @@ class TestMultiModeBarUseCases:
     def test_performance_uses_total_return(self):
         """Test performance component uses total_return for accurate returns."""
         # Arrange: Bar with dividend
-        multi_bar = MultiModeBar(
+        multi_bar = MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-07T00:00:00",
             unadjusted=Bar(

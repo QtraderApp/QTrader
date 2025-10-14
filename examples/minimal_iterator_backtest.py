@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 from qtrader.config.logging_config import LoggerFactory
 from qtrader.data import BarMerger, DataLoader
-from qtrader.models.multi_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiBar
 
 logger = LoggerFactory.get_logger()
 
@@ -40,7 +40,7 @@ class MinimalStrategy:
         self.bars_processed = 0
         self.signals_generated = 0
 
-    def on_bar(self, symbol: str, bar: MultiModeBar) -> Optional[str]:
+    def on_bar(self, symbol: str, bar: MultiBar) -> Optional[str]:
         """
         Process bar and generate signal.
 
@@ -88,7 +88,7 @@ class MinimalExecutionEngine:
         self.positions: Dict[str, int] = {}
         self.fills: List[Dict] = []
 
-    def process_signal(self, symbol: str, signal: str, bar: MultiModeBar) -> Optional[Dict]:
+    def process_signal(self, symbol: str, signal: str, bar: MultiBar) -> Optional[Dict]:
         """
         Process signal and generate fill.
 
@@ -172,7 +172,7 @@ class MinimalPortfolio:
             self.positions[symbol] = self.positions.get(symbol, 0) - shares
             self.cash += value
 
-    def mark_to_market(self, symbol: str, bar: MultiModeBar) -> None:
+    def mark_to_market(self, symbol: str, bar: MultiBar) -> None:
         """
         Mark position to market using current prices.
 

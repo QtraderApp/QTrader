@@ -5,7 +5,7 @@ import pytest
 from qtrader.data.bar_merger import BarMerger
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.bar import Bar, PriceSeries
-from qtrader.models.multi_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiBar
 
 
 @pytest.fixture
@@ -246,7 +246,7 @@ class TestBarMergerIteration:
             symbol, bar = merger.get_next_bar()
             count += 1
             assert isinstance(symbol, str)
-            assert isinstance(bar, MultiModeBar)
+            assert isinstance(bar, MultiBar)
 
         # Should have yielded 6 bars total (3 AAPL + 3 MSFT)
         assert count == 6
@@ -401,7 +401,7 @@ class TestBarMergerMultiModeIntegration:
         symbol, bar = merger.get_next_bar()
 
         # Should be MultiModeBar
-        assert isinstance(bar, MultiModeBar)
+        assert isinstance(bar, MultiBar)
 
         # Should have all 3 modes
         assert bar.unadjusted is not None

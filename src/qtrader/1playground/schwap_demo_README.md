@@ -30,7 +30,7 @@ export SCHWAB_REDIRECT_URI="https://alpha-q.com"  # Your registered redirect URI
 export SCHWAB_MANUAL_CODE="true"  # Use manual code entry
 ```
 
-**Alternative mode (Automatic Callback Server) - Only works if redirect URI is https://127.0.0.1:8080:**
+**Alternative mode (Automatic Callback Server) - Only works if redirect URI is <https://127.0.0.1:8080>:**
 
 ```bash
 export SCHWAB_API_KEY="your_api_key_here"

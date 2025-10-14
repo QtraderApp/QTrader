@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from qtrader.api import Context, Strategy
-from qtrader.data import MultiModeBar
+from qtrader.data import MultiBar
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.risk import Signal, SignalDirection, SignalType
 
@@ -73,7 +73,7 @@ class SMACrossover(Strategy):
         """Called after warmup completes (if enabled)."""
         print(f"Strategy started at {ctx.current_date}")
 
-    def on_bar(self, bar: MultiModeBar, ctx: Context) -> Optional[List[Signal]]:
+    def on_bar(self, bar: MultiBar, ctx: Context) -> Optional[List[Signal]]:
         """
         Called for each bar.
 

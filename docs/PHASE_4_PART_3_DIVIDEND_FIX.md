@@ -185,7 +185,7 @@ if unadjusted_bar.dividend is not None:
 
 ## Impact on Portfolio Snapshots
 
-### Before (incorrect):
+### Before (incorrect)
 
 ```python
 snapshot = {
@@ -193,7 +193,7 @@ snapshot = {
 }
 ```
 
-### After (correct):
+### After (correct)
 
 ```python
 snapshot = {

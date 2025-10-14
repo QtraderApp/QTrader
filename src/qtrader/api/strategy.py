@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, List, Optional, Protocol
 from qtrader.risk import Signal
 
 if TYPE_CHECKING:
-    from qtrader.data import MultiModeBar
+    from qtrader.data import MultiBar
 
 
 class Strategy(Protocol):
@@ -55,7 +55,7 @@ class Strategy(Protocol):
         """
         pass
 
-    def on_bar(self, bar: "MultiModeBar", ctx) -> Optional[List[Signal]]:
+    def on_bar(self, bar: "MultiBar", ctx) -> Optional[List[Signal]]:
         """
         Called for each bar in the dataset. Required.
 

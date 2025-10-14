@@ -9,7 +9,7 @@ The iterator supports peek-ahead functionality for strategy warmup.
 from typing import Dict, Iterator, Optional
 
 from qtrader.models.bar import PriceSeries
-from qtrader.models.multi_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiBar
 
 
 class PriceSeriesIterator:
@@ -79,13 +79,13 @@ class PriceSeriesIterator:
         self.series_dict = series_dict
         self.symbol = series_dict["unadjusted"].symbol
         self._index = 0
-        self._peeked: Optional[MultiModeBar] = None
+        self._peeked: Optional[MultiBar] = None
 
-    def __iter__(self) -> Iterator[MultiModeBar]:
+    def __iter__(self) -> Iterator[MultiBar]:
         """Return iterator."""
         return self
 
-    def __next__(self) -> MultiModeBar:
+    def __next__(self) -> MultiBar:
         """
         Get next multi-mode bar.
 
@@ -108,7 +108,7 @@ class PriceSeriesIterator:
             raise StopIteration
 
         # Build MultiModeBar from all three series
-        multi_bar = MultiModeBar(
+        multi_bar = MultiBar(
             symbol=self.symbol,
             trade_datetime=unadj_bars[self._index].trade_datetime,
             unadjusted=self.series_dict["unadjusted"].bars[self._index],
@@ -119,7 +119,7 @@ class PriceSeriesIterator:
         self._index += 1
         return multi_bar
 
-    def peek(self) -> Optional[MultiModeBar]:
+    def peek(self) -> Optional[MultiBar]:
         """
         Peek at next bar without consuming.
 
@@ -142,7 +142,7 @@ class PriceSeriesIterator:
         if self._index >= len(unadj_bars):
             return None
 
-        self._peeked = MultiModeBar(
+        self._peeked = MultiBar(
             symbol=self.symbol,
             trade_datetime=unadj_bars[self._index].trade_datetime,
             unadjusted=self.series_dict["unadjusted"].bars[self._index],

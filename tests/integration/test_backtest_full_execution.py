@@ -16,7 +16,7 @@ from typing import Dict, List, Optional
 
 from qtrader.api.backtest import Backtest
 from qtrader.api.context import Context
-from qtrader.data import DataLoader, MultiModeBar, PriceSeriesIterator
+from qtrader.data import DataLoader, MultiBar, PriceSeriesIterator
 from qtrader.execution.config import ExecutionConfig
 from qtrader.models.portfolio import Portfolio
 from qtrader.models.vendors.algoseek.bar import AlgoseekBar
@@ -42,7 +42,7 @@ class SimpleBuyStrategy:
         """Called after warmup."""
         pass
 
-    def on_bar(self, bar: MultiModeBar, ctx: Context) -> Optional[List[Signal]]:
+    def on_bar(self, bar: MultiBar, ctx: Context) -> Optional[List[Signal]]:
         """
         Buy on bar 1, sell on last bar.
 

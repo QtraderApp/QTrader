@@ -12,7 +12,7 @@ from qtrader.api.strategy import Strategy
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.execution.config import ExecutionConfig
 from qtrader.models.bar import Bar, PriceSeries
-from qtrader.models.multi_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiBar
 from qtrader.models.portfolio import Portfolio
 from qtrader.risk import RiskManager, RiskPolicy, SizingMethod
 from qtrader.risk.signal import Signal, SignalDirection, SignalType
@@ -29,7 +29,7 @@ class SimpleBuyHoldSellStrategy(Strategy):
         self.sell_executed = False
         self.bar_count = 0
 
-    def on_bar(self, bar: MultiModeBar, ctx: Context):
+    def on_bar(self, bar: MultiBar, ctx: Context):
         self.bar_count += 1
 
         # Buy on first bar
@@ -90,7 +90,7 @@ def test_split_accounting_with_unadjusted_execution():
 
     bars = [
         # Bar 1: Pre-split
-        MultiModeBar(
+        MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-01T16:00:00",
             unadjusted=Bar(
@@ -122,7 +122,7 @@ def test_split_accounting_with_unadjusted_execution():
             ),
         ),
         # Bar 2: Dividend (pre-split)
-        MultiModeBar(
+        MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-07T16:00:00",
             unadjusted=Bar(
@@ -155,7 +155,7 @@ def test_split_accounting_with_unadjusted_execution():
         ),
         # Bar 3: Split 4:1 happens
         # Unadjusted price drops 4x, adjusted stays consistent
-        MultiModeBar(
+        MultiBar(
             symbol="AAPL",
             trade_datetime="2020-08-31T16:00:00",
             unadjusted=Bar(
@@ -187,7 +187,7 @@ def test_split_accounting_with_unadjusted_execution():
             ),
         ),
         # Bar 4: Post-split (hold)
-        MultiModeBar(
+        MultiBar(
             symbol="AAPL",
             trade_datetime="2020-09-01T16:00:00",
             unadjusted=Bar(
@@ -219,7 +219,7 @@ def test_split_accounting_with_unadjusted_execution():
             ),
         ),
         # Bar 5: Sell (post-split)
-        MultiModeBar(
+        MultiBar(
             symbol="AAPL",
             trade_datetime="2020-09-20T16:00:00",
             unadjusted=Bar(

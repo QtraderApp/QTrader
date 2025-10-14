@@ -9,7 +9,7 @@ from typing import Dict, Optional
 
 from qtrader.config.logging_config import LoggerFactory
 from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.models.multi_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiBar
 
 logger = LoggerFactory.get_logger()
 
@@ -52,7 +52,7 @@ class BarMerger:
             raise ValueError("BarMerger requires at least one iterator")
 
         self.iterators = iterators
-        self.current_bars: Dict[str, MultiModeBar] = {}
+        self.current_bars: Dict[str, MultiBar] = {}
         self._total_bars_yielded = 0
 
         # Prime all iterators (read first bar from each)
@@ -82,7 +82,7 @@ class BarMerger:
                     msg="Iterator has no bars",
                 )
 
-    def get_next_bar(self) -> tuple[str, MultiModeBar]:
+    def get_next_bar(self) -> tuple[str, MultiBar]:
         """
         Get next bar across all symbols (earliest timestamp).
 
@@ -137,7 +137,7 @@ class BarMerger:
         """
         return len(self.current_bars) > 0
 
-    def peek_next(self) -> Optional[tuple[str, MultiModeBar]]:
+    def peek_next(self) -> Optional[tuple[str, MultiBar]]:
         """
         Peek at next bar without consuming it.
 

@@ -4,7 +4,7 @@ import pytest
 
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.bar import Bar, PriceSeries
-from qtrader.models.multi_bar import MultiModeBar
+from qtrader.models.multi_bar import MultiBar
 
 
 @pytest.fixture
@@ -190,7 +190,7 @@ class TestPriceSeriesIteratorIteration:
 
         # Assert
         assert len(bars) == 3
-        assert all(isinstance(bar, MultiModeBar) for bar in bars)
+        assert all(isinstance(bar, MultiBar) for bar in bars)
         assert bars[0].trade_datetime == "2020-01-01T00:00:00"
         assert bars[1].trade_datetime == "2020-01-02T00:00:00"
         assert bars[2].trade_datetime == "2020-01-03T00:00:00"
@@ -204,7 +204,7 @@ class TestPriceSeriesIteratorIteration:
         first_bar = next(iterator)
 
         # Assert: MultiModeBar with all three modes
-        assert isinstance(first_bar, MultiModeBar)
+        assert isinstance(first_bar, MultiBar)
         assert first_bar.symbol == "AAPL"
         assert first_bar.unadjusted.close == 104.0
         assert first_bar.adjusted.close == 26.0
