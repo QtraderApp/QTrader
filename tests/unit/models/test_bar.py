@@ -56,7 +56,7 @@ class TestBar:
         )
 
         with pytest.raises(Exception):  # Pydantic raises validation error
-            bar.close = 110.0  # type: ignore
+            bar.close = 110.0
 
     def test_high_must_be_greater_than_or_equal_to_low(self) -> None:
         """Should enforce High >= Low."""
@@ -188,7 +188,7 @@ class TestPriceSeries:
         series = PriceSeries(mode="unadjusted", symbol="AAPL", bars=bars)
 
         with pytest.raises(Exception):  # Pydantic raises validation error
-            series.symbol = "MSFT"  # type: ignore
+            series.symbol = "MSFT"
 
     def test_valid_modes(self) -> None:
         """Should accept only valid adjustment modes."""
