@@ -108,7 +108,7 @@ class TestSchwabOAuthManagerTokenCache:
             token_cache_path=tmp_path / "tokens.json",
         )
 
-        token = manager._load_cached_token()  # type: ignore[attr-defined]
+        token = manager._load_cached_token()
         assert token is None
 
     def test_load_cached_token_empty_cache(self, tmp_path):
@@ -122,7 +122,7 @@ class TestSchwabOAuthManagerTokenCache:
             token_cache_path=cache_path,
         )
 
-        token = manager._load_cached_token()  # type: ignore[attr-defined]
+        token = manager._load_cached_token()
         assert token is None
 
     def test_load_cached_token_expired(self, tmp_path):
@@ -142,7 +142,7 @@ class TestSchwabOAuthManagerTokenCache:
             token_cache_path=cache_path,
         )
 
-        token = manager._load_cached_token()  # type: ignore[attr-defined]
+        token = manager._load_cached_token()
         assert token is None
 
     def test_load_cached_token_valid(self, tmp_path):
@@ -162,7 +162,7 @@ class TestSchwabOAuthManagerTokenCache:
             token_cache_path=cache_path,
         )
 
-        token = manager._load_cached_token()  # type: ignore[attr-defined]
+        token = manager._load_cached_token()
         assert token == "test_token_12345"
 
     def test_load_cached_token_invalid_json(self, tmp_path):
@@ -176,7 +176,7 @@ class TestSchwabOAuthManagerTokenCache:
             token_cache_path=cache_path,
         )
 
-        token = manager._load_cached_token()  # type: ignore[attr-defined]
+        token = manager._load_cached_token()
         assert token is None
 
     def test_save_token_cache(self, tmp_path):
@@ -197,7 +197,7 @@ class TestSchwabOAuthManagerTokenCache:
             "scope": "read write",
         }
 
-        manager._save_token_cache(token_data)  # type: ignore[attr-defined]
+        manager._save_token_cache(token_data)
 
         # Verify file exists
         assert cache_path.exists()
@@ -226,7 +226,7 @@ class TestSchwabOAuthManagerTokenCache:
             "expires_in": 1800,
         }
 
-        manager._save_token_cache(token_data)  # type: ignore[attr-defined]
+        manager._save_token_cache(token_data)
 
         # Verify file exists
         assert cache_path.exists()
@@ -274,7 +274,7 @@ class TestSchwabOAuthManagerTokenExchange:
             token_cache_path=tmp_path / "tokens.json",
         )
 
-        token = manager._exchange_code_for_token("auth_code_789")  # type: ignore[attr-defined]
+        token = manager._exchange_code_for_token("auth_code_789")
 
         assert token == "new_access_token_123"
 
@@ -284,7 +284,7 @@ class TestSchwabOAuthManagerTokenExchange:
         assert call_args[0][0] == SchwabOAuthManager.TOKEN_URL
 
         # Verify token was cached
-        cached_token = manager._load_cached_token()  # type: ignore[attr-defined]
+        cached_token = manager._load_cached_token()
         assert cached_token == "new_access_token_123"
 
     @patch("requests.post")

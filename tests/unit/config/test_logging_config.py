@@ -149,8 +149,8 @@ def test_rotating_file_handler(tmp_path):
 
     assert len(handlers) > 0
     handler = handlers[0]
-    assert handler.maxBytes == 1 * 1024 * 1024  # type: ignore[attr-defined]
-    assert handler.backupCount == 3  # type: ignore[attr-defined]
+    assert handler.maxBytes == 1 * 1024 * 1024
+    assert handler.backupCount == 3
 
 
 def test_different_log_levels():
