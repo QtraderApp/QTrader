@@ -2,54 +2,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "QTrader: Backtest",
+            "name": "QTrader: raw-data",
             "type": "debugpy",
             "request": "launch",
             "module": "qtrader.cli",
             "args": [
-                "backtest",
-                "--strategy-file",
-                "${workspaceFolder}/examples/sma_crossover_strategy.py"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
-        },
-        {
-            "name": "QTrader: Backtest Buy and Hold",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "qtrader.cli",
-            "args": [
-                "backtest",
-                "--strategy-file",
-                "${workspaceFolder}/examples/buy_and_hold_strategy.py"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
-        },
-        {
-            "name": "QTrader: Backtest with Config Override",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "qtrader.cli",
-            "args": [
-                "backtest",
-                "--strategy-file",
-                "${workspaceFolder}/examples/sma_crossover_strategy.py",
-                "--set",
-                "fast_period=10",
-                "--set",
-                "slow_period=30",
-                "--output-dir",
-                "${workspaceFolder}/backtest_results/debug_run"
+                "raw-data",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "2020-01-01",
+                "--end-date",
+                "2020-12-31",
+                "--source",
+                "algoseek"
             ],
             "console": "integratedTerminal",
             "justMyCode": false,
