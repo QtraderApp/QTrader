@@ -20,7 +20,7 @@ from typing import Iterator, Optional
 import duckdb
 import pandas as pd
 
-from qtrader.config.logging_config import LoggerFactory
+from qtrader.config import LoggerFactory
 from qtrader.models.instrument import Instrument
 from qtrader.models.vendors.algoseek import AlgoseekBar
 

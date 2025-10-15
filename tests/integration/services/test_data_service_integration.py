@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.config.data_config import BarSchemaConfig, DataConfig
+from qtrader.config import BarSchemaConfig, DataConfig
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.instrument import DataSource, InstrumentType
 from qtrader.models.multi_bar import MultiBar
-from qtrader.services.data.service import DataService
+from qtrader.services import DataService
 
 
 @pytest.fixture

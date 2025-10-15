@@ -27,7 +27,7 @@ import pandas as pd
 import requests
 
 from qtrader.auth.schwab_oauth import SchwabOAuthManager
-from qtrader.config.logging_config import LoggerFactory
+from qtrader.config import LoggerFactory
 from qtrader.models.instrument import Instrument
 from qtrader.models.vendors.schwab import SchwabBar
 

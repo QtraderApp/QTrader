@@ -10,8 +10,8 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from qtrader.config.data_config import BarSchemaConfig, DataConfig
-from qtrader.services.data import DataService
+from qtrader.config import BarSchemaConfig, DataConfig
+from qtrader.services import DataService
 
 
 def _load_module(path: str):

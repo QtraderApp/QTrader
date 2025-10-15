@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 import structlog
 
 from qtrader.adapters.resolver import DataSourceResolver
-from qtrader.config.data_config import DataConfig
+from qtrader.config import DataConfig
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.data.loader import DataLoader
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
