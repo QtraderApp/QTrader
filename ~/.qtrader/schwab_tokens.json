@@ -1,9 +1,0 @@
-{
-  "access_token": "I0.b2F1dGgyLmNkYy5zY2h3YWIuY29t.P4ADDgdpbM222wT4JuRQ1WY-rA-Y3efg6cZesaldzvw@",
-  "refresh_token": "J-f9vSCONMpoXSvvJP01u5J8Iv91X_EHNEIqIaGs7atwcVAmO0wVhsXGZlSGPiffe1J3o8AXxldcrkj5wDSACdHgNsd06xGx_2oZQBuJyj-wmoocNPFvn14-dj2TW_3k8psIraLRf9A@",
-  "expires_in": 1800,
-  "expires_at": 1760569629.5508723,
-  "token_type": "Bearer",
-  "created_at": 1760567829.550873,
-  "scope": "api"
-}

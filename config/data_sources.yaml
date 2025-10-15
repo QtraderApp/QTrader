@@ -29,7 +29,9 @@ data_sources:
 
     # OAuth configuration (optional)
     redirect_uri: "${SCHWAB_REDIRECT_URI:-https://127.0.0.1:8182}"
-    token_cache_path: "~/.qtrader/schwab_tokens.json"
+    # Token cache path - leave as null to use default: ~/.qtrader/schwab_tokens.json
+    # If you want to specify explicitly, use full path: /home/username/.qtrader/schwab_tokens.json
+    token_cache_path: null  # Uses default: ~/.qtrader/schwab_tokens.json
     manual_mode: false
 
     # Rate limiting
