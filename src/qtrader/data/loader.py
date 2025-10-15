@@ -123,7 +123,7 @@ class DataLoader:
         # - Strategy: adjusted (split-consistent indicators)
         # - Execution: unadjusted (realistic fills)
         # - Performance: total_return (cumulative returns)
-        return PriceSeriesIterator(canonical_series_dict)  # type: ignore
+        return PriceSeriesIterator(canonical_series_dict)
 
     def _load_from_adapter(
         self, symbol: str, start_date: str, end_date: str
@@ -178,20 +178,18 @@ class DataLoader:
         # Create instrument for adapter
         instrument = Instrument(symbol, InstrumentType.EQUITY, data_source)
 
-        # Initialize adapter based on type
+        # Initialize adapter and load bars based on type
         if data_source == DataSource.SCHWAB:
             from qtrader.adapters.schwab import SchwabOHLCAdapter
 
-            adapter = SchwabOHLCAdapter(self.config["adapter"], instrument)
+            schwab_adapter = SchwabOHLCAdapter(self.config["adapter"], instrument)
+            schwab_bars = list(schwab_adapter.read_bars(start_date, end_date))
+            return schwab_bars, data_source
         else:
             # Default to Algoseek
-            adapter = AlgoseekOHLCVendorAdapter(self.config["adapter"], instrument)
-
-        # Load raw bars (iterator → list for now)
-        # TODO: Consider keeping as iterator for memory efficiency
-        raw_bars = list(adapter.read_bars(start_date, end_date))
-
-        return raw_bars, data_source
+            algoseek_adapter = AlgoseekOHLCVendorAdapter(self.config["adapter"], instrument)
+            algoseek_bars = list(algoseek_adapter.read_bars(start_date, end_date))
+            return algoseek_bars, data_source
 
     def load_data_from_series(self, vendor_series: AlgoseekPriceSeries) -> PriceSeriesIterator:
         """

@@ -200,18 +200,19 @@ class TestSchwabPriceSeries:
         # Should have 3 keys
         assert set(canonical.keys()) == {"unadjusted", "adjusted", "total_return"}
 
-        # Only adjusted should be populated
-        assert canonical["unadjusted"] is None
+        # All modes should be populated (Schwab returns adjusted data only)
+        assert canonical["unadjusted"] is not None
         assert canonical["adjusted"] is not None
-        assert canonical["total_return"] is None
+        assert canonical["total_return"] is not None
 
-        # Check adjusted series
-        adjusted = canonical["adjusted"]
-        assert adjusted.symbol == "AAPL"
-        assert adjusted.mode == "adjusted"
-        assert len(adjusted.bars) == 2
-        assert adjusted.bars[0].close == 153.0
-        assert adjusted.bars[1].close == 156.0
+        # All modes should have the same data (Schwab limitation)
+        for mode in ["unadjusted", "adjusted", "total_return"]:
+            series_data = canonical[mode]
+            assert series_data.symbol == "AAPL"
+            assert series_data.mode == "adjusted"  # All modes use adjusted
+            assert len(series_data.bars) == 2
+            assert series_data.bars[0].close == 153.0
+            assert series_data.bars[1].close == 156.0
 
     def test_to_canonical_series_converts_to_canonical_bars(self) -> None:
         """Should convert Schwab bars to canonical Bar objects."""
@@ -247,16 +248,13 @@ class TestSchwabPriceSeries:
         series = SchwabPriceSeries(symbol="AAPL", bars=[])
         canonical = series.to_canonical_series()
 
-        # Should return None for unadjusted and total_return
-        assert canonical["unadjusted"] is None
-        assert canonical["total_return"] is None
-
-        # Should return empty adjusted series
-        assert canonical["adjusted"] is not None
-        adjusted = canonical["adjusted"]
-        assert adjusted.symbol == "AAPL"
-        assert adjusted.mode == "adjusted"
-        assert len(adjusted.bars) == 0
+        # All modes should be populated with empty series
+        for mode in ["unadjusted", "adjusted", "total_return"]:
+            assert canonical[mode] is not None
+            series_data = canonical[mode]
+            assert series_data.symbol == "AAPL"
+            assert series_data.mode == "adjusted"  # All modes use adjusted
+            assert len(series_data.bars) == 0
 
     def test_to_canonical_series_preserves_chronological_order(self) -> None:
         """Should preserve chronological order of bars."""

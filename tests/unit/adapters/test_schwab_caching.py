@@ -299,8 +299,9 @@ class TestSchwabAdapterCaching:
 
         adapter._write_to_cache(original_bars, "daily", 1)
 
-        # Read bars from cache
-        cached_bars = adapter._read_from_cache("2020-01-01", "2020-12-31")
+        # Read bars from cache - cache contains 2020-01-02 to 2020-01-03
+        # Request dates within cached range
+        cached_bars = adapter._read_from_cache("2020-01-02", "2020-01-03")
 
         assert cached_bars is not None
         assert len(cached_bars) == 2
@@ -392,12 +393,28 @@ class TestSchwabAdapterCaching:
 
         adapter._write_to_cache(cached_bars, "daily", 1)
 
-        # Read bars (should use cache)
+        # Read bars (should NOT use cache - requested range exceeds cached range)
+        # Cache has 2020-01-02, but we're requesting 2020-01-01 to 2020-12-31
         with patch("requests.Session.get") as mock_get:
+            # Mock API response
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = {
+                "candles": [
+                    {
+                        "datetime": int(datetime(2020, 1, 2, tzinfo=timezone.utc).timestamp() * 1000),
+                        "open": 100.0,
+                        "high": 105.0,
+                        "low": 99.0,
+                        "close": 103.0,
+                        "volume": 1000000,
+                    }
+                ]
+            }
+
             bars = list(adapter.read_bars("2020-01-01", "2020-12-31"))
 
-            # Should not call API
-            assert not mock_get.called
+            # SHOULD call API because cache doesn't cover full range
+            assert mock_get.called
 
         assert len(bars) == 1
         assert bars[0].open == 100.0
