@@ -36,7 +36,7 @@ def main() -> None:
         mode="adjusted",
         frequency="1d",
         timezone="America/New_York",
-        source_tag="algoseek-adjusted",
+        source_tag="schwab-adjusted",
         bar_schema=bar_schema,
     )
 

@@ -23,23 +23,17 @@ data_sources:
     cache_root: "data/us-equity-daily-adjusted-schwab"
     mode: adjusted_only
 
-    api:
-      base_url: "https://api.schwabapi.com"
-      auth:
-        client_id: "${SCHWAB_API_KEY}"
-        client_secret: "${SCHWAB_API_SECRET}"
-        redirect_uri: "${SCHWAB_REDIRECT_URI:-https://127.0.0.1:8182}"
-        token_cache: "~/.qtrader/schwab_tokens.json"
+    # OAuth credentials (required)
+    client_id: "${SCHWAB_API_KEY}"
+    client_secret: "${SCHWAB_API_SECRET}"
 
-      rate_limit:
-        requests_per_second: 10
-        backoff_base_delay: 1.0
-        backoff_max_delay: 60.0
+    # OAuth configuration (optional)
+    redirect_uri: "${SCHWAB_REDIRECT_URI:-https://127.0.0.1:8182}"
+    token_cache_path: "~/.qtrader/schwab_tokens.json"
+    manual_mode: false
 
-      fetch:
-        chunk_size_days: 365
-        max_years: 20
-        timeout_seconds: 30
+    # Rate limiting
+    requests_per_second: 10
 
   # Database (PostgreSQL example - requires environment variables)
   # database:

@@ -134,7 +134,8 @@ class DataSourceResolver:
         """
         Substitute environment variables in config values.
 
-        Replaces ${VAR_NAME} with environment variable value.
+        Supports ${VAR_NAME} and ${VAR_NAME:-default} syntax.
+        Nested dicts are processed recursively.
 
         Args:
             config: Configuration dict (possibly nested).
@@ -143,13 +144,21 @@ class DataSourceResolver:
             Config with environment variables substituted.
 
         Raises:
-            KeyError: If referenced environment variable not found.
+            KeyError: If referenced environment variable not found and no default.
         """
         result: Dict[str, Any] = {}
         for key, value in config.items():
             if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
-                var_name = value[2:-1]
-                result[key] = os.environ[var_name]
+                # Extract variable name and optional default
+                var_expr = value[2:-1]  # Remove ${ and }
+
+                if ":-" in var_expr:
+                    # Handle ${VAR:-default} syntax
+                    var_name, default_value = var_expr.split(":-", 1)
+                    result[key] = os.environ.get(var_name, default_value)
+                else:
+                    # Handle ${VAR} syntax (no default)
+                    result[key] = os.environ[var_expr]
             elif isinstance(value, dict):
                 result[key] = self._substitute_env_vars(value)
             else:

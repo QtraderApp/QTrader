@@ -344,15 +344,31 @@ class SchwabOAuthManager:
         server = HTTPServer((self.CALLBACK_HOST, self.CALLBACK_PORT), CallbackHandler)
         server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
 
-        # Run server in thread with timeout
-        server_thread = Thread(target=server.handle_request, daemon=True)
+        # Run server in thread with loop to handle multiple requests
+        # (browsers send favicon.ico, etc.)
+        def serve_until_code():
+            """Keep serving requests until we get the auth code."""
+            timeout = 120  # 2 minutes total
+            start_time = time.time()
+
+            while not auth_code_container["code"]:
+                # Check if timeout expired
+                if time.time() - start_time > timeout:
+                    logger.error("schwab_oauth.callback_timeout")
+                    break
+
+                # Handle one request (blocks for max 5 seconds per request)
+                server.timeout = 5
+                server.handle_request()
+
+        server_thread = Thread(target=serve_until_code, daemon=True)
         server_thread.start()
 
         # Wait for callback (2 minute timeout)
-        server_thread.join(timeout=120)
+        server_thread.join(timeout=125)  # Slightly longer than internal timeout
 
         if not auth_code_container["code"]:
-            logger.error("schwab_oauth.callback_timeout")
+            logger.error("schwab_oauth.callback_timeout_final")
 
         return auth_code_container["code"]
 
