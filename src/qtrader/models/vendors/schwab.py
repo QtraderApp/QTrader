@@ -6,7 +6,7 @@ Schwab API returns split-adjusted prices only (no unadjusted or total return dat
 """
 
 import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -59,7 +59,7 @@ class SchwabBar(BaseModel):
         - This is vendor-specific; use adapters to convert to Bar
     """
 
-    timestamp: datetime.datetime = Field(..., description="Trading timestamp")
+    timestamp: Any = Field(..., description="Trading timestamp (accepts datetime, Unix ms, or ISO string)")
     open: float = Field(..., description="Split-adjusted opening price")
     high: float = Field(..., description="Split-adjusted high price")
     low: float = Field(..., description="Split-adjusted low price")
@@ -68,7 +68,7 @@ class SchwabBar(BaseModel):
 
     @field_validator("timestamp", mode="before")
     @classmethod
-    def parse_timestamp(cls, v):
+    def parse_timestamp(cls, v: Any) -> datetime.datetime:
         """
         Parse timestamp from Unix timestamp (milliseconds) or ISO string.
 

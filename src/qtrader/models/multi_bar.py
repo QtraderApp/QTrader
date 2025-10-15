@@ -10,9 +10,10 @@ different components to select the optimal mode for their purpose:
 - Performance: total_return (includes dividend reinvestment)
 """
 
-from typing import Literal
+import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from qtrader.models.bar import Bar
 
@@ -29,7 +30,7 @@ class MultiBar(BaseModel):
 
     Attributes:
         symbol: Ticker symbol
-        trade_datetime: Trading datetime (ISO format)
+        trade_datetime: Trading datetime (accepts datetime or ISO string)
         unadjusted: Raw prices as traded (for execution/fills)
         adjusted: Split-adjusted prices (for indicators/signals)
         total_return: Split + dividend adjusted (for performance)
@@ -55,12 +56,35 @@ class MultiBar(BaseModel):
     """
 
     symbol: str = Field(..., description="Ticker symbol")
-    trade_datetime: str = Field(..., description="Trade datetime (ISO format)")
+    trade_datetime: Any = Field(..., description="Trade datetime (accepts datetime or ISO string)")
     unadjusted: Bar = Field(..., description="Unadjusted prices (actual traded)")
     adjusted: Bar = Field(..., description="Split-adjusted prices")
     total_return: Bar = Field(..., description="Split + dividend adjusted")
 
     model_config = ConfigDict(frozen=True)  # Immutable
+
+    @field_validator("trade_datetime", mode="before")
+    @classmethod
+    def parse_trade_datetime(cls, v: Any) -> datetime.datetime:
+        """
+        Parse trade_datetime from datetime or ISO string.
+
+        Args:
+            v: datetime object or ISO format string
+
+        Returns:
+            datetime.datetime object
+
+        Raises:
+            ValueError: If input cannot be parsed
+        """
+        if isinstance(v, datetime.datetime):
+            return v
+        elif isinstance(v, str):
+            # Parse ISO format string
+            return datetime.datetime.fromisoformat(v)
+        else:
+            raise ValueError(f"Cannot parse datetime from type {type(v)}: {v}")
 
     def get_bar(self, mode: AdjustmentMode) -> Bar:
         """
