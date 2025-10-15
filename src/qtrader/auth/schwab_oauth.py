@@ -80,6 +80,7 @@ class SchwabOAuthManager:
         redirect_uri: str | None = None,
         token_cache_path: Path | None = None,
         ssl_cert_dir: Path | None = None,
+        manual_mode: bool = False,
     ):
         """
         Initialize Schwab OAuth manager.
@@ -90,6 +91,7 @@ class SchwabOAuthManager:
             redirect_uri: OAuth redirect URI (default: https://127.0.0.1:8182)
             token_cache_path: Path to token cache file (default: ~/.qtrader/schwab_tokens.json)
             ssl_cert_dir: Directory for SSL certificates (default: ~/.qtrader/ssl)
+            manual_mode: If True, use manual code entry instead of callback server
 
         Raises:
             ValueError: If client_id or client_secret is empty
@@ -100,6 +102,7 @@ class SchwabOAuthManager:
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri or f"https://{self.CALLBACK_HOST}:{self.CALLBACK_PORT}"
+        self.manual_mode = manual_mode
 
         # Token cache path
         if token_cache_path is None:
@@ -185,17 +188,26 @@ class SchwabOAuthManager:
         print("  1. Click the URL above (or copy to browser)")
         print("  2. Log in to your Schwab account")
         print("  3. Authorize the application")
-        print("  4. You'll be redirected to a local page")
-        print(f"     (https://{self.CALLBACK_HOST}:{self.CALLBACK_PORT})")
-        print("\n⚠️  Browser Security Warning:")
-        print("  - You will see a security warning (expected)")
-        print("  - This is because we use a self-signed certificate")
-        print("  - Click 'Advanced' → 'Proceed to 127.0.0.1'")
-        print("\n⏳ Waiting for authorization...")
+
+        if self.manual_mode:
+            print("  4. Copy the 'code' parameter from the redirect URL")
+            print("     (URL will look like: https://...?code=XXXXX)")
+            print("\n⏳ Waiting for code input...")
+        else:
+            print("  4. You'll be redirected to a local page")
+            print(f"     (https://{self.CALLBACK_HOST}:{self.CALLBACK_PORT})")
+            print("\n⚠️  Browser Security Warning:")
+            print("  - You will see a security warning (expected)")
+            print("  - This is because we use a self-signed certificate")
+            print("  - Click 'Advanced' → 'Proceed to 127.0.0.1'")
+            print("\n⏳ Waiting for authorization...")
         print("=" * 70)
 
-        # Step 2: Start HTTPS callback server and capture code
-        auth_code = self._start_callback_server()
+        # Step 2: Get authorization code (manual or callback)
+        if self.manual_mode:
+            auth_code = self._get_code_manual()
+        else:
+            auth_code = self._start_callback_server()
 
         if not auth_code:
             raise RuntimeError("Failed to capture authorization code from callback")
@@ -204,6 +216,46 @@ class SchwabOAuthManager:
 
         # Step 3: Exchange code for token
         return self._exchange_code_for_token(auth_code)
+
+    def _get_code_manual(self) -> str | None:
+        """
+        Get authorization code via manual user input.
+
+        This method prompts the user to paste the authorization code
+        from the redirect URL. Useful when callback server cannot be used.
+
+        Returns:
+            Authorization code from user input, or None if cancelled
+
+        Note:
+            User should copy the 'code' parameter from the URL after authorization
+        """
+        print("\n📝 After authorizing, paste the full redirect URL here:")
+        print("   (or just the code parameter)")
+
+        try:
+            user_input = input("\n> ").strip()
+
+            if not user_input:
+                logger.warning("schwab_oauth.manual_code_empty")
+                return None
+
+            # Try to parse as URL first
+            if "code=" in user_input:
+                parsed = urllib.parse.urlparse(user_input)
+                params = urllib.parse.parse_qs(parsed.query)
+                if "code" in params:
+                    code = params["code"][0]
+                    logger.info("schwab_oauth.manual_code_extracted", code_length=len(code))
+                    return code
+
+            # Assume it's just the code
+            logger.info("schwab_oauth.manual_code_received", code_length=len(user_input))
+            return user_input
+
+        except (KeyboardInterrupt, EOFError):
+            logger.warning("schwab_oauth.manual_code_cancelled")
+            return None
 
     def _start_callback_server(self) -> str | None:
         """
