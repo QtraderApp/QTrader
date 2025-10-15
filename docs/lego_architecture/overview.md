@@ -120,11 +120,35 @@ Services ONLY know about:
 
 [📋 Phase 6 Implementation Plan](phase6_strategy_context.md)
 
+### Phase 7: IndicatorService
+
+**Duration:** 2-3 weeks **Goal:** Extract technical indicators as independent service
+
+[📋 Phase 7 Implementation Plan](phase7_indicator_service.md)
+
+### Phase 8: AnalyticsService
+
+**Duration:** 2 weeks **Goal:** Performance metrics calculation (Sharpe, drawdown, win rate)
+
+[📋 Phase 8 Implementation Plan](phase8_analytics_service.md)
+
+### Phase 9: ReportingService
+
+**Duration:** 1-2 weeks **Goal:** Format and display results (console, JSON, CSV, plots)
+
+[📋 Phase 9 Implementation Plan](phase9_reporting_service.md)
+
+### Phase 10: Configuration Management
+
+**Duration:** 1-2 weeks **Goal:** Centralized, typed configuration system
+
+[📋 Phase 10 Implementation Plan](phase10_configuration.md)
+
 ## Total Estimated Timeline
 
-**15-20 weeks** (approximately 4-5 months)
+**20-30 weeks** (approximately 5-7.5 months)
 
-**Can be parallelized:** Phases 2-4 have some independence once Phase 1 proves the pattern.
+**Can be parallelized:** Phases 2-4 have some independence once Phase 1 proves the pattern. Phase 7 (Indicators) can be developed alongside Phase 6 (Context). Phase 10 (Configuration) can be done anytime after Phase 1.
 
 ## Non-Goals (Out of Scope)
 

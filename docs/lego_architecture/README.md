@@ -11,6 +11,10 @@ This directory contains the implementation plans for refactoring QTrader into a 
 - **[Phase 4: RiskService](phase4_risk_service.md)** - Extract risk management and position sizing
 - **[Phase 5: BacktestEngine](phase5_backtest_engine.md)** - Rebuild as thin orchestration layer
 - **[Phase 6: Strategy Context](phase6_strategy_context.md)** - Create clean user-facing API
+- **[Phase 7: IndicatorService](phase7_indicator_service.md)** - Extract technical indicators as independent service
+- **[Phase 8: AnalyticsService](phase8_analytics_service.md)** - Performance metrics calculation
+- **[Phase 9: ReportingService](phase9_reporting_service.md)** - Format and display results
+- **[Phase 10: Configuration](phase10_configuration.md)** - Centralized configuration management
 
 ## 🎯 Goals
 
@@ -75,11 +79,15 @@ Pydantic models define the "language" services speak:
 | Phase 1: DataService      | 📝 Planning | 1-2 weeks     | ⭐ Critical |
 | Phase 2: PortfolioService | 📝 Planning | 2-3 weeks     | High        |
 | Phase 3: ExecutionService | 📝 Planning | 3-4 weeks     | High        |
-| Phase 4: RiskService      | 📝 Planning | 2-3 weeks     | Medium      |
-| Phase 5: BacktestEngine   | 📝 Planning | 3-5 weeks     | High        |
-| Phase 6: Strategy Context | 📝 Planning | 2-3 weeks     | Medium      |
+| Phase 4: RiskService      | 2-3 weeks   | Medium        | 📝 Planned  |
+| Phase 5: BacktestEngine   | 3-5 weeks   | High          | 📝 Planned  |
+| Phase 6: Strategy Context | 2-3 weeks   | Medium        | 📝 Planned  |
+| Phase 7: IndicatorService | 2-3 weeks   | High          | 📝 Planned  |
+| Phase 8: AnalyticsService | 2 weeks     | High          | 📝 Planned  |
+| Phase 9: ReportingService | 1-2 weeks   | High          | 📝 Planned  |
+| Phase 10: Configuration   | 1-2 weeks   | Medium        | 📝 Planned  |
 
-**Total Estimated Duration:** 13-20 weeks (3-5 months)
+**Total Estimated Duration:** 20-30 weeks (5-7.5 months)
 
 ## 🚀 Getting Started
 
