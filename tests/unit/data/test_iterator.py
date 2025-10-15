@@ -1,5 +1,7 @@
 """Tests for PriceSeriesIterator."""
 
+from datetime import datetime
+
 import pytest
 
 from qtrader.data.iterator import PriceSeriesIterator
@@ -191,9 +193,9 @@ class TestPriceSeriesIteratorIteration:
         # Assert
         assert len(bars) == 3
         assert all(isinstance(bar, MultiBar) for bar in bars)
-        assert bars[0].trade_datetime == "2020-01-01T00:00:00"
-        assert bars[1].trade_datetime == "2020-01-02T00:00:00"
-        assert bars[2].trade_datetime == "2020-01-03T00:00:00"
+        assert bars[0].trade_datetime == datetime(2020, 1, 1, 0, 0, 0)
+        assert bars[1].trade_datetime == datetime(2020, 1, 2, 0, 0, 0)
+        assert bars[2].trade_datetime == datetime(2020, 1, 3, 0, 0, 0)
 
     def test_iterate_yields_multi_mode_bars(self, sample_canonical_series_dict):
         """Test that iteration yields MultiBar instances."""
@@ -250,7 +252,7 @@ class TestPriceSeriesIteratorPeek:
 
         # Assert
         assert peeked_bar is not None
-        assert peeked_bar.trade_datetime == "2020-01-01T00:00:00"
+        assert peeked_bar.trade_datetime == datetime(2020, 1, 1, 0, 0, 0)
         assert iterator._index == 0  # Index not advanced yet (peek caches it internally)
 
     def test_peek_then_next_returns_same_bar(self, sample_canonical_series_dict):
@@ -265,7 +267,7 @@ class TestPriceSeriesIteratorPeek:
         # Assert: Same bar
         assert peeked is not None
         assert peeked is next_bar
-        assert peeked.trade_datetime == "2020-01-01T00:00:00"
+        assert peeked.trade_datetime == datetime(2020, 1, 1, 0, 0, 0)
 
     def test_peek_multiple_times_returns_same_bar(self, sample_canonical_series_dict):
         """Test multiple peeks return same bar."""
@@ -280,7 +282,7 @@ class TestPriceSeriesIteratorPeek:
         # Assert: All same
         assert peek1 is not None
         assert peek1 is peek2 is peek3
-        assert peek1.trade_datetime == "2020-01-01T00:00:00"
+        assert peek1.trade_datetime == datetime(2020, 1, 1, 0, 0, 0)
 
     def test_peek_at_end_returns_none(self, sample_canonical_series_dict):
         """Test peek at end of series returns None."""
@@ -304,9 +306,9 @@ class TestPriceSeriesIteratorPeek:
         peeked = iterator.peek()
 
         # Assert: Peek shows second bar
-        assert first.trade_datetime == "2020-01-01T00:00:00"
+        assert first.trade_datetime == datetime(2020, 1, 1, 0, 0, 0)
         assert peeked is not None
-        assert peeked.trade_datetime == "2020-01-02T00:00:00"
+        assert peeked.trade_datetime == datetime(2020, 1, 2, 0, 0, 0)
 
 
 class TestPriceSeriesIteratorHelpers:
@@ -418,7 +420,7 @@ class TestPriceSeriesIteratorUseCases:
         # Bar 2: next is 27.25 (> 27.0) → process
         # Bar 3: no next → skip
         assert len(processed) == 1
-        assert processed[0].trade_datetime == "2020-01-02T00:00:00"
+        assert processed[0].trade_datetime == datetime(2020, 1, 2, 0, 0, 0)
 
     def test_multi_component_mode_selection(self, sample_canonical_series_dict):
         """Test different components selecting different modes."""

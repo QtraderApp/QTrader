@@ -1,5 +1,6 @@
-"""Tests for MultiBar model."""
+"""Unit tests for MultiBar model that combines all adjustment modes."""
 
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -15,7 +16,7 @@ class TestMultiBarCreation:
         """Test creating a valid MultiBar."""
         # Arrange: Create bars for each mode
         unadj_bar = Bar(
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -23,7 +24,7 @@ class TestMultiBarCreation:
             volume=1000000,
         )
         adj_bar = Bar(
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             open=25.0,
             high=26.25,
             low=24.75,
@@ -31,7 +32,7 @@ class TestMultiBarCreation:
             volume=1000000,
         )
         tr_bar = Bar(
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             open=25.5,
             high=26.75,
             low=25.25,
@@ -43,7 +44,7 @@ class TestMultiBarCreation:
         # Act: Create MultiBar
         multi_bar = MultiBar(
             symbol="AAPL",
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             unadjusted=unadj_bar,
             adjusted=adj_bar,
             total_return=tr_bar,
@@ -51,7 +52,7 @@ class TestMultiBarCreation:
 
         # Assert: All fields populated correctly
         assert multi_bar.symbol == "AAPL"
-        assert multi_bar.trade_datetime == "2020-08-31T00:00:00"
+        assert multi_bar.trade_datetime == datetime(2020, 8, 31, 0, 0, 0)
         assert multi_bar.unadjusted == unadj_bar
         assert multi_bar.adjusted == adj_bar
         assert multi_bar.total_return == tr_bar
@@ -60,7 +61,7 @@ class TestMultiBarCreation:
         """Test that MultiBar is immutable (frozen)."""
         # Arrange: Create MultiBar
         bar = Bar(
-            trade_datetime="2020-01-01T00:00:00",
+            trade_datetime=datetime(2020, 1, 1),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -69,7 +70,7 @@ class TestMultiBarCreation:
         )
         multi_bar = MultiBar(
             symbol="AAPL",
-            trade_datetime="2020-01-01T00:00:00",
+            trade_datetime=datetime(2020, 1, 1),
             unadjusted=bar,
             adjusted=bar,
             total_return=bar,
@@ -77,7 +78,7 @@ class TestMultiBarCreation:
 
         # Act & Assert: Cannot modify
         with pytest.raises(Exception):  # Pydantic raises validation error
-            multi_bar.symbol = "MSFT"  # type: ignore
+            multi_bar.symbol = "MSFT"
 
 
 class TestMultiBarModeAccess:
@@ -87,7 +88,7 @@ class TestMultiBarModeAccess:
     def sample_multi_bar(self) -> MultiBar:
         """Create sample MultiBar for testing."""
         unadj = Bar(
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -95,7 +96,7 @@ class TestMultiBarModeAccess:
             volume=1000000,
         )
         adj = Bar(
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             open=25.0,
             high=26.25,
             low=24.75,
@@ -103,7 +104,7 @@ class TestMultiBarModeAccess:
             volume=1000000,
         )
         tr = Bar(
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             open=25.5,
             high=26.75,
             low=25.25,
@@ -113,7 +114,7 @@ class TestMultiBarModeAccess:
         )
         return MultiBar(
             symbol="AAPL",
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             unadjusted=unadj,
             adjusted=adj,
             total_return=tr,
@@ -158,7 +159,7 @@ class TestMultiBarModeAccess:
     def test_get_bar_invalid_mode(self, sample_multi_bar):
         """Test get_bar() with invalid mode raises error."""
         with pytest.raises(ValueError, match="Invalid mode"):
-            sample_multi_bar.get_bar("invalid")  # type: ignore
+            sample_multi_bar.get_bar("invalid")
 
     def test_get_bar_dynamic_selection(self, sample_multi_bar):
         """Test dynamic mode selection based on config."""
@@ -185,9 +186,9 @@ class TestMultiBarUseCases:
         # Arrange: AAPL after 4:1 split
         multi_bar = MultiBar(
             symbol="AAPL",
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             unadjusted=Bar(
-                trade_datetime="2020-08-31T00:00:00",
+                trade_datetime=datetime(2020, 8, 31),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -195,7 +196,7 @@ class TestMultiBarUseCases:
                 volume=1000000,
             ),
             adjusted=Bar(
-                trade_datetime="2020-08-31T00:00:00",
+                trade_datetime=datetime(2020, 8, 31),
                 open=25.0,
                 high=26.25,
                 low=24.75,
@@ -203,7 +204,7 @@ class TestMultiBarUseCases:
                 volume=1000000,
             ),
             total_return=Bar(
-                trade_datetime="2020-08-31T00:00:00",
+                trade_datetime=datetime(2020, 8, 31),
                 open=25.0,
                 high=26.25,
                 low=24.75,
@@ -224,9 +225,9 @@ class TestMultiBarUseCases:
         # Arrange: Same AAPL bar
         multi_bar = MultiBar(
             symbol="AAPL",
-            trade_datetime="2020-08-31T00:00:00",
+            trade_datetime=datetime(2020, 8, 31),
             unadjusted=Bar(
-                trade_datetime="2020-08-31T00:00:00",
+                trade_datetime=datetime(2020, 8, 31),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -234,7 +235,7 @@ class TestMultiBarUseCases:
                 volume=1000000,
             ),
             adjusted=Bar(
-                trade_datetime="2020-08-31T00:00:00",
+                trade_datetime=datetime(2020, 8, 31),
                 open=25.0,
                 high=26.25,
                 low=24.75,
@@ -242,7 +243,7 @@ class TestMultiBarUseCases:
                 volume=1000000,
             ),
             total_return=Bar(
-                trade_datetime="2020-08-31T00:00:00",
+                trade_datetime=datetime(2020, 8, 31),
                 open=25.0,
                 high=26.25,
                 low=24.75,
@@ -270,9 +271,9 @@ class TestMultiBarUseCases:
         # Arrange: Bar with dividend
         multi_bar = MultiBar(
             symbol="AAPL",
-            trade_datetime="2020-08-07T00:00:00",
+            trade_datetime=datetime(2020, 8, 7),
             unadjusted=Bar(
-                trade_datetime="2020-08-07T00:00:00",
+                trade_datetime=datetime(2020, 8, 7),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -281,7 +282,7 @@ class TestMultiBarUseCases:
                 dividend=Decimal("0.82"),
             ),
             adjusted=Bar(
-                trade_datetime="2020-08-07T00:00:00",
+                trade_datetime=datetime(2020, 8, 7),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -290,7 +291,7 @@ class TestMultiBarUseCases:
                 dividend=Decimal("0.82"),
             ),
             total_return=Bar(
-                trade_datetime="2020-08-07T00:00:00",
+                trade_datetime=datetime(2020, 8, 7),
                 open=100.82,
                 high=105.87,
                 low=99.82,

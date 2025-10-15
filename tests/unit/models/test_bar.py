@@ -14,7 +14,7 @@ class TestBar:
     def test_create_valid_bar(self) -> None:
         """Should create valid bar with all required fields."""
         bar = Bar(
-            trade_datetime="2023-01-15",
+            trade_datetime=datetime(2023, 1, 15),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -34,7 +34,7 @@ class TestBar:
     def test_bar_with_dividend(self) -> None:
         """Should accept valid dividend amount."""
         bar = Bar(
-            trade_datetime="2023-06-15",
+            trade_datetime=datetime(2023, 6, 15),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -48,7 +48,7 @@ class TestBar:
     def test_bar_is_immutable(self) -> None:
         """Bar should be frozen (immutable)."""
         bar = Bar(
-            trade_datetime="2023-01-15",
+            trade_datetime=datetime(2023, 1, 15),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -63,7 +63,7 @@ class TestBar:
         """Should enforce High >= Low."""
         # Valid: High == Low
         bar = Bar(
-            trade_datetime="2023-01-15",
+            trade_datetime=datetime(2023, 1, 15),
             open=100.0,
             high=100.0,
             low=100.0,
@@ -75,7 +75,7 @@ class TestBar:
         # Invalid: High < Low
         with pytest.raises(ValueError, match="High.*< Low"):
             Bar(
-                trade_datetime="2023-01-15",
+                trade_datetime=datetime(2023, 1, 15),
                 open=100.0,
                 high=99.0,  # Less than low!
                 low=100.0,
@@ -87,7 +87,7 @@ class TestBar:
         """Should reject negative or zero prices."""
         with pytest.raises(ValueError):
             Bar(
-                trade_datetime="2023-01-15",
+                trade_datetime=datetime(2023, 1, 15),
                 open=0.0,  # Zero not allowed
                 high=105.0,
                 low=99.0,
@@ -97,7 +97,7 @@ class TestBar:
 
         with pytest.raises(ValueError):
             Bar(
-                trade_datetime="2023-01-15",
+                trade_datetime=datetime(2023, 1, 15),
                 open=100.0,
                 high=105.0,
                 low=-1.0,  # Negative not allowed
@@ -109,7 +109,7 @@ class TestBar:
         """Should accept zero volume but reject negative."""
         # Zero volume allowed
         bar = Bar(
-            trade_datetime="2023-01-15",
+            trade_datetime=datetime(2023, 1, 15),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -121,7 +121,7 @@ class TestBar:
         # Negative not allowed
         with pytest.raises(ValueError):
             Bar(
-                trade_datetime="2023-01-15",
+                trade_datetime=datetime(2023, 1, 15),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -133,7 +133,7 @@ class TestBar:
         """Should reject negative dividend amounts."""
         with pytest.raises(ValueError):
             Bar(
-                trade_datetime="2023-06-15",
+                trade_datetime=datetime(2023, 6, 15),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -150,7 +150,7 @@ class TestPriceSeries:
         """Should create valid price series with bars."""
         bars = [
             Bar(
-                trade_datetime="2023-01-15",
+                trade_datetime=datetime(2023, 1, 15),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -158,7 +158,7 @@ class TestPriceSeries:
                 volume=1000000,
             ),
             Bar(
-                trade_datetime="2023-01-16",
+                trade_datetime=datetime(2023, 1, 16),
                 open=103.0,
                 high=108.0,
                 low=102.0,
@@ -178,7 +178,7 @@ class TestPriceSeries:
         """Price series should be frozen (immutable)."""
         bars = [
             Bar(
-                trade_datetime="2023-01-15",
+                trade_datetime=datetime(2023, 1, 15),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -195,7 +195,7 @@ class TestPriceSeries:
         """Should accept only valid adjustment modes."""
         bars = [
             Bar(
-                trade_datetime="2023-01-15",
+                trade_datetime=datetime(2023, 1, 15),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -225,7 +225,7 @@ class TestPriceSeries:
         """Should handle bars with dividend information."""
         bars = [
             Bar(
-                trade_datetime="2023-06-14",
+                trade_datetime=datetime(2023, 6, 14),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -234,7 +234,7 @@ class TestPriceSeries:
                 dividend=None,
             ),
             Bar(
-                trade_datetime="2023-06-15",  # Ex-dividend date
+                trade_datetime=datetime(2023, 6, 15),  # Ex-dividend date
                 open=98.0,
                 high=102.0,
                 low=97.0,
@@ -243,7 +243,7 @@ class TestPriceSeries:
                 dividend=Decimal("0.50"),
             ),
             Bar(
-                trade_datetime="2023-06-16",
+                trade_datetime=datetime(2023, 6, 16),
                 open=100.0,
                 high=104.0,
                 low=99.0,

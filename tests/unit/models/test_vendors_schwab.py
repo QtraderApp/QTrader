@@ -1,6 +1,7 @@
 """Unit tests for Schwab vendor-specific bar and price series models."""
 
 import datetime
+from typing import Any
 
 import pytest
 
@@ -319,7 +320,7 @@ class TestSchwabPriceSeries:
     def test_schwab_api_response_format(self) -> None:
         """Should parse typical Schwab API response format."""
         # Simulate parsing Schwab API response
-        api_candles = [
+        api_candles: list[dict[str, Any]] = [
             {
                 "timestamp": 1673740800000,  # Unix milliseconds
                 "open": 132.43,
