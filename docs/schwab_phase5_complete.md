@@ -95,7 +95,7 @@ qtrader raw-data --symbol AAPL --start-date 2024-01-01 --end-date 2024-12-31 --s
 - ✅ Documents required environment variables:
   - `SCHWAB_API_KEY`
   - `SCHWAB_API_SECRET`
-  - `SCHWAB_REDIRECT_URI` (default: https://127.0.0.1:8182)
+  - `SCHWAB_REDIRECT_URI` (default: <https://127.0.0.1:8182>)
 - ✅ Includes direnv usage instructions
 
 **File Created:** `.envrc.example`
