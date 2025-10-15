@@ -10,8 +10,8 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from qtrader.adapters.resolver import DataSourceResolver
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+from qtrader.config.data_config import BarSchemaConfig, DataConfig
+from qtrader.services.data import DataService
 
 
 def _load_module(path: str):
@@ -76,87 +76,80 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
     """
     Browse raw unadjusted historical data bars interactively.
 
+    Displays data exactly as provided by the source (unadjusted prices).
     Press ENTER to display next bar, CTRL+C to exit.
 
     Example:
-        qtrader raw-data --symbol AAPL --start-date 2019-01-01 --end-date 2023-12-31 --source algoseek
-        qtrader raw-data --symbol AAPL --start-date 2024-01-01 --end-date 2024-12-31 --source schwab
+        qtrader raw-data --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31
+        qtrader raw-data --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31 --source schwab
     """
     console = Console()
 
     try:
-        # Validate dates
+        # Parse and validate dates
         try:
-            datetime.strptime(start_date, "%Y-%m-%d")
-            datetime.strptime(end_date, "%Y-%m-%d")
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
         except ValueError as e:
             console.print("[red]Error: Invalid date format. Use YYYY-MM-DD[/red]")
             console.print(f"[red]{e}[/red]")
             sys.exit(1)
 
-        # Create instrument
-        data_source_map = {"algoseek": DataSource.ALGOSEEK, "schwab": DataSource.SCHWAB}
-        data_source = data_source_map.get(source.lower(), DataSource.ALGOSEEK)
-        instrument = Instrument(symbol=symbol, instrument_type=InstrumentType.EQUITY, data_source=data_source)
+        # Configure bar schema (maps vendor columns to canonical fields)
+        bar_schema = BarSchemaConfig(
+            ts="trade_datetime",
+            symbol="symbol",
+            open="open",
+            high="high",
+            low="low",
+            close="close",
+            volume="volume",
+        )
 
-        # Resolve data source and create adapter
+        # Configure data service
+        config = DataConfig(
+            mode="adjusted",  # Internal processing mode
+            frequency="1d",
+            timezone="America/New_York",
+            source_tag=f"{source.lower()}-adjusted",  # e.g., "algoseek-adjusted"
+            bar_schema=bar_schema,
+        )
+
+        # Create service and load data
         console.print(f"[cyan]Loading data for {symbol} from {source}...[/cyan]")
-        resolver = DataSourceResolver()
-        adapter = resolver.resolve(instrument)
-
-        # Load bars
-        console.print(f"[cyan]Reading bars from {start_date} to {end_date}...[/cyan]")
-        bars = list(adapter.read_bars(start_date, end_date))
+        service = DataService(config)
+        iterator = service.load_symbol(symbol, start, end)
+        bars = list(iterator)
 
         if not bars:
             console.print(f"[yellow]No data found for {symbol} between {start_date} and {end_date}[/yellow]")
             sys.exit(0)
 
-        console.print(f"[green]Loaded {len(bars)} bars[/green]\n")
+        console.print(f"[green]Loaded {len(bars)} bars[/green]")
+        console.print("[dim]Displaying raw unadjusted prices[/dim]")
         console.print("[dim]Press ENTER to view next bar, CTRL+C to exit[/dim]\n")
 
         # Display bars one by one
-        for idx, bar in enumerate(bars, 1):
+        for idx, multi_bar in enumerate(bars, 1):
+            # Always use unadjusted (raw) data
+            bar = multi_bar.unadjusted
+
             # Create table for this bar
-            table = Table(title=f"Bar {idx}/{len(bars)} - {symbol}")
+            table = Table(title=f"Bar {idx}/{len(bars)} - {symbol} (raw)")
             table.add_column("Field", style="cyan", no_wrap=True)
             table.add_column("Value", style="white")
 
-            # Handle different bar types (AlgoseekBar vs SchwabBar)
-            # AlgoseekBar: TradeDate, Open, High, Low, Close, MarketHoursVolume
-            # SchwabBar: timestamp, open, high, low, close, volume
-            if hasattr(bar, "TradeDate"):
-                # AlgoseekBar
-                trade_date_str = (
-                    bar.TradeDate.strftime("%Y-%m-%d") if hasattr(bar.TradeDate, "strftime") else str(bar.TradeDate)
-                )
-                table.add_row("Trade Date", trade_date_str)
-                table.add_row("Open", f"${bar.Open:.2f}")
-                table.add_row("High", f"${bar.High:.2f}")
-                table.add_row("Low", f"${bar.Low:.2f}")
-                table.add_row("Close", f"${bar.Close:.2f}")
-                table.add_row("Volume", f"{bar.MarketHoursVolume:,}")
-            elif hasattr(bar, "timestamp"):
-                # SchwabBar
-                timestamp_str = (
-                    bar.timestamp.strftime("%Y-%m-%d") if hasattr(bar.timestamp, "strftime") else str(bar.timestamp)
-                )
-                table.add_row("Timestamp", timestamp_str)
-                table.add_row("Open", f"${bar.open:.2f}")
-                table.add_row("High", f"${bar.high:.2f}")
-                table.add_row("Low", f"${bar.low:.2f}")
-                table.add_row("Close", f"${bar.close:.2f}")
-                table.add_row("Volume", f"{bar.volume:,}")
+            # Display bar data (uniform interface for all data sources)
+            table.add_row("Date", str(multi_bar.trade_datetime.date()))
+            table.add_row("Open", f"${bar.open:.2f}")
+            table.add_row("High", f"${bar.high:.2f}")
+            table.add_row("Low", f"${bar.low:.2f}")
+            table.add_row("Close", f"${bar.close:.2f}")
+            table.add_row("Volume", f"{bar.volume:,}")
 
-            # Add adjustment factors if present (AlgoseekBar specific)
-            if hasattr(bar, "CumulativePriceFactor") and bar.CumulativePriceFactor is not None:
-                table.add_row("Cumulative Price Factor", f"{bar.CumulativePriceFactor:.6f}")
-            if hasattr(bar, "CumulativeVolumeFactor") and bar.CumulativeVolumeFactor is not None:
-                table.add_row("Cumulative Volume Factor", f"{bar.CumulativeVolumeFactor:.6f}")
-            if hasattr(bar, "AdjustmentFactor") and bar.AdjustmentFactor is not None:
-                table.add_row("Adjustment Factor", f"{bar.AdjustmentFactor:.6f}")
-            if hasattr(bar, "AdjustmentReason") and bar.AdjustmentReason:
-                table.add_row("Adjustment Reason", bar.AdjustmentReason)
+            # Show dividend if present (on ex-dividend date)
+            if bar.dividend:
+                table.add_row("Dividend", f"${bar.dividend:.4f}", style="green bold")
 
             # Display table
             console.print(table)
