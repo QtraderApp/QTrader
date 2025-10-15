@@ -89,13 +89,13 @@ The authorization will happen automatically - no need to copy/paste the code!
 
 ## Code Changes
 
-### Added to `SchwabOAuthManager.__init__()`:
+### Added to `SchwabOAuthManager.__init__()`
 
 ```python
 manual_mode: bool = False  # New parameter
 ```
 
-### New Method:
+### New Method
 
 ```python
 def _get_code_manual(self) -> str | None:
@@ -105,7 +105,7 @@ def _get_code_manual(self) -> str | None:
     # Returns authorization code
 ```
 
-### Updated Flow:
+### Updated Flow
 
 ```python
 if self.manual_mode:
