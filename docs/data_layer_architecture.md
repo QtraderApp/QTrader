@@ -3,7 +3,7 @@
 Complete architecture diagram showing how all data layer components interact.
 
 **Last Updated**: October 15, 2025\
-**Status**: Current implementation (simplier branch - data layer only focus)
+**Status**: Current implementation (simpler branch - data layer only focus)
 
 ______________________________________________________________________
 

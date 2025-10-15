@@ -110,7 +110,7 @@ class PriceSeriesIterator:
         # Build MultiBar from all three series
         multi_bar = MultiBar(
             symbol=self.symbol,
-            trade_datetime=unadj_bars[self._index].trade_datetime,
+            trade_datetime=unadj_bars[self._index].trade_datetime.isoformat(),
             unadjusted=self.series_dict["unadjusted"].bars[self._index],
             adjusted=self.series_dict["adjusted"].bars[self._index],
             total_return=self.series_dict["total_return"].bars[self._index],
@@ -144,7 +144,7 @@ class PriceSeriesIterator:
 
         self._peeked = MultiBar(
             symbol=self.symbol,
-            trade_datetime=unadj_bars[self._index].trade_datetime,
+            trade_datetime=unadj_bars[self._index].trade_datetime.isoformat(),
             unadjusted=self.series_dict["unadjusted"].bars[self._index],
             adjusted=self.series_dict["adjusted"].bars[self._index],
             total_return=self.series_dict["total_return"].bars[self._index],

@@ -1,5 +1,7 @@
 """Tests for BarMerger multi-symbol coordinator."""
 
+from datetime import datetime
+
 import pytest
 
 from qtrader.data.bar_merger import BarMerger
@@ -13,7 +15,7 @@ def aapl_bars():
     """Create AAPL test bars."""
     return [
         Bar(
-            trade_datetime="2020-01-02",
+            trade_datetime=datetime(2020, 1, 2),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -21,7 +23,7 @@ def aapl_bars():
             volume=1000000,
         ),
         Bar(
-            trade_datetime="2020-01-03",
+            trade_datetime=datetime(2020, 1, 3),
             open=103.0,
             high=107.0,
             low=102.0,
@@ -29,7 +31,7 @@ def aapl_bars():
             volume=1100000,
         ),
         Bar(
-            trade_datetime="2020-01-06",
+            trade_datetime=datetime(2020, 1, 6),
             open=106.0,
             high=108.0,
             low=105.0,
@@ -44,7 +46,7 @@ def msft_bars():
     """Create MSFT test bars."""
     return [
         Bar(
-            trade_datetime="2020-01-02",
+            trade_datetime=datetime(2020, 1, 2),
             open=200.0,
             high=205.0,
             low=198.0,
@@ -52,7 +54,7 @@ def msft_bars():
             volume=2000000,
         ),
         Bar(
-            trade_datetime="2020-01-03",
+            trade_datetime=datetime(2020, 1, 3),
             open=203.0,
             high=207.0,
             low=201.0,
@@ -60,7 +62,7 @@ def msft_bars():
             volume=2100000,
         ),
         Bar(
-            trade_datetime="2020-01-07",
+            trade_datetime=datetime(2020, 1, 7),
             open=205.0,
             high=210.0,
             low=204.0,
@@ -75,7 +77,7 @@ def googl_bars():
     """Create GOOGL test bars (starts later)."""
     return [
         Bar(
-            trade_datetime="2020-01-03",
+            trade_datetime=datetime(2020, 1, 3),
             open=1300.0,
             high=1320.0,
             low=1295.0,
@@ -83,7 +85,7 @@ def googl_bars():
             volume=500000,
         ),
         Bar(
-            trade_datetime="2020-01-06",
+            trade_datetime=datetime(2020, 1, 6),
             open=1315.0,
             high=1330.0,
             low=1310.0,
@@ -165,32 +167,32 @@ class TestBarMergerChronologicalOrder:
         # Both have 2020-01-02, should return AAPL first (alphabetical)
         symbol1, bar1 = merger.get_next_bar()
         assert symbol1 == "AAPL"
-        assert bar1.trade_datetime == "2020-01-02"
+        assert bar1.trade_datetime == "2020-01-02T00:00:00"
 
         # Next should be MSFT 2020-01-02
         symbol2, bar2 = merger.get_next_bar()
         assert symbol2 == "MSFT"
-        assert bar2.trade_datetime == "2020-01-02"
+        assert bar2.trade_datetime == "2020-01-02T00:00:00"
 
         # Both have 2020-01-03, should return AAPL first
         symbol3, bar3 = merger.get_next_bar()
         assert symbol3 == "AAPL"
-        assert bar3.trade_datetime == "2020-01-03"
+        assert bar3.trade_datetime == "2020-01-03T00:00:00"
 
         # Next should be MSFT 2020-01-03
         symbol4, bar4 = merger.get_next_bar()
         assert symbol4 == "MSFT"
-        assert bar4.trade_datetime == "2020-01-03"
+        assert bar4.trade_datetime == "2020-01-03T00:00:00"
 
         # AAPL has 2020-01-06, MSFT has 2020-01-07
         symbol5, bar5 = merger.get_next_bar()
         assert symbol5 == "AAPL"
-        assert bar5.trade_datetime == "2020-01-06"
+        assert bar5.trade_datetime == "2020-01-06T00:00:00"
 
         # Finally MSFT 2020-01-07
         symbol6, bar6 = merger.get_next_bar()
         assert symbol6 == "MSFT"
-        assert bar6.trade_datetime == "2020-01-07"
+        assert bar6.trade_datetime == "2020-01-07T00:00:00"
 
         # All exhausted
         assert not merger.has_next()
@@ -205,27 +207,27 @@ class TestBarMergerChronologicalOrder:
         # AAPL 2020-01-02 (GOOGL starts later)
         symbol1, bar1 = merger.get_next_bar()
         assert symbol1 == "AAPL"
-        assert bar1.trade_datetime == "2020-01-02"
+        assert bar1.trade_datetime == "2020-01-02T00:00:00"
 
         # Both have 2020-01-03, AAPL first
         symbol2, bar2 = merger.get_next_bar()
         assert symbol2 == "AAPL"
-        assert bar2.trade_datetime == "2020-01-03"
+        assert bar2.trade_datetime == "2020-01-03T00:00:00"
 
         # GOOGL 2020-01-03
         symbol3, bar3 = merger.get_next_bar()
         assert symbol3 == "GOOGL"
-        assert bar3.trade_datetime == "2020-01-03"
+        assert bar3.trade_datetime == "2020-01-03T00:00:00"
 
         # Both have 2020-01-06, AAPL first
         symbol4, bar4 = merger.get_next_bar()
         assert symbol4 == "AAPL"
-        assert bar4.trade_datetime == "2020-01-06"
+        assert bar4.trade_datetime == "2020-01-06T00:00:00"
 
         # GOOGL 2020-01-06
         symbol5, bar5 = merger.get_next_bar()
         assert symbol5 == "GOOGL"
-        assert bar5.trade_datetime == "2020-01-06"
+        assert bar5.trade_datetime == "2020-01-06T00:00:00"
 
         # All exhausted
         assert not merger.has_next()
@@ -279,7 +281,11 @@ class TestBarMergerIteration:
             dates_yielded.append(bar.trade_datetime)
 
         assert symbols_yielded == ["AAPL", "AAPL", "AAPL"]
-        assert dates_yielded == ["2020-01-02", "2020-01-03", "2020-01-06"]
+        assert dates_yielded == [
+            "2020-01-02T00:00:00",
+            "2020-01-03T00:00:00",
+            "2020-01-06T00:00:00",
+        ]
 
 
 class TestBarMergerPeek:
@@ -295,7 +301,7 @@ class TestBarMergerPeek:
         assert peeked is not None
         symbol, bar = peeked
         assert symbol == "AAPL"
-        assert bar.trade_datetime == "2020-01-02"
+        assert bar.trade_datetime == "2020-01-02T00:00:00"
 
         # Should still have bars
         assert merger.has_next()
@@ -409,9 +415,9 @@ class TestBarMergerMultiModeIntegration:
         assert bar.total_return is not None
 
         # All modes should have same timestamp
-        assert bar.unadjusted.trade_datetime == bar.trade_datetime
-        assert bar.adjusted.trade_datetime == bar.trade_datetime
-        assert bar.total_return.trade_datetime == bar.trade_datetime
+        assert bar.unadjusted.trade_datetime.isoformat() == bar.trade_datetime
+        assert bar.adjusted.trade_datetime.isoformat() == bar.trade_datetime
+        assert bar.total_return.trade_datetime.isoformat() == bar.trade_datetime
 
     def test_can_select_mode(self, aapl_bars):
         """Test can select different modes from merged bars."""

@@ -1,5 +1,6 @@
 """Unit tests for Bar and PriceSeries models."""
 
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -22,7 +23,7 @@ class TestBar:
             dividend=None,
         )
 
-        assert bar.trade_datetime == "2023-01-15"
+        assert bar.trade_datetime == datetime(2023, 1, 15)
         assert bar.open == 100.0
         assert bar.high == 105.0
         assert bar.low == 99.0

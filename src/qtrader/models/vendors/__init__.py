@@ -1,3 +1,3 @@
-"""Vendor-specific data models."""
+from .algoseek import AlgoseekBar, AlgoseekPriceSeries
 
-__all__ = ["algoseek"]
+__all__ = ["AlgoseekBar", "AlgoseekPriceSeries"]

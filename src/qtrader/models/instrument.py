@@ -17,7 +17,7 @@ class InstrumentType(Enum):
     CRYPTO = "crypto"
     FUTURE = "future"
     FOREX = "forex"
-    SIGNAL = "signal"  # Alternative data (sentiment, factors, etc.)
+    SIGNAL = "signal"
 
 
 class DataSource(Enum):
@@ -29,12 +29,8 @@ class DataSource(Enum):
     """
 
     ALGOSEEK = "algoseek"
-    DATABASE = "database"
-    IQFEED = "iqfeed"
-    BINANCE = "binance"
-    COINBASE = "coinbase"
+    SCHWAB = "schwab"
     CSV_FILE = "csv_file"
-    API = "api"
 
 
 class Instrument(NamedTuple):

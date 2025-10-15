@@ -10,6 +10,7 @@ The canonical model supports three adjustment modes:
 - total_return: Split + dividend adjusted (investment simulation)
 """
 
+from datetime import datetime
 from decimal import Decimal
 from typing import ClassVar, Optional
 
@@ -38,7 +39,7 @@ class Bar(BaseModel):
     """
 
     # Instance fields
-    trade_datetime: str = Field(..., description="Trade datetime (ISO format)")
+    trade_datetime: datetime = Field(..., description="Trade datetime")
     open: float = Field(..., gt=0, description="Open price")
     high: float = Field(..., gt=0, description="High price")
     low: float = Field(..., gt=0, description="Low price")
