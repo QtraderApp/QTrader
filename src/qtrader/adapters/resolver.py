@@ -175,6 +175,7 @@ class DataSourceResolver:
         # Map adapter names to classes
         adapter_map = {
             "algoseekOHLC": "qtrader.adapters.algoseek.AlgoseekOHLCVendorAdapter",
+            "schwabOHLC": "qtrader.adapters.schwab.SchwabOHLCAdapter",
             # Add more adapters as needed
         }
 

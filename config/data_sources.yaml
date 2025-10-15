@@ -17,6 +17,30 @@ data_sources:
     path_template: "{root_path}/SecId={secid}/*.parquet"
     symbol_map: "data/equity_security_master_sample.csv"
 
+  # Schwab API (with cache-first strategy)
+  schwab:
+    adapter: schwabOHLC
+    cache_root: "data/us-equity-daily-adjusted-schwab"
+    mode: adjusted_only
+
+    api:
+      base_url: "https://api.schwabapi.com"
+      auth:
+        client_id: "${SCHWAB_API_KEY}"
+        client_secret: "${SCHWAB_API_SECRET}"
+        redirect_uri: "${SCHWAB_REDIRECT_URI:-https://127.0.0.1:8182}"
+        token_cache: "~/.qtrader/schwab_tokens.json"
+
+      rate_limit:
+        requests_per_second: 10
+        backoff_base_delay: 1.0
+        backoff_max_delay: 60.0
+
+      fetch:
+        chunk_size_days: 365
+        max_years: 20
+        timeout_seconds: 30
+
   # Database (PostgreSQL example - requires environment variables)
   # database:
   #   adapter: postgres_adapter
