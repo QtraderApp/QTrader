@@ -17,11 +17,13 @@ Separation of concerns:
 - Data layer: Transform to canonical format
 """
 
+import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 
+import pandas as pd
 import requests
 
 from qtrader.auth.schwab_oauth import SchwabOAuthManager
@@ -30,6 +32,145 @@ from qtrader.models.instrument import Instrument
 from qtrader.models.vendors.schwab import SchwabBar
 
 logger = LoggerFactory.get_logger()
+
+
+class MetadataManager:
+    """
+    Manage cache metadata for Schwab data.
+
+    Tracks cache state per symbol including date ranges, row counts,
+    and last update timestamps. Metadata is stored as JSON files
+    alongside the cached Parquet data.
+
+    Metadata format:
+        {
+            "symbol": "AAPL",
+            "last_update": "2025-10-15T10:30:00Z",
+            "date_range": {
+                "start": "2019-01-01",
+                "end": "2025-10-15"
+            },
+            "row_count": 1658,
+            "frequency_type": "daily",
+            "frequency": 1,
+            "source": "schwab"
+        }
+    """
+
+    def __init__(self, cache_root: Path, symbol: str):
+        """
+        Initialize metadata manager.
+
+        Args:
+            cache_root: Root directory for cached data
+            symbol: Stock symbol
+        """
+        self.cache_root = cache_root
+        self.symbol = symbol
+        self.symbol_dir = cache_root / symbol
+        self.metadata_file = self.symbol_dir / ".metadata.json"
+        self.data_file = self.symbol_dir / "data.parquet"
+
+    def read_metadata(self) -> Optional[dict]:
+        """
+        Read metadata from file.
+
+        Returns:
+            Metadata dict or None if file doesn't exist
+        """
+        if not self.metadata_file.exists():
+            return None
+
+        try:
+            with open(self.metadata_file) as f:
+                data: dict = json.load(f)
+                return data
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(
+                "schwab_metadata.read_error",
+                symbol=self.symbol,
+                path=str(self.metadata_file),
+                error=str(e),
+            )
+            return None
+
+    def write_metadata(
+        self,
+        start_date: str,
+        end_date: str,
+        row_count: int,
+        frequency_type: str = "daily",
+        frequency: int = 1,
+    ) -> None:
+        """
+        Write metadata to file.
+
+        Args:
+            start_date: Start of date range (ISO format)
+            end_date: End of date range (ISO format)
+            row_count: Number of rows in cache
+            frequency_type: Bar frequency type
+            frequency: Bar frequency value
+        """
+        # Ensure directory exists
+        self.symbol_dir.mkdir(parents=True, exist_ok=True)
+
+        metadata = {
+            "symbol": self.symbol,
+            "last_update": datetime.now(timezone.utc).isoformat(),
+            "date_range": {"start": start_date, "end": end_date},
+            "row_count": row_count,
+            "frequency_type": frequency_type,
+            "frequency": frequency,
+            "source": "schwab",
+        }
+
+        # Write atomically (temp file + rename)
+        temp_file = self.metadata_file.with_suffix(".tmp")
+        try:
+            with open(temp_file, "w") as f:
+                json.dump(metadata, f, indent=2)
+
+            # Set secure permissions
+            temp_file.chmod(0o644)
+
+            # Atomic rename
+            temp_file.replace(self.metadata_file)
+
+            logger.debug(
+                "schwab_metadata.written",
+                symbol=self.symbol,
+                start_date=start_date,
+                end_date=end_date,
+                row_count=row_count,
+            )
+
+        except OSError as e:
+            logger.error(
+                "schwab_metadata.write_error",
+                symbol=self.symbol,
+                error=str(e),
+            )
+            if temp_file.exists():
+                temp_file.unlink()
+            raise
+
+    def cache_exists(self) -> bool:
+        """Check if cache files exist."""
+        return self.data_file.exists() and self.metadata_file.exists()
+
+    def get_cached_date_range(self) -> Optional[tuple[str, str]]:
+        """
+        Get date range from cached data.
+
+        Returns:
+            (start_date, end_date) tuple or None if no cache
+        """
+        metadata = self.read_metadata()
+        if metadata and "date_range" in metadata:
+            date_range = metadata["date_range"]
+            return (date_range["start"], date_range["end"])
+        return None
 
 
 class RateLimiter:
@@ -136,7 +277,7 @@ class SchwabOHLCAdapter:
         Initialize Schwab OHLC adapter.
 
         Args:
-            config: Adapter configuration with OAuth credentials
+            config: Adapter configuration with OAuth credentials and cache settings
             instrument: Instrument to load data for
 
         Raises:
@@ -150,6 +291,19 @@ class SchwabOHLCAdapter:
         missing_keys = [key for key in required_keys if key not in config]
         if missing_keys:
             raise ValueError(f"Missing required config keys: {missing_keys}")
+
+        # Initialize cache (optional)
+        self.cache_root: Optional[Path] = None
+        self.metadata_manager: Optional[MetadataManager] = None
+
+        if "cache_root" in config:
+            self.cache_root = Path(config["cache_root"])
+            self.metadata_manager = MetadataManager(self.cache_root, instrument.symbol)
+            logger.info(
+                "schwab_ohlc_adapter.cache_enabled",
+                symbol=instrument.symbol,
+                cache_root=str(self.cache_root),
+            )
 
         # Initialize OAuth manager
         oauth_config = {
@@ -285,6 +439,152 @@ class SchwabOHLCAdapter:
 
         raise RuntimeError(f"API call failed after {max_retries} attempts")
 
+    def _read_from_cache(self, start_date: str, end_date: str) -> Optional[list[SchwabBar]]:
+        """
+        Read bars from cache.
+
+        Args:
+            start_date: Start date (ISO format)
+            end_date: End date (ISO format)
+
+        Returns:
+            List of SchwabBar objects or None if cache miss
+        """
+        if not self.metadata_manager or not self.metadata_manager.cache_exists():
+            return None
+
+        try:
+            # Read Parquet file
+            df = pd.read_parquet(self.metadata_manager.data_file)
+
+            # Filter by date range
+            df_filtered = df[(df["trade_datetime"] >= start_date) & (df["trade_datetime"] <= end_date)]
+
+            if df_filtered.empty:
+                return None
+
+            # Convert to SchwabBar objects
+            bars = []
+            for _, row in df_filtered.iterrows():
+                # Convert timestamp milliseconds to datetime
+                timestamp_dt = datetime.fromtimestamp(int(row["timestamp"]) / 1000, tz=timezone.utc)
+
+                bar = SchwabBar(
+                    timestamp=timestamp_dt,
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
+                    volume=int(row["volume"]),
+                )
+                bars.append(bar)
+
+            logger.info(
+                "schwab_ohlc_adapter.cache_hit",
+                symbol=self.instrument.symbol,
+                count=len(bars),
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+            return bars
+
+        except Exception as e:
+            logger.warning(
+                "schwab_ohlc_adapter.cache_read_error",
+                symbol=self.instrument.symbol,
+                error=str(e),
+            )
+            return None
+
+    def _write_to_cache(
+        self,
+        bars: list[SchwabBar],
+        frequency_type: str = "daily",
+        frequency: int = 1,
+    ) -> None:
+        """
+        Write bars to cache.
+
+        Args:
+            bars: List of SchwabBar objects
+            frequency_type: Bar frequency type
+            frequency: Bar frequency value
+        """
+        if not self.metadata_manager or not bars:
+            return
+
+        try:
+            # Ensure cache directory exists
+            self.metadata_manager.symbol_dir.mkdir(parents=True, exist_ok=True)
+
+            # Convert bars to DataFrame
+            data = []
+            for bar in bars:
+                # bar.timestamp is already a datetime object
+                trade_dt = bar.timestamp
+                # Convert back to Unix milliseconds for storage
+                timestamp_ms = int(trade_dt.timestamp() * 1000)
+
+                data.append(
+                    {
+                        "trade_datetime": trade_dt.strftime("%Y-%m-%d"),
+                        "timestamp": timestamp_ms,
+                        "open": bar.open,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "close": bar.close,
+                        "volume": bar.volume,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+
+            # Sort by datetime
+            df = df.sort_values("trade_datetime")
+
+            # Write atomically (temp file + rename)
+            temp_file = self.metadata_manager.data_file.with_suffix(".tmp")
+            df.to_parquet(temp_file, index=False)
+
+            # Set secure permissions
+            temp_file.chmod(0o644)
+
+            # Atomic rename
+            temp_file.replace(self.metadata_manager.data_file)
+
+            # Update metadata
+            start_date = df["trade_datetime"].min()
+            end_date = df["trade_datetime"].max()
+            row_count = len(df)
+
+            self.metadata_manager.write_metadata(
+                start_date=start_date,
+                end_date=end_date,
+                row_count=row_count,
+                frequency_type=frequency_type,
+                frequency=frequency,
+            )
+
+            logger.info(
+                "schwab_ohlc_adapter.cache_written",
+                symbol=self.instrument.symbol,
+                count=row_count,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+        except Exception as e:
+            logger.error(
+                "schwab_ohlc_adapter.cache_write_error",
+                symbol=self.instrument.symbol,
+                error=str(e),
+            )
+            # Clean up temp file if it exists
+            temp_file = self.metadata_manager.data_file.with_suffix(".tmp")
+            if temp_file.exists():
+                temp_file.unlink()
+
     def read_bars(
         self,
         start_date: str,
@@ -293,10 +593,13 @@ class SchwabOHLCAdapter:
         frequency: int = 1,
     ) -> Iterator[SchwabBar]:
         """
-        Read bars from Schwab Price History API.
+        Read bars from cache or Schwab API (cache-first strategy).
 
-        This method fetches split-adjusted OHLC data from Schwab.
-        No additional adjustments are performed.
+        This method implements intelligent caching:
+        1. Check cache for requested date range
+        2. If cache covers range → return cached data (fast path)
+        3. If no cache → fetch from API and cache
+        4. Return bars in chronological order
 
         Args:
             start_date: Start date (ISO format, e.g., '2020-01-01')
@@ -312,17 +615,61 @@ class SchwabOHLCAdapter:
             requests.HTTPError: On API errors
 
         Examples:
-            >>> # Daily bars
+            >>> # Daily bars (uses cache if available)
             >>> bars = adapter.read_bars("2020-01-01", "2020-12-31")
             >>>
             >>> # 5-minute bars
             >>> bars = adapter.read_bars("2024-10-01", "2024-10-15", "minute", 5)
 
         Notes:
+            - Caching enabled if cache_root configured
             - Returns split-adjusted prices only
-            - No unadjusted or total return data available
             - Rate limited to 10 requests/second
             - Automatic token refresh
+        """
+        # Step 1: Try cache first
+        if self.metadata_manager:
+            cached_bars = self._read_from_cache(start_date, end_date)
+            if cached_bars:
+                # Cache hit - yield cached bars
+                for bar in cached_bars:
+                    yield bar
+                return
+
+        # Step 2: Cache miss - fetch from API
+        bars_from_api = list(self._fetch_from_api(start_date, end_date, frequency_type, frequency))
+
+        # Step 3: Write to cache (if configured)
+        if self.metadata_manager and bars_from_api:
+            self._write_to_cache(bars_from_api, frequency_type, frequency)
+
+        # Step 4: Yield bars
+        for bar in bars_from_api:
+            yield bar
+
+    def _fetch_from_api(
+        self,
+        start_date: str,
+        end_date: str,
+        frequency_type: str = "daily",
+        frequency: int = 1,
+    ) -> Iterator[SchwabBar]:
+        """
+        Fetch bars from Schwab API.
+
+        Internal method that handles the actual API call.
+
+        Args:
+            start_date: Start date (ISO format)
+            end_date: End date (ISO format)
+            frequency_type: Bar frequency type
+            frequency: Bar frequency value
+
+        Yields:
+            SchwabBar objects from API
+
+        Raises:
+            requests.HTTPError: On API errors
         """
         # Convert dates to Unix timestamps (milliseconds)
         start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
