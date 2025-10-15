@@ -68,9 +68,9 @@ def main():
 @click.option("--end-date", required=True, help="End date (YYYY-MM-DD)")
 @click.option(
     "--source",
-    type=click.Choice(["algoseek"], case_sensitive=False),
+    type=click.Choice(["algoseek", "schwab"], case_sensitive=False),
     default="algoseek",
-    help="Data source (currently only algoseek supported)",
+    help="Data source",
 )
 def raw_data(symbol: str, start_date: str, end_date: str, source: str):
     """
@@ -80,6 +80,7 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
 
     Example:
         qtrader raw-data --symbol AAPL --start-date 2019-01-01 --end-date 2023-12-31 --source algoseek
+        qtrader raw-data --symbol AAPL --start-date 2024-01-01 --end-date 2024-12-31 --source schwab
     """
     console = Console()
 
@@ -94,7 +95,8 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
             sys.exit(1)
 
         # Create instrument
-        data_source = DataSource.ALGOSEEK if source.lower() == "algoseek" else DataSource.ALGOSEEK
+        data_source_map = {"algoseek": DataSource.ALGOSEEK, "schwab": DataSource.SCHWAB}
+        data_source = data_source_map.get(source.lower(), DataSource.ALGOSEEK)
         instrument = Instrument(symbol=symbol, instrument_type=InstrumentType.EQUITY, data_source=data_source)
 
         # Resolve data source and create adapter
@@ -120,18 +122,33 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
             table.add_column("Field", style="cyan", no_wrap=True)
             table.add_column("Value", style="white")
 
-            # Add bar data (convert datetime to string)
-            trade_date_str = (
-                bar.TradeDate.strftime("%Y-%m-%d") if hasattr(bar.TradeDate, "strftime") else str(bar.TradeDate)
-            )
-            table.add_row("Trade Date", trade_date_str)
-            table.add_row("Open", f"${bar.Open:.2f}")
-            table.add_row("High", f"${bar.High:.2f}")
-            table.add_row("Low", f"${bar.Low:.2f}")
-            table.add_row("Close", f"${bar.Close:.2f}")
-            table.add_row("Volume", f"{bar.MarketHoursVolume:,}")
+            # Handle different bar types (AlgoseekBar vs SchwabBar)
+            # AlgoseekBar: TradeDate, Open, High, Low, Close, MarketHoursVolume
+            # SchwabBar: timestamp, open, high, low, close, volume
+            if hasattr(bar, "TradeDate"):
+                # AlgoseekBar
+                trade_date_str = (
+                    bar.TradeDate.strftime("%Y-%m-%d") if hasattr(bar.TradeDate, "strftime") else str(bar.TradeDate)
+                )
+                table.add_row("Trade Date", trade_date_str)
+                table.add_row("Open", f"${bar.Open:.2f}")
+                table.add_row("High", f"${bar.High:.2f}")
+                table.add_row("Low", f"${bar.Low:.2f}")
+                table.add_row("Close", f"${bar.Close:.2f}")
+                table.add_row("Volume", f"{bar.MarketHoursVolume:,}")
+            elif hasattr(bar, "timestamp"):
+                # SchwabBar
+                timestamp_str = (
+                    bar.timestamp.strftime("%Y-%m-%d") if hasattr(bar.timestamp, "strftime") else str(bar.timestamp)
+                )
+                table.add_row("Timestamp", timestamp_str)
+                table.add_row("Open", f"${bar.open:.2f}")
+                table.add_row("High", f"${bar.high:.2f}")
+                table.add_row("Low", f"${bar.low:.2f}")
+                table.add_row("Close", f"${bar.close:.2f}")
+                table.add_row("Volume", f"{bar.volume:,}")
 
-            # Add adjustment factors if present
+            # Add adjustment factors if present (AlgoseekBar specific)
             if hasattr(bar, "CumulativePriceFactor") and bar.CumulativePriceFactor is not None:
                 table.add_row("Cumulative Price Factor", f"{bar.CumulativePriceFactor:.6f}")
             if hasattr(bar, "CumulativeVolumeFactor") and bar.CumulativeVolumeFactor is not None:
