@@ -158,7 +158,7 @@ def test_different_log_levels():
     for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
         LoggerFactory.reset()
 
-        config = LoggingConfig(level=level)  # type: ignore
+        config = LoggingConfig(level=level)
         LoggerFactory.configure(config)
 
         assert LoggerFactory.get_config().level == level
