@@ -155,13 +155,18 @@ def test_rotating_file_handler(tmp_path):
 
 def test_different_log_levels():
     """Test different log level configurations."""
-    for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+    from typing import cast
+
+    from qtrader.config.logging_config import LogLevel
+
+    for level_str in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
         LoggerFactory.reset()
 
+        level = cast(LogLevel, level_str)
         config = LoggingConfig(level=level)
         LoggerFactory.configure(config)
 
-        assert LoggerFactory.get_config().level == level
+        assert LoggerFactory.get_config().level == level_str
 
 
 def test_console_vs_json_format():
