@@ -215,6 +215,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-backtest_results/* 
+
 output/*
-data/us-equity-daily-adjusted-schwab/
+data/*
+~/*
+
