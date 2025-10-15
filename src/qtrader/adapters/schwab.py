@@ -441,19 +441,43 @@ class SchwabOHLCAdapter:
 
     def _read_from_cache(self, start_date: str, end_date: str) -> Optional[list[SchwabBar]]:
         """
-        Read bars from cache.
+        Read bars from cache if it fully covers the requested date range.
 
         Args:
             start_date: Start date (ISO format)
             end_date: End date (ISO format)
 
         Returns:
-            List of SchwabBar objects or None if cache miss
+            List of SchwabBar objects or None if cache miss/incomplete
+
+        Notes:
+            - Returns None if cache doesn't fully cover requested range
+            - This triggers a fresh API fetch for the full range
         """
         if not self.metadata_manager or not self.metadata_manager.cache_exists():
             return None
 
         try:
+            # Check if cache covers requested range
+            metadata = self.metadata_manager.read_metadata()
+            if not metadata:
+                return None
+
+            cached_start = metadata["date_range"]["start"]
+            cached_end = metadata["date_range"]["end"]
+
+            # Cache must fully cover requested range
+            if cached_start > start_date or cached_end < end_date:
+                logger.info(
+                    "schwab_ohlc_adapter.cache_miss_partial",
+                    symbol=self.instrument.symbol,
+                    requested_start=start_date,
+                    requested_end=end_date,
+                    cached_start=cached_start,
+                    cached_end=cached_end,
+                )
+                return None
+
             # Read Parquet file
             df = pd.read_parquet(self.metadata_manager.data_file)
 

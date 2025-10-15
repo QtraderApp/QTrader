@@ -49,7 +49,7 @@ def main() -> None:
     iterator = service.load_symbol(
         "AAPL",
         date(2020, 1, 1),
-        date(2020, 1, 31),
+        date(2025, 1, 31),
     )
 
     # Stream bars
@@ -72,6 +72,12 @@ def main() -> None:
             if perf_bar.dividend:
                 print(f"Dividend: ${perf_bar.dividend}")
 
+            # Note: Schwab only provides adjusted data
+            if "schwab" in config.source_tag.lower():
+                print("\n⚠️  Note: Schwab only provides split-adjusted data.")
+                print("   All three modes show the same prices (adjusted).")
+                print("   Unadjusted and total_return are not available from Schwab API.\n")
+
     print(f"✓ Loaded {bar_count} bars for AAPL")
 
     # 4. Load multiple symbols (universe)
@@ -80,7 +86,7 @@ def main() -> None:
     iterators = service.load_universe(
         symbols,
         date(2020, 1, 1),
-        date(2020, 1, 31),
+        date(2025, 1, 31),
     )
 
     print(f"✓ Loaded data for {len(iterators)} symbols")

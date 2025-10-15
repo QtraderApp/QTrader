@@ -6,13 +6,13 @@ vendor adapters and transformation to canonical multi-mode format. It serves
 as the main entry point for loading price data in the QTrader system.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.models.bar import PriceSeries
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
+from qtrader.models.vendors.schwab import SchwabBar, SchwabPriceSeries
 
 
 class DataLoader:
@@ -95,7 +95,7 @@ class DataLoader:
 
         Process:
             1. Load raw vendor bars (from adapter)
-            2. Build AlgoseekPriceSeries
+            2. Build vendor-specific PriceSeries (AlgoseekPriceSeries or SchwabPriceSeries)
             3. Transform to canonical series (all 3 modes)
             4. Return iterator with all modes available
 
@@ -103,30 +103,39 @@ class DataLoader:
             - All 3 modes loaded once (single data read)
             - Components select mode based on their purpose
             - Iterator provides memory-efficient streaming
+            - Supports multiple vendors (Algoseek, Schwab, etc.)
         """
         # Step 1: Load raw bars from adapter
-        raw_bars: List[AlgoseekBar] = self._load_from_adapter(symbol, start_date, end_date)
+        raw_bars, data_source = self._load_from_adapter(symbol, start_date, end_date)
 
-        # Step 2: Build vendor series
-        vendor_series = AlgoseekPriceSeries(symbol=symbol, bars=raw_bars)
+        # Step 2: Build vendor-specific series
+        if data_source == DataSource.SCHWAB:
+            vendor_series = SchwabPriceSeries(symbol=symbol, bars=raw_bars)  # type: ignore
+        else:
+            # Default to Algoseek
+            vendor_series = AlgoseekPriceSeries(symbol=symbol, bars=raw_bars)  # type: ignore
 
         # Step 3: Transform to canonical (all 3 modes)
-        canonical_series_dict: Dict[str, PriceSeries]
         canonical_series_dict = vendor_series.to_canonical_series()
 
         # Step 4: Return iterator with all modes
         # Components will select mode based on their config:
         # - Strategy: adjusted (split-consistent indicators)
         # - Execution: unadjusted (realistic fills)
-        # - Performance: total_return (includes dividends)
-        return PriceSeriesIterator(canonical_series_dict)
+        # - Performance: total_return (cumulative returns)
+        return PriceSeriesIterator(canonical_series_dict)  # type: ignore
 
-    def _load_from_adapter(self, symbol: str, start_date: str, end_date: str) -> List[AlgoseekBar]:
+    def _load_from_adapter(
+        self, symbol: str, start_date: str, end_date: str
+    ) -> tuple[Union[List[AlgoseekBar], List[SchwabBar]], DataSource]:
         """
-        Load raw bars from adapter.
+        Load raw bars from vendor adapter.
 
-        This method integrates with the vendor adapter to load raw AlgoseekBar
-        objects. The adapter handles data access while this layer handles
+        This is an internal method that handles the adapter layer. It returns
+        raw vendor bars without any transformation. The transformation to
+        canonical format happens in the caller (load_data).
+
+        This method is responsible ONLY for adapter coordination, not
         transformation to canonical format.
 
         Args:
@@ -135,7 +144,9 @@ class DataLoader:
             end_date: End date (ISO format)
 
         Returns:
-            List of AlgoseekBar objects (raw vendor data)
+            Tuple of (raw_bars, data_source):
+                - raw_bars: List of vendor-specific bars (AlgoseekBar or SchwabBar)
+                - data_source: DataSource enum indicating the source
 
         Raises:
             ValueError: If adapter configuration missing
@@ -145,24 +156,42 @@ class DataLoader:
             - Adapter configured from self.config["adapter"]
             - Returns raw vendor bars (no transformation)
             - Transformation happens in load_data() via to_canonical_series()
+            - Supports multiple vendors (Algoseek, Schwab, etc.)
         """
 
         # Validate adapter configuration
         if "adapter" not in self.config:
             raise ValueError("Adapter configuration missing from config")
 
-        # Create instrument for adapter
-        # TODO: Get instrument type from config/registry
-        instrument = Instrument(symbol, InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        # Determine data source from adapter config
+        adapter_name = self.config["adapter"].get("adapter", "algoseekOHLC")
 
-        # Initialize adapter
-        adapter = AlgoseekOHLCVendorAdapter(self.config["adapter"], instrument)
+        # Map adapter name to DataSource enum
+        if "schwab" in adapter_name.lower():
+            data_source = DataSource.SCHWAB
+        elif "algoseek" in adapter_name.lower():
+            data_source = DataSource.ALGOSEEK
+        else:
+            # Default to ALGOSEEK for backward compatibility
+            data_source = DataSource.ALGOSEEK
+
+        # Create instrument for adapter
+        instrument = Instrument(symbol, InstrumentType.EQUITY, data_source)
+
+        # Initialize adapter based on type
+        if data_source == DataSource.SCHWAB:
+            from qtrader.adapters.schwab import SchwabOHLCAdapter
+
+            adapter = SchwabOHLCAdapter(self.config["adapter"], instrument)
+        else:
+            # Default to Algoseek
+            adapter = AlgoseekOHLCVendorAdapter(self.config["adapter"], instrument)
 
         # Load raw bars (iterator → list for now)
         # TODO: Consider keeping as iterator for memory efficiency
         raw_bars = list(adapter.read_bars(start_date, end_date))
 
-        return raw_bars
+        return raw_bars, data_source
 
     def load_data_from_series(self, vendor_series: AlgoseekPriceSeries) -> PriceSeriesIterator:
         """
