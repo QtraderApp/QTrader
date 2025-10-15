@@ -233,7 +233,7 @@ class SchwabOHLCAdapter:
                 response.raise_for_status()
 
                 # Parse JSON
-                data = response.json()
+                data: dict = response.json()
 
                 logger.debug(
                     "schwab_ohlc_adapter.api_success",
