@@ -799,6 +799,7 @@ class SchwabOHLCAdapter:
         )
 
         # Fetch new bars from API
+
         try:
             new_bars = list(self._fetch_from_api(update_start.isoformat(), update_end.isoformat()))
 
@@ -813,21 +814,27 @@ class SchwabOHLCAdapter:
 
             # Load existing cache
             existing_bars = self._read_all_from_cache()
+            before_count = len(existing_bars)
 
             # Merge and write
             all_bars = self._merge_bars(existing_bars, new_bars)
+            after_count = len(all_bars)
+            bars_added = after_count - before_count
             self._write_to_cache(all_bars)
 
             logger.info(
                 "schwab_cache.incremental_update_complete",
                 symbol=self.instrument.symbol,
-                new_bars=len(new_bars),
-                total_bars=len(all_bars),
+                new_bars=bars_added,
+                total_bars=after_count,
                 update_start=update_start.isoformat(),
                 update_end=update_end.isoformat(),
             )
 
-            return (len(new_bars), update_start, update_end)
+            # Only report bars added if truly new
+            if bars_added == 0:
+                return (0, None, None)
+            return (bars_added, update_start, update_end)
 
         except Exception as e:
             logger.error(
@@ -1137,11 +1144,11 @@ class SchwabOHLCAdapter:
             Tuple of (min_date, max_date) in ISO format, or (None, None) if no data
         """
         try:
-            # Query last 20 years (max historical data)
+            # Query last 30 years (max historical data)
             params = {
                 "symbol": self.instrument.symbol,
                 "periodType": "year",
-                "period": 20,
+                "period": 30,
                 "frequencyType": "daily",
                 "frequency": 1,
             }
