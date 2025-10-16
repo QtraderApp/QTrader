@@ -2,6 +2,7 @@
 
 from qtrader.config.data_config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig, ValidationConfig
 from qtrader.config.data_source_selector import AssetClass, DataSourceSelector, DataType
+from qtrader.config.data_source_validator import DataSourceValidationError, DataSourceValidator, validate_data_sources
 from qtrader.config.logging_config import LoggerFactory, LoggingConfig
 
 __all__ = [
@@ -14,4 +15,7 @@ __all__ = [
     "AssetClass",
     "DataSourceSelector",
     "DataType",
+    "DataSourceValidator",
+    "DataSourceValidationError",
+    "validate_data_sources",
 ]
