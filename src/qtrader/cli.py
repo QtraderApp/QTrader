@@ -10,7 +10,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from qtrader.config import BarSchemaConfig, DataConfig
+from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.services import DataService
 
 
@@ -107,11 +107,15 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
         )
 
         # Configure data service
+        selector = DataSourceSelector(
+            provider=source.lower(),  # e.g., "algoseek" or "schwab"
+            asset_class=AssetClass.EQUITY,
+        )
         config = DataConfig(
             mode="adjusted",  # Internal processing mode
             frequency="1d",
             timezone="America/New_York",
-            source_tag=f"{source.lower()}-adjusted",  # e.g., "algoseek-adjusted"
+            source_selector=selector,
             bar_schema=bar_schema,
         )
 

@@ -14,7 +14,7 @@ The service:
 
 from datetime import date
 
-from qtrader.config import BarSchemaConfig, DataConfig
+from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.services import DataService
 
 
@@ -32,11 +32,18 @@ def main() -> None:
         volume="volume",
     )
 
+    # Configure data source selector
+    selector = DataSourceSelector(
+        provider="schwab",
+        asset_class=AssetClass.EQUITY,
+        frequency="1d",
+    )
+
     config = DataConfig(
         mode="adjusted",
         frequency="1d",
         timezone="America/New_York",
-        source_tag="schwab-adjusted",
+        source_selector=selector,
         bar_schema=bar_schema,
     )
 
@@ -73,7 +80,7 @@ def main() -> None:
                 print(f"Dividend: ${perf_bar.dividend}")
 
             # Note: Schwab only provides adjusted data
-            if "schwab" in config.source_tag.lower():
+            if "schwab" in config.source_selector.to_tag().lower():
                 print("\n⚠️  Note: Schwab only provides split-adjusted data.")
                 print("   All three modes show the same prices (adjusted).")
                 print("   Unadjusted and total_return are not available from Schwab API.\n")

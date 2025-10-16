@@ -33,10 +33,12 @@ class DataService:
 
     Examples:
         >>> # Initialize with config
+        >>> from qtrader.config import AssetClass, DataSourceSelector
+        >>> selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
         >>> config = DataConfig(
         ...     mode="adjusted",
         ...     bar_schema=bar_schema,
-        ...     source_tag="algoseek"
+        ...     source_selector=selector
         ... )
         >>> service = DataService(config)
         >>>

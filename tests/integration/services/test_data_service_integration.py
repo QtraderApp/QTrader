@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.config import BarSchemaConfig, DataConfig
+from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.instrument import DataSource, InstrumentType
 from qtrader.models.multi_bar import MultiBar
@@ -39,11 +39,12 @@ def bar_schema() -> BarSchemaConfig:
 @pytest.fixture
 def data_config(bar_schema: BarSchemaConfig, test_data_path: Path) -> DataConfig:
     """Data configuration for integration tests."""
+    selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
     return DataConfig(
         mode="adjusted",
         frequency="1d",
         timezone="America/New_York",
-        source_tag="algoseek-adjusted",
+        source_selector=selector,
         bar_schema=bar_schema,
     )
 
@@ -265,11 +266,12 @@ class TestDataServiceWithConfiguration:
 
         # Test with each mode
         for mode in ["unadjusted", "adjusted", "total_return"]:
+            selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
             config = DataConfig(
                 mode=mode,
                 frequency="1d",
                 timezone="America/New_York",
-                source_tag="algoseek-adjusted",
+                source_selector=selector,
                 bar_schema=bar_schema,
             )
 
