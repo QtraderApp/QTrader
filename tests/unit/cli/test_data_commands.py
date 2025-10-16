@@ -3,11 +3,13 @@
 Tests the thin CLI orchestration layer without executing real commands.
 """
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
 from qtrader.cli.commands.data import data_group
+from qtrader.models import Bar, MultiBar
 
 
 class TestRawDataCommand:
@@ -253,3 +255,559 @@ class TestDataGroupIntegration:
         result = runner.invoke(data_group, ["invalid-command"])
 
         assert result.exit_code != 0
+
+
+class TestRawDataCommandEdgeCases:
+    """Test edge cases and error handling for raw data command."""
+
+    def test_raw_data_invalid_date_format_returns_error(self):
+        """Test that invalid date format is handled gracefully."""
+        # Arrange
+        runner = CliRunner()
+
+        # Act
+        result = runner.invoke(
+            data_group,
+            [
+                "raw",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "2020-13-45",  # Invalid date
+                "--end-date",
+                "2020-12-31",
+            ],
+        )
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Invalid date format" in result.output
+
+    def test_raw_data_malformed_date_returns_error(self):
+        """Test that malformed date string is handled."""
+        # Arrange
+        runner = CliRunner()
+
+        # Act
+        result = runner.invoke(
+            data_group,
+            [
+                "raw",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "not-a-date",
+                "--end-date",
+                "2020-12-31",
+            ],
+        )
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Invalid date format" in result.output
+
+    @patch("qtrader.cli.commands.data.DataService")
+    def test_raw_data_file_not_found_error_shows_helpful_message(self, mock_data_service_class):
+        """Test FileNotFoundError displays helpful message."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_data_service_class.return_value = mock_service
+        mock_service.load_symbol.side_effect = FileNotFoundError("Data file not found")
+
+        # Act
+        result = runner.invoke(
+            data_group,
+            [
+                "raw",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "2020-01-01",
+                "--end-date",
+                "2020-12-31",
+            ],
+        )
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Data file not found" in result.output
+        assert "Make sure the data files exist" in result.output
+
+    @patch("qtrader.cli.commands.data.DataService")
+    def test_raw_data_value_error_displays_error_message(self, mock_data_service_class):
+        """Test ValueError displays error message."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_data_service_class.return_value = mock_service
+        mock_service.load_symbol.side_effect = ValueError("Invalid configuration")
+
+        # Act
+        result = runner.invoke(
+            data_group,
+            [
+                "raw",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "2020-01-01",
+                "--end-date",
+                "2020-12-31",
+            ],
+        )
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Invalid configuration" in result.output
+
+    @patch("qtrader.cli.commands.data.DataService")
+    def test_raw_data_generic_exception_shows_traceback(self, mock_data_service_class):
+        """Test generic exception displays traceback."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_data_service_class.return_value = mock_service
+        mock_service.load_symbol.side_effect = RuntimeError("Unexpected error")
+
+        # Act
+        result = runner.invoke(
+            data_group,
+            [
+                "raw",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "2020-01-01",
+                "--end-date",
+                "2020-12-31",
+            ],
+        )
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Unexpected error" in result.output
+
+    @patch("qtrader.cli.commands.data.DataService")
+    def test_raw_data_displays_bars_with_correct_format(self, mock_data_service_class):
+        """Test that bars are displayed with correct formatting."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_data_service_class.return_value = mock_service
+
+        # Create mock bars
+        mock_bar = Bar(
+            trade_datetime=datetime(2020, 1, 2, 16, 0),
+            open=100.0,
+            high=105.0,
+            low=99.0,
+            close=103.0,
+            volume=1000000,
+            dividend=None,
+        )
+        mock_multi_bar = MultiBar(
+            symbol="AAPL",
+            trade_datetime=datetime(2020, 1, 2, 16, 0),
+            unadjusted=mock_bar,
+            adjusted=mock_bar,
+            total_return=mock_bar,
+        )
+        mock_service.load_symbol.return_value = iter([mock_multi_bar])
+
+        # Act - provide input to skip the interactive prompt
+        result = runner.invoke(
+            data_group,
+            [
+                "raw",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "2020-01-01",
+                "--end-date",
+                "2020-01-31",
+            ],
+            input="\n",  # Simulate pressing Enter
+        )
+
+        # Assert
+        assert result.exit_code == 0
+        assert "Loaded 1 bars" in result.output
+        assert "End of data" in result.output
+
+
+class TestUpdateDatasetCommandEdgeCases:
+    """Test edge cases and error handling for update dataset command."""
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_update_no_symbols_found_shows_message(self, mock_update_service_class):
+        """Test update with no symbols found shows helpful message."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_update_service_class.return_value = mock_service
+        mock_service.get_symbols_to_update.return_value = ([], "no symbols")
+
+        # Act
+        result = runner.invoke(data_group, ["update", "--dataset", "test-dataset"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "No symbols found to update" in result.output
+        assert "universe.csv" in result.output
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_update_with_errors_displays_error_list(self, mock_update_service_class):
+        """Test update with errors displays error list."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_update_service_class.return_value = mock_service
+        mock_service.get_symbols_to_update.return_value = (["AAPL", "MSFT"], "2 symbols")
+
+        # Create mock results with one success and one failure
+        mock_result_success = MagicMock()
+        mock_result_success.symbol = "AAPL"
+        mock_result_success.success = True
+        mock_result_success.bars_added = 10
+        mock_result_success.error = None
+
+        mock_result_failure = MagicMock()
+        mock_result_failure.symbol = "MSFT"
+        mock_result_failure.success = False
+        mock_result_failure.bars_added = 0
+        mock_result_failure.error = "API error"
+
+        mock_service.update_symbols.return_value = iter([mock_result_success, mock_result_failure])
+        mock_service.get_cache_metadata.return_value = ("2020-01-01", "2020-12-31", 252)
+
+        # Act
+        result = runner.invoke(data_group, ["update", "--dataset", "test-dataset"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "Successful: 1/2" in result.output
+        assert "Errors (1)" in result.output
+        assert "MSFT: API error" in result.output
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_update_dry_run_shows_warning_message(self, mock_update_service_class):
+        """Test dry run shows appropriate warning."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_update_service_class.return_value = mock_service
+        mock_service.get_symbols_to_update.return_value = (["AAPL"], "1 symbol")
+
+        mock_result = MagicMock()
+        mock_result.symbol = "AAPL"
+        mock_result.success = True
+        mock_result.bars_added = 5
+        mock_result.error = None
+
+        mock_service.update_symbols.return_value = iter([mock_result])
+        mock_service.get_cache_metadata.return_value = ("2020-01-01", "2020-12-31", 252)
+
+        # Act
+        result = runner.invoke(data_group, ["update", "--dataset", "test-dataset", "--dry-run"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "DRY RUN" in result.output
+        assert "This was a dry run" in result.output
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_update_handles_value_error(self, mock_update_service_class):
+        """Test update handles ValueError gracefully."""
+        # Arrange
+        runner = CliRunner()
+        mock_update_service_class.side_effect = ValueError("Invalid dataset")
+
+        # Act
+        result = runner.invoke(data_group, ["update", "--dataset", "invalid-dataset"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Invalid dataset" in result.output
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_update_handles_generic_exception(self, mock_update_service_class):
+        """Test update handles generic exceptions with traceback."""
+        # Arrange
+        runner = CliRunner()
+        mock_update_service_class.side_effect = RuntimeError("Unexpected error")
+
+        # Act
+        result = runner.invoke(data_group, ["update", "--dataset", "test-dataset"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Unexpected error" in result.output
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_update_displays_statistics_correctly(self, mock_update_service_class):
+        """Test update displays correct statistics."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_update_service_class.return_value = mock_service
+        mock_service.get_symbols_to_update.return_value = (["AAPL", "MSFT", "TSLA"], "3 symbols")
+
+        # Create mock results - all successful
+        results = []
+        for symbol, bars in [("AAPL", 10), ("MSFT", 15), ("TSLA", 20)]:
+            mock_result = MagicMock()
+            mock_result.symbol = symbol
+            mock_result.success = True
+            mock_result.bars_added = bars
+            mock_result.error = None
+            results.append(mock_result)
+
+        mock_service.update_symbols.return_value = iter(results)
+        mock_service.get_cache_metadata.return_value = ("2020-01-01", "2020-12-31", 252)
+
+        # Act
+        result = runner.invoke(data_group, ["update", "--dataset", "test-dataset"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "Successful: 3/3" in result.output
+        assert "Total bars added: 45" in result.output  # 10 + 15 + 20
+
+
+class TestCacheInfoCommandEdgeCases:
+    """Test edge cases and error handling for cache-info command."""
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_cache_info_cache_exists_false_shows_message(self, mock_update_service_class):
+        """Test cache info when cache exists() returns False."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_update_service_class.return_value = mock_service
+
+        mock_cache_root = MagicMock()
+        mock_cache_root.exists.return_value = False
+        mock_service.get_cache_root.return_value = mock_cache_root
+
+        # Act
+        result = runner.invoke(data_group, ["cache-info", "--dataset", "test-dataset"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "No cache found" in result.output
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_cache_info_displays_multiple_symbols(self, mock_update_service_class):
+        """Test cache info displays multiple symbols correctly."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_update_service_class.return_value = mock_service
+
+        mock_cache_root = MagicMock()
+        mock_cache_root.exists.return_value = True
+        mock_service.get_cache_root.return_value = mock_cache_root
+        mock_service.scan_cached_symbols.return_value = ["AAPL", "MSFT", "TSLA"]
+
+        # Mock metadata for each symbol
+        metadata_list = [
+            {
+                "symbol": "AAPL",
+                "start_date": "2020-01-01",
+                "end_date": "2020-12-31",
+                "row_count": "252",
+                "last_update": "2020-12-31",
+            },
+            {
+                "symbol": "MSFT",
+                "start_date": "2020-01-01",
+                "end_date": "2020-12-31",
+                "row_count": "252",
+                "last_update": "2020-12-31",
+            },
+            {
+                "symbol": "TSLA",
+                "start_date": "2020-01-01",
+                "end_date": "2020-12-31",
+                "row_count": "252",
+                "last_update": "2020-12-31",
+            },
+        ]
+        mock_service.read_symbol_metadata.side_effect = metadata_list
+
+        # Act
+        result = runner.invoke(data_group, ["cache-info", "--dataset", "test-dataset"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "Cached symbols: 3" in result.output
+        assert mock_service.read_symbol_metadata.call_count == 3
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_cache_info_handles_value_error(self, mock_update_service_class):
+        """Test cache info handles ValueError gracefully."""
+        # Arrange
+        runner = CliRunner()
+        mock_update_service_class.side_effect = ValueError("Invalid dataset configuration")
+
+        # Act
+        result = runner.invoke(data_group, ["cache-info", "--dataset", "invalid-dataset"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Invalid dataset configuration" in result.output
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_cache_info_handles_generic_exception(self, mock_update_service_class):
+        """Test cache info handles generic exceptions."""
+        # Arrange
+        runner = CliRunner()
+        mock_update_service_class.side_effect = RuntimeError("Unexpected error")
+
+        # Act
+        result = runner.invoke(data_group, ["cache-info", "--dataset", "test-dataset"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Unexpected error" in result.output
+
+
+class TestRawDataCommandInteractive:
+    """Test interactive features of raw data command."""
+
+    @patch("qtrader.cli.commands.data.DataService")
+    def test_raw_data_multiple_bars_display_correctly(self, mock_data_service_class):
+        """Test displaying multiple bars interactively."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_data_service_class.return_value = mock_service
+
+        # Create multiple mock bars
+        mock_bars = []
+        for i in range(3):
+            mock_bar = Bar(
+                trade_datetime=datetime(2020, 1, 2 + i, 16, 0),
+                open=100.0 + i,
+                high=105.0 + i,
+                low=99.0 + i,
+                close=103.0 + i,
+                volume=1000000,
+                dividend=None,
+            )
+            mock_multi_bar = MultiBar(
+                symbol="AAPL",
+                trade_datetime=datetime(2020, 1, 2 + i, 16, 0),
+                unadjusted=mock_bar,
+                adjusted=mock_bar,
+                total_return=mock_bar,
+            )
+            mock_bars.append(mock_multi_bar)
+
+        mock_service.load_symbol.return_value = iter(mock_bars)
+
+        # Act - Provide enter key presses to progress through all bars
+        result = runner.invoke(
+            data_group,
+            [
+                "raw",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "2020-01-01",
+                "--end-date",
+                "2020-01-31",
+            ],
+            input="\n\n\n",  # Press Enter to progress through bars
+        )
+
+        # Assert
+        assert result.exit_code == 0
+        assert "Loaded 3 bars" in result.output
+        assert "End of data" in result.output
+
+    @patch("qtrader.cli.commands.data.DataService")
+    def test_raw_data_with_dividend_displays_correctly(self, mock_data_service_class):
+        """Test bar with dividend displays correctly."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_data_service_class.return_value = mock_service
+
+        mock_bar = Bar(
+            trade_datetime=datetime(2020, 1, 2, 16, 0),
+            open=100.0,
+            high=105.0,
+            low=99.0,
+            close=103.0,
+            volume=1000000,
+            dividend=None,
+        )
+        mock_multi_bar = MultiBar(
+            symbol="AAPL",
+            trade_datetime=datetime(2020, 1, 2, 16, 0),
+            unadjusted=mock_bar,
+            adjusted=mock_bar,
+            total_return=mock_bar,
+        )
+        mock_service.load_symbol.return_value = iter([mock_multi_bar])
+
+        # Act
+        result = runner.invoke(
+            data_group,
+            [
+                "raw",
+                "--symbol",
+                "AAPL",
+                "--start-date",
+                "2020-01-01",
+                "--end-date",
+                "2020-01-31",
+            ],
+        )
+
+        # Assert
+        assert result.exit_code == 0
+        assert "Loaded 1 bars" in result.output
+
+
+class TestUpdateDatasetSymbolParsing:
+    """Test symbol list parsing in update command."""
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_update_parses_comma_separated_symbols_with_spaces(self, mock_update_service_class):
+        """Test symbols with spaces are parsed correctly."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_update_service_class.return_value = mock_service
+        mock_service.get_symbols_to_update.return_value = (["AAPL", "MSFT", "TSLA"], "3 symbols")
+        mock_service.update_symbols.return_value = iter([])
+
+        # Act
+        result = runner.invoke(data_group, ["update", "--dataset", "test-dataset", "--symbols", "AAPL, MSFT , TSLA"])
+
+        # Assert
+        assert result.exit_code == 0
+        # Verify symbols were trimmed
+        call_args = mock_service.get_symbols_to_update.call_args[0][0]
+        assert call_args == ["AAPL", "MSFT", "TSLA"]
+
+    @patch("qtrader.cli.commands.data.UpdateService")
+    def test_update_with_single_symbol(self, mock_update_service_class):
+        """Test update with single symbol."""
+        # Arrange
+        runner = CliRunner()
+        mock_service = MagicMock()
+        mock_update_service_class.return_value = mock_service
+        mock_service.get_symbols_to_update.return_value = (["AAPL"], "1 symbol")
+        mock_service.update_symbols.return_value = iter([])
+
+        # Act
+        result = runner.invoke(data_group, ["update", "--dataset", "test-dataset", "--symbols", "AAPL"])
+
+        # Assert
+        assert result.exit_code == 0
+        call_args = mock_service.get_symbols_to_update.call_args[0][0]
+        assert call_args == ["AAPL"]
