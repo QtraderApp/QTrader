@@ -247,14 +247,24 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
         # Create updater
         updater = DatasetUpdater(dataset)
 
-        # Get symbols to update
+        # Get symbols to update (priority: --symbols > universe.csv > cached symbols)
         if symbol_list:
+            # Explicit --symbols takes precedence
             symbols_to_update = symbol_list
-            console.print(f"[cyan]Updating {len(symbols_to_update)} symbols...[/cyan]\n")
+            console.print(f"[cyan]Updating {len(symbols_to_update)} symbols (--symbols)...[/cyan]\n")
+        elif updater.universe_symbols:
+            # Use configured universe file
+            symbols_to_update = updater.universe_symbols
+            console.print(
+                f"[cyan]Updating {len(symbols_to_update)} symbols from universe.csv "
+                f"(full backfill + incremental)...[/cyan]\n"
+            )
         else:
+            # Fallback to scan cache
             symbols_to_update = updater._scan_cached_symbols()
             if not symbols_to_update:
                 console.print("[yellow]No symbols found to update[/yellow]")
+                console.print("[dim]Tip: Create universe.csv in cache directory or use --symbols[/dim]")
                 return
             console.print(f"[cyan]Updating {len(symbols_to_update)} cached symbols...[/cyan]\n")
 
@@ -272,10 +282,7 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
             task = progress.add_task("[cyan]Updating symbols...", total=len(symbols_to_update))
 
             # Update each symbol and show progress
-            if symbol_list:
-                iterator = updater.update_symbols(symbol_list, dry_run=dry_run, verbose=verbose)
-            else:
-                iterator = updater.update_all(dry_run=dry_run, verbose=verbose)
+            iterator = updater.update_symbols(symbols_to_update, dry_run=dry_run, verbose=verbose)
 
             for result in iterator:
                 # Update progress bar description with current symbol
@@ -302,6 +309,25 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
         errors = []
 
         for result in results:
+            # Read full cached date range and bar count from metadata
+
+            cache_root = updater._get_cache_root()
+            start_date = end_date = row_count = "-"
+            if cache_root is not None:
+                metadata_file = cache_root / result.symbol / ".metadata.json"
+                if metadata_file.exists():
+                    import json
+
+                    try:
+                        with open(metadata_file) as f:
+                            metadata = json.load(f)
+                        date_range = metadata.get("date_range", {})
+                        start_date = date_range.get("start", "-")
+                        end_date = date_range.get("end", "-")
+                        row_count = metadata.get("row_count", "-")
+                    except Exception:
+                        pass
+
             if result.success:
                 successful += 1
                 total_bars += result.bars_added
@@ -309,18 +335,16 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
                 if result.bars_added == 0:
                     status = "[green]✓ Current[/green]"
                     bars_str = "-"
-                    date_range = "-"
                 else:
                     status = "[green]✓ Updated[/green]"
                     bars_str = str(result.bars_added)
-                    date_range = f"{result.start_date} to {result.end_date}" if result.start_date else "-"
             else:
                 status = "[red]✗ Error[/red]"
                 bars_str = "-"
-                date_range = "-"
                 errors.append((result.symbol, result.error))
 
-            table.add_row(result.symbol, status, bars_str, date_range)
+            # Show full cached range and bar count
+            table.add_row(result.symbol, status, bars_str, f"{start_date} to {end_date}", str(row_count))
 
         console.print(table)
 
