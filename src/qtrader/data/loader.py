@@ -10,7 +10,7 @@ from typing import Dict, List, Union
 
 from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+from qtrader.models.instrument import DataSource, Instrument
 from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
 from qtrader.models.vendors.schwab import SchwabBar, SchwabPriceSeries
 
@@ -166,7 +166,7 @@ class DataLoader:
         # Determine data source from adapter config
         adapter_name = self.config["adapter"].get("adapter", "algoseekOHLC")
 
-        # Map adapter name to DataSource enum
+        # Map adapter name to DataSource enum for backward compatibility logging
         if "schwab" in adapter_name.lower():
             data_source = DataSource.SCHWAB
         elif "algoseek" in adapter_name.lower():
@@ -175,8 +175,8 @@ class DataLoader:
             # Default to ALGOSEEK for backward compatibility
             data_source = DataSource.ALGOSEEK
 
-        # Create instrument for adapter
-        instrument = Instrument(symbol, InstrumentType.EQUITY, data_source)
+        # Create minimal instrument (new API - just symbol)
+        instrument = Instrument(symbol=symbol)
 
         # Initialize adapter and load bars based on type
         if data_source == DataSource.SCHWAB:
