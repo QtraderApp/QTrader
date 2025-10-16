@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 import click
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TimeElapsedColumn
 from rich.table import Table
 
 from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
@@ -62,7 +63,13 @@ def main():
     pass
 
 
-@main.command("raw-data")
+@main.group("data")
+def data_group():
+    """Data management commands - browse, fetch, cache, and update market data"""
+    pass
+
+
+@data_group.command("raw")
 @click.option("--symbol", required=True, help="Symbol to load (e.g., AAPL)")
 @click.option("--start-date", required=True, help="Start date (YYYY-MM-DD)")
 @click.option("--end-date", required=True, help="End date (YYYY-MM-DD)")
@@ -80,8 +87,8 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
     Press ENTER to display next bar, CTRL+C to exit.
 
     Example:
-        qtrader raw-data --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31
-        qtrader raw-data --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31 --source schwab
+        qtrader data raw --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31
+        qtrader data raw --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31 --source schwab
     """
     console = Console()
 
@@ -172,6 +179,250 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
         console.print(f"[red]Error: {e}[/red]")
         console.print("[yellow]Make sure the data files exist and the path is configured correctly.[/yellow]")
         sys.exit(1)
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {e}[/red]")
+        import traceback
+
+        console.print(traceback.format_exc())
+        sys.exit(1)
+
+
+@data_group.command("update")
+@click.option(
+    "--dataset",
+    required=True,
+    help="Dataset identifier (e.g., schwab-us-equity-1d-adjusted)",
+)
+@click.option(
+    "--symbols",
+    help="Comma-separated list of symbols to update (default: all cached symbols)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be updated without making changes",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Show detailed update progress",
+)
+def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
+    """
+    Update cached data to latest available.
+
+    Incrementally updates cached data by fetching only new bars since
+    last update. Works with any dataset that supports incremental updates.
+
+    If no symbols specified, updates all symbols found in cache.
+
+    Examples:
+        # Update all symbols in Schwab dataset
+        qtrader data update --dataset schwab-us-equity-1d-adjusted
+
+        # Update specific symbols
+        qtrader data update --dataset schwab-us-equity-1d-adjusted --symbols AAPL,TSLA,NVDA
+
+        # Dry run (check what would be updated)
+        qtrader data update --dataset schwab-us-equity-1d-adjusted --dry-run --verbose
+
+        # Update Algoseek dataset
+        qtrader data update --dataset algoseek-us-equity-1d-adjusted
+    """
+    from qtrader.data.dataset_updater import DatasetUpdater
+
+    console = Console()
+
+    try:
+        # Parse symbols if provided
+        symbol_list = [s.strip() for s in symbols.split(",")] if symbols else None
+
+        # Show mode
+        mode_str = "[yellow]DRY RUN[/yellow]" if dry_run else "[green]UPDATING[/green]"
+        console.print(f"\n{mode_str} Dataset: [cyan]{dataset}[/cyan]\n")
+
+        # Create updater
+        updater = DatasetUpdater(dataset)
+
+        # Get symbols to update
+        if symbol_list:
+            symbols_to_update = symbol_list
+            console.print(f"[cyan]Updating {len(symbols_to_update)} symbols...[/cyan]\n")
+        else:
+            symbols_to_update = updater._scan_cached_symbols()
+            if not symbols_to_update:
+                console.print("[yellow]No symbols found to update[/yellow]")
+                return
+            console.print(f"[cyan]Updating {len(symbols_to_update)} cached symbols...[/cyan]\n")
+
+        # Update with progress bar
+        results = []
+
+        with Progress(
+            SpinnerColumn(),
+            "[progress.description]{task.description}",
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("[cyan]Updating symbols...", total=len(symbols_to_update))
+
+            # Update each symbol and show progress
+            if symbol_list:
+                iterator = updater.update_symbols(symbol_list, dry_run=dry_run, verbose=verbose)
+            else:
+                iterator = updater.update_all(dry_run=dry_run, verbose=verbose)
+
+            for result in iterator:
+                # Update progress bar description with current symbol
+                status_emoji = "✓" if result.success else "✗"
+                progress.update(task, description=f"[cyan]{status_emoji} {result.symbol}", advance=1)
+                results.append(result)
+
+        console.print()  # Add blank line after progress
+
+        # Show results summary
+        if not results:
+            console.print("[yellow]No symbols found to update[/yellow]")
+            return
+
+        # Create summary table
+        table = Table(title="Update Summary")
+        table.add_column("Symbol", style="cyan", no_wrap=True)
+        table.add_column("Status", style="white")
+        table.add_column("Bars Added", style="magenta", justify="right")
+        table.add_column("Date Range", style="dim")
+
+        successful = 0
+        total_bars = 0
+        errors = []
+
+        for result in results:
+            if result.success:
+                successful += 1
+                total_bars += result.bars_added
+
+                if result.bars_added == 0:
+                    status = "[green]✓ Current[/green]"
+                    bars_str = "-"
+                    date_range = "-"
+                else:
+                    status = "[green]✓ Updated[/green]"
+                    bars_str = str(result.bars_added)
+                    date_range = f"{result.start_date} to {result.end_date}" if result.start_date else "-"
+            else:
+                status = "[red]✗ Error[/red]"
+                bars_str = "-"
+                date_range = "-"
+                errors.append((result.symbol, result.error))
+
+            table.add_row(result.symbol, status, bars_str, date_range)
+
+        console.print(table)
+
+        # Summary stats
+        console.print(f"\n[green]Successful:[/green] {successful}/{len(results)}")
+        console.print(f"[cyan]Total bars added:[/cyan] {total_bars:,}")
+
+        if errors:
+            console.print(f"\n[red]Errors ({len(errors)}):[/red]")
+            for symbol, error in errors:
+                console.print(f"  [red]•[/red] {symbol}: {error}")
+
+        if dry_run:
+            console.print("\n[yellow]This was a dry run. Use --no-dry-run to actually update data.[/yellow]")
+
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {e}[/red]")
+        import traceback
+
+        console.print(traceback.format_exc())
+        sys.exit(1)
+
+
+@data_group.command("cache-info")
+@click.option(
+    "--dataset",
+    required=True,
+    help="Dataset identifier (e.g., schwab-us-equity-1d-adjusted)",
+)
+def cache_info(dataset: str):
+    """
+    Show cache information for a dataset.
+
+    Displays cached symbols, date ranges, and update status.
+
+    Example:
+        qtrader data cache-info --dataset schwab-us-equity-1d-adjusted
+    """
+    from qtrader.data.dataset_updater import DatasetUpdater
+
+    console = Console()
+
+    try:
+        updater = DatasetUpdater(dataset)
+
+        # Get cache info
+        cache_root = updater._get_cache_root()
+        if not cache_root or not cache_root.exists():
+            console.print(f"[yellow]No cache found for dataset: {dataset}[/yellow]")
+            return
+
+        symbols = updater._scan_cached_symbols()
+        if not symbols:
+            console.print(f"[yellow]Cache directory empty: {cache_root}[/yellow]")
+            return
+
+        # Show summary
+        console.print(f"\n[cyan]Dataset:[/cyan] {dataset}")
+        console.print(f"[cyan]Cache location:[/cyan] {cache_root}")
+        console.print(f"[cyan]Cached symbols:[/cyan] {len(symbols)}\n")
+
+        # List symbols with metadata
+        table = Table(title="Cached Symbols")
+        table.add_column("Symbol", style="cyan", no_wrap=True)
+        table.add_column("Start Date", style="green")
+        table.add_column("End Date", style="green")
+        table.add_column("Bars", justify="right", style="yellow")
+        table.add_column("Last Update", style="dim")
+
+        for symbol in symbols:
+            # Read metadata if available
+            metadata_file = cache_root / symbol / ".metadata.json"
+
+            if metadata_file.exists():
+                import json
+
+                try:
+                    with open(metadata_file) as f:
+                        metadata = json.load(f)
+
+                    date_range = metadata.get("date_range", {})
+                    start_date = date_range.get("start", "N/A")
+                    end_date = date_range.get("end", "N/A")
+                    row_count = metadata.get("row_count", "N/A")
+                    last_update = metadata.get("last_update", "N/A")
+
+                    # Format last update (show just date/time, not full ISO)
+                    if last_update != "N/A" and "T" in last_update:
+                        last_update = last_update.split("T")[0] + " " + last_update.split("T")[1][:8]
+
+                    table.add_row(symbol, start_date, end_date, str(row_count), last_update)
+                except Exception as e:
+                    table.add_row(symbol, "Error", "Error", "Error", str(e)[:20])
+            else:
+                # No metadata file - just show that cache exists
+                table.add_row(symbol, "N/A", "N/A", "N/A", "No metadata")
+
+        console.print(table)
+
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
