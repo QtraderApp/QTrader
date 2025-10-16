@@ -13,7 +13,7 @@ from qtrader.adapters.resolver import DataSourceResolver
 from qtrader.config import DataConfig
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.data.loader import DataLoader
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+from qtrader.models.instrument import Instrument
 
 logger = structlog.get_logger(__name__)
 
@@ -68,6 +68,7 @@ class DataService:
     def __init__(
         self,
         config: DataConfig,
+        dataset: Optional[str] = None,
         resolver: Optional[DataSourceResolver] = None,
     ):
         """
@@ -75,18 +76,39 @@ class DataService:
 
         Args:
             config: Data configuration
+            dataset: Dataset name from data_sources.yaml (e.g., "schwab-us-equity-1d-adjusted").
+                    If None, will try to infer from config.source_selector (legacy behavior).
             resolver: Data source resolver (creates default if None)
 
         Examples:
-            >>> # With default resolver
-            >>> service = DataService(config)
+            >>> # Explicit dataset (RECOMMENDED)
+            >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted")
             >>>
             >>> # With custom resolver
             >>> resolver = DataSourceResolver("config/custom_sources.yaml")
-            >>> service = DataService(config, resolver)
+            >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted", resolver=resolver)
+            >>>
+            >>> # Legacy mode (infers from source_selector)
+            >>> service = DataService(config)  # Will log warning
         """
         self.config = config
         self.resolver = resolver or DataSourceResolver()
+
+        # Store explicit dataset if provided
+        self.dataset = dataset
+
+        if not self.dataset:
+            logger.warning(
+                "DataService initialized without explicit dataset. "
+                "This is deprecated. Pass dataset parameter explicitly. "
+                "Attempting to infer from config.source_selector..."
+            )
+            # Try to infer from source_selector (legacy)
+            if hasattr(config, "source_selector") and config.source_selector:
+                # Try to find matching dataset
+                self.dataset = self._infer_dataset_from_selector(config.source_selector)
+            else:
+                logger.error("Cannot infer dataset - no dataset parameter and no source_selector in config")
 
         # Convert config to dict for DataLoader (legacy interface)
         # TODO: Update DataLoader to accept DataConfig directly in Phase 2
@@ -95,7 +117,7 @@ class DataService:
         }
         self.loader = DataLoader(config_dict)
 
-        # Cache for instrument metadata
+        # Cache for instrument objects
         self._instrument_cache: Dict[str, Instrument] = {}
 
         logger.info(
@@ -247,34 +269,29 @@ class DataService:
 
     def get_instrument(self, symbol: str) -> Instrument:
         """
-        Get instrument metadata.
+        Get instrument for symbol.
+
+        Creates minimal instrument (symbol only) since dataset provides
+        all metadata (provider, asset type, etc.).
 
         Args:
             symbol: Ticker symbol
 
         Returns:
-            Instrument with metadata
-
-        Raises:
-            ValueError: If symbol not found
+            Instrument with symbol
 
         Examples:
+            >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted")
             >>> instrument = service.get_instrument("AAPL")
             >>> print(instrument.symbol)  # 'AAPL'
-            >>> print(instrument.instrument_type)  # InstrumentType.EQUITY
         """
         # Check cache first
         if symbol in self._instrument_cache:
             return self._instrument_cache[symbol]
 
-        # Build instrument
-        # TODO: Get instrument type and data source from registry in Phase 2
-        # For now, assume EQUITY and use config source
-        instrument = Instrument(
-            symbol=symbol,
-            instrument_type=InstrumentType.EQUITY,
-            data_source=self._get_data_source(),
-        )
+        # Build minimal instrument (symbol only)
+        # Dataset provides all metadata (no duplication)
+        instrument = Instrument(symbol=symbol)
 
         # Cache it
         self._instrument_cache[symbol] = instrument
@@ -282,8 +299,7 @@ class DataService:
         logger.debug(
             "data_service.get_instrument",
             symbol=symbol,
-            instrument_type=instrument.instrument_type,
-            data_source=instrument.data_source,
+            dataset=self.dataset,
         )
 
         return instrument
@@ -314,6 +330,47 @@ class DataService:
         raise NotImplementedError(
             "Symbol discovery will be implemented in Phase 2. For now, symbols must be provided explicitly."
         )
+
+    def _infer_dataset_from_selector(self, selector) -> Optional[str]:
+        """
+        Try to infer dataset name from source_selector (legacy support).
+
+        Args:
+            selector: DataSourceSelector from config
+
+        Returns:
+            Dataset name if found, None otherwise
+        """
+        try:
+            # Try to find matching dataset
+            for source_name, source_config in self.resolver.sources.items():
+                if selector.matches(source_config):
+                    logger.info(
+                        "data_service.inferred_dataset",
+                        dataset=source_name,
+                        selector=selector.to_tag(),
+                    )
+                    return source_name
+
+            # If no match, try provider name
+            provider = selector.provider
+            if provider:
+                # Look for dataset with matching provider
+                for source_name, source_config in self.resolver.sources.items():
+                    if source_config.get("provider") == provider:
+                        logger.info(
+                            "data_service.inferred_dataset_by_provider",
+                            dataset=source_name,
+                            provider=provider,
+                        )
+                        return source_name
+        except Exception as e:
+            logger.error(
+                "data_service.dataset_inference_failed",
+                error=str(e),
+            )
+
+        return None
 
     def _build_adapter_config(self) -> Dict:
         """
@@ -372,30 +429,3 @@ class DataService:
             "adapter": "algoseekOHLC",
             "root_path": "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample",
         }
-
-    def _get_data_source(self) -> DataSource:
-        """
-        Get DataSource enum from config.
-
-        Returns:
-            DataSource enum value
-
-        Notes:
-            - Maps config source_selector provider to DataSource enum
-            - Defaults to ALGOSEEK if not recognized
-        """
-        provider = (self.config.source_selector.provider or "").lower()
-
-        if "algoseek" in provider:
-            return DataSource.ALGOSEEK
-        elif "schwab" in provider:
-            return DataSource.SCHWAB
-        elif "csv" in provider:
-            return DataSource.CSV_FILE
-        else:
-            logger.warning(
-                "data_service.unknown_provider",
-                provider=provider,
-                default="ALGOSEEK",
-            )
-            return DataSource.ALGOSEEK
