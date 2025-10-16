@@ -3,60 +3,76 @@
 # Maps logical data sources (used in Instrument) to physical adapters.
 # Supports environment variable substitution using ${VAR_NAME} syntax.
 #
+# NAMING CONVENTION:
+#   Source names should follow: <provider>-<region>-<asset>-<freq>[-variant]
+#   Examples:
+#     - algoseek-us-equity-1d-unadjusted
+#     - schwab-us-equity-1d-adjusted
+#     - binance-crypto-1m
+#     - algoseek-us-futures-1d-unadjusted
+#
+# METADATA FIELDS (for DataSourceSelector matching):
+#   - provider: Data provider name (algoseek, schwab, binance, etc.)
+#   - asset_class: equity, futures, options, crypto, forex, fixed_income
+#   - data_type: ohlcv, trades, quotes, greeks, fundamentals
+#   - frequency: Use format like 1m, 5m, 15m, 1h, 1d (not "daily", "hourly")
+#   - region: US, EU, ASIA, etc. (optional)
+#   - adjustment_mode: unadjusted, adjusted, split_adjusted (optional)
+#
 # Configuration precedence:
 #   1. Explicit path provided to DataSourceResolver
 #   2. ./config/data_sources.yaml (project-relative)
 #   3. ~/.qtrader/data_sources.yaml (user home)
 
 data_sources:
-  # Algoseek Parquet (local files with OHLC data)
-  algoseek:
+  # Algoseek US Equity Daily Data (Unadjusted)
+  algoseek-us-equity-1d-unadjusted:
+    # Source metadata (for DataSourceSelector matching)
+    provider: algoseek
+    asset_class: equity
+    data_type: ohlcv
+    frequency: 1d
+    region: US
+    adjustment_mode: unadjusted # Algoseek provides unadjusted data
+
+    # Adapter configuration
     adapter: algoseekOHLC
     root_path: "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample"
     mode: standard_adjusted
     path_template: "{root_path}/SecId={secid}/*.parquet"
     symbol_map: "data/equity_security_master_sample.csv"
 
-  # Schwab API (with cache-first strategy)
-  schwab:
+  # Schwab US Equity Daily Data (Adjusted)
+  schwab-us-equity-1d-adjusted:
+    # Source metadata (for DataSourceSelector matching)
+    provider: schwab
+    asset_class: equity
+    data_type: ohlcv
+    frequency: 1d
+    region: US
+    adjustment_mode: adjusted # Schwab only provides split-adjusted data
+
+    # Adapter configuration
     adapter: schwabOHLC
     cache_root: "data/us-equity-daily-adjusted-schwab"
+    universe_file: "data/us-equity-daily-adjusted-schwab/universe.csv" # Optional: symbols to maintain
     mode: adjusted_only
 
-    api:
-      base_url: "https://api.schwabapi.com"
-      auth:
-        client_id: "${SCHWAB_API_KEY}"
-        client_secret: "${SCHWAB_API_SECRET}"
-        redirect_uri: "${SCHWAB_REDIRECT_URI:-https://127.0.0.1:8182}"
-        token_cache: "~/.qtrader/schwab_tokens.json"
+    # Caching strategy (NEW)
+    cache_strategy: "smart" # Options: "smart", "simple", "disabled"
+    enable_incremental_update: true
+    update_mode: "manual" # Options: "auto", "manual" (CLI controls when)
 
-      rate_limit:
-        requests_per_second: 10
-        backoff_base_delay: 1.0
-        backoff_max_delay: 60.0
+    # OAuth credentials (required)
+    client_id: "${SCHWAB_API_KEY}"
+    client_secret: "${SCHWAB_API_SECRET}"
 
-      fetch:
-        chunk_size_days: 365
-        max_years: 20
-        timeout_seconds: 30
+    # OAuth configuration (optional)
+    redirect_uri: "${SCHWAB_REDIRECT_URI:-https://127.0.0.1:8182}"
+    # Token cache path - leave as null to use default: ~/.qtrader/schwab_tokens.json
+    # If you want to specify explicitly, use full path: /home/username/.qtrader/schwab_tokens.json
+    token_cache_path: null # Uses default: ~/.qtrader/schwab_tokens.json
+    manual_mode: false
 
-  # Database (PostgreSQL example - requires environment variables)
-  # database:
-  #   adapter: postgres_adapter
-  #   connection_string: "${DB_CONNECTION_STRING}"
-  #   schema: "market_data"
-  #   table: "bars_daily"
-
-  # IQFeed (live data API example)
-  # iqfeed:
-  #   adapter: iqfeed_api
-  #   api_key: "${IQFEED_API_KEY}"
-  #   base_url: "https://api.iqfeed.net/v1"
-
-  # Binance (crypto exchange API)
-  # binance:
-  #   adapter: binance_api
-  #   api_key: "${BINANCE_API_KEY}"
-  #   api_secret: "${BINANCE_API_SECRET}"
-  #   base_url: "https://api.binance.com"
+    # Rate limiting
+    requests_per_second: 10

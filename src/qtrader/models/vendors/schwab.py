@@ -6,7 +6,7 @@ Schwab API returns split-adjusted prices only (no unadjusted or total return dat
 """
 
 import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -173,29 +173,32 @@ class SchwabPriceSeries(BaseModel):
 
     def to_canonical_series(
         self,
-    ) -> dict[str, Optional[PriceSeries]]:
+    ) -> dict[str, PriceSeries]:
         """
         Convert Schwab bars to canonical price series.
 
-        Schwab only provides split-adjusted prices, so:
-        - adjusted: Available (direct conversion)
-        - unadjusted: None (not provided by Schwab)
-        - total_return: None (cannot compute without dividends)
-
-        This creates a "partial MultiBar" structure where only adjusted
-        data is available.
+        Schwab only provides split-adjusted prices. For compatibility with
+        the multi-mode system, we create all three series but set unadjusted
+        and total_return equal to adjusted (since we have no unadjusted data
+        or dividend information).
 
         Returns:
             Dictionary with keys: 'unadjusted', 'adjusted', 'total_return'
-            - 'adjusted': PriceSeries with split-adjusted data
-            - 'unadjusted': None
-            - 'total_return': None
+            - 'adjusted': PriceSeries with split-adjusted data from Schwab
+            - 'unadjusted': Same as adjusted (best approximation available)
+            - 'total_return': Same as adjusted (no dividend data available)
+
+        Notes:
+            - Schwab API doesn't provide unadjusted or dividend data
+            - All three modes will show the same prices
+            - This is a limitation of the Schwab data source
         """
         if not self.bars:
+            empty_series = PriceSeries(mode="adjusted", symbol=self.symbol, bars=[])
             return {
-                "unadjusted": None,
-                "adjusted": PriceSeries(mode="adjusted", symbol=self.symbol, bars=[]),
-                "total_return": None,
+                "unadjusted": empty_series,
+                "adjusted": empty_series,
+                "total_return": empty_series,
             }
 
         # Convert Schwab bars to canonical Bar objects
@@ -212,8 +215,13 @@ class SchwabPriceSeries(BaseModel):
             )
             adjusted_bars.append(canonical_bar)
 
+        # Create adjusted series
+        adjusted_series = PriceSeries(mode="adjusted", symbol=self.symbol, bars=adjusted_bars)
+
+        # Since Schwab only provides adjusted data, use it for all modes
+        # Note: This means strategies using unadjusted will get adjusted prices
         return {
-            "unadjusted": None,
-            "adjusted": PriceSeries(mode="adjusted", symbol=self.symbol, bars=adjusted_bars),
-            "total_return": None,
+            "unadjusted": adjusted_series,  # Best approximation (no unadjusted data available)
+            "adjusted": adjusted_series,  # Direct from Schwab API
+            "total_return": adjusted_series,  # Best approximation (no dividend data available)
         }

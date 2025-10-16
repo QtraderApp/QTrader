@@ -19,7 +19,7 @@ Separation of concerns:
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -27,7 +27,7 @@ import pandas as pd
 import requests
 
 from qtrader.auth.schwab_oauth import SchwabOAuthManager
-from qtrader.config.logging_config import LoggerFactory
+from qtrader.config import LoggerFactory
 from qtrader.models.instrument import Instrument
 from qtrader.models.vendors.schwab import SchwabBar
 
@@ -314,8 +314,13 @@ class SchwabOHLCAdapter:
         # Optional OAuth config
         if "redirect_uri" in config:
             oauth_config["redirect_uri"] = config["redirect_uri"]
-        if "token_cache_path" in config:
-            oauth_config["token_cache_path"] = Path(config["token_cache_path"])
+        # Handle token_cache_path: if None or not set, use default
+        token_cache_path = config.get("token_cache_path", None)
+        if token_cache_path:
+            oauth_config["token_cache_path"] = Path(token_cache_path)
+        else:
+            # Use default: ~/.qtrader/schwab_tokens.json
+            oauth_config["token_cache_path"] = Path.home() / ".qtrader" / "schwab_tokens.json"
         if "manual_mode" in config:
             oauth_config["manual_mode"] = config["manual_mode"]
 
@@ -441,19 +446,43 @@ class SchwabOHLCAdapter:
 
     def _read_from_cache(self, start_date: str, end_date: str) -> Optional[list[SchwabBar]]:
         """
-        Read bars from cache.
+        Read bars from cache if it fully covers the requested date range.
 
         Args:
             start_date: Start date (ISO format)
             end_date: End date (ISO format)
 
         Returns:
-            List of SchwabBar objects or None if cache miss
+            List of SchwabBar objects or None if cache miss/incomplete
+
+        Notes:
+            - Returns None if cache doesn't fully cover requested range
+            - This triggers a fresh API fetch for the full range
         """
         if not self.metadata_manager or not self.metadata_manager.cache_exists():
             return None
 
         try:
+            # Check if cache covers requested range
+            metadata = self.metadata_manager.read_metadata()
+            if not metadata:
+                return None
+
+            cached_start = metadata["date_range"]["start"]
+            cached_end = metadata["date_range"]["end"]
+
+            # Cache must fully cover requested range
+            if cached_start > start_date or cached_end < end_date:
+                logger.info(
+                    "schwab_ohlc_adapter.cache_miss_partial",
+                    symbol=self.instrument.symbol,
+                    requested_start=start_date,
+                    requested_end=end_date,
+                    cached_start=cached_start,
+                    cached_end=cached_end,
+                )
+                return None
+
             # Read Parquet file
             df = pd.read_parquet(self.metadata_manager.data_file)
 
@@ -496,6 +525,90 @@ class SchwabOHLCAdapter:
                 error=str(e),
             )
             return None
+
+    def _read_all_from_cache(self) -> list[SchwabBar]:
+        """
+        Read all bars from cache (no date filtering).
+
+        Returns:
+            All cached bars or empty list if no cache
+        """
+        if not self.metadata_manager or not self.metadata_manager.cache_exists():
+            return []
+
+        metadata = self.metadata_manager.read_metadata()
+        if not metadata:
+            return []
+
+        # Read entire cache using date range from metadata
+        cached_start = metadata["date_range"]["start"]
+        cached_end = metadata["date_range"]["end"]
+
+        return self._read_from_cache(cached_start, cached_end) or []
+
+    def _detect_gaps(self, start_date: str, end_date: str, metadata: dict) -> list[tuple[str, str]]:
+        """
+        Detect date gaps between requested range and cached data.
+
+        Args:
+            start_date: Requested start date (ISO format)
+            end_date: Requested end date (ISO format)
+            metadata: Cache metadata dict
+
+        Returns:
+            List of (gap_start, gap_end) tuples to fetch from API
+
+        Examples:
+            >>> # Cache: 2020-01-01 to 2020-12-31
+            >>> # Request: 2019-01-01 to 2021-12-31
+            >>> gaps = _detect_gaps("2019-01-01", "2021-12-31", metadata)
+            >>> # Returns: [("2019-01-01", "2019-12-31"), ("2021-01-01", "2021-12-31")]
+        """
+        cached_start = metadata["date_range"]["start"]
+        cached_end = metadata["date_range"]["end"]
+
+        gaps = []
+
+        # Gap BEFORE cache
+        if start_date < cached_start:
+            gap_end = min(cached_start, end_date)
+            gaps.append((start_date, gap_end))
+
+        # Gap AFTER cache (incremental update zone)
+        if end_date > cached_end:
+            gap_start = max(cached_end, start_date)
+            gaps.append((gap_start, end_date))
+
+        return gaps
+
+    def _merge_bars(self, cached_bars: list[SchwabBar], api_bars: list[SchwabBar]) -> list[SchwabBar]:
+        """
+        Merge bars from cache and API, removing duplicates.
+
+        Args:
+            cached_bars: Bars from cache
+            api_bars: Bars from API
+
+        Returns:
+            Sorted, deduplicated list of bars
+        """
+        # Combine all bars
+        all_bars = cached_bars + api_bars
+
+        # Deduplicate by timestamp (convert to string for set comparison)
+        seen_timestamps = set()
+        unique_bars = []
+
+        for bar in all_bars:
+            ts = bar.timestamp.isoformat()
+            if ts not in seen_timestamps:
+                seen_timestamps.add(ts)
+                unique_bars.append(bar)
+
+        # Sort chronologically
+        unique_bars.sort(key=lambda b: b.timestamp)
+
+        return unique_bars
 
     def _write_to_cache(
         self,
@@ -585,6 +698,152 @@ class SchwabOHLCAdapter:
             if temp_file.exists():
                 temp_file.unlink()
 
+    def update_to_latest(
+        self, symbol: Optional[str] = None, dry_run: bool = False
+    ) -> tuple[int, Optional[date], Optional[date]]:
+        """
+        Update cache from last cached bar to latest available in API.
+
+        This is the incremental update mode:
+        - Reads last cached date from metadata
+        - Fetches from (last_date + 1 day) to today
+        - Appends new bars to cache
+        - Updates metadata
+
+        Args:
+            symbol: Stock symbol (optional, uses self.instrument.symbol if not provided)
+            dry_run: If True, only check what would be updated (no API calls)
+
+        Returns:
+            Tuple of (bars_added, start_date, end_date)
+            - bars_added: Number of new bars that would be/were added
+            - start_date: First date in update range (or None if no update needed)
+            - end_date: Last date in update range (or None if no update needed)
+
+        Examples:
+            >>> adapter = SchwabOHLCAdapter(config, instrument)
+            >>> bars, start, end = adapter.update_to_latest()
+            >>> print(f"Added {bars} bars from {start} to {end}")
+            >>>
+            >>> # Dry run
+            >>> bars, start, end = adapter.update_to_latest(dry_run=True)
+            >>> print(f"Would add {bars} bars")
+
+        Note:
+            Respects enable_incremental_update config flag
+        """
+        if not self.config.get("enable_incremental_update", True):
+            logger.debug(
+                "schwab_cache.incremental_updates_disabled",
+                symbol=self.instrument.symbol,
+            )
+            return (0, None, None)
+
+        if not self.metadata_manager:
+            logger.warning(
+                "schwab_cache.no_cache_configured",
+                symbol=self.instrument.symbol,
+            )
+            return (0, None, None)
+
+        metadata = self.metadata_manager.read_metadata()
+
+        if not metadata:
+            logger.warning(
+                "schwab_cache.no_metadata_for_update",
+                symbol=self.instrument.symbol,
+            )
+            return (0, None, None)
+
+        # Get last cached date
+        cached_end = metadata["date_range"]["end"]
+        today = datetime.now(timezone.utc).date().isoformat()
+
+        # Check if update needed
+        if cached_end >= today:
+            logger.debug(
+                "schwab_cache.already_up_to_date",
+                symbol=self.instrument.symbol,
+                cached_end=cached_end,
+                today=today,
+            )
+            return (0, None, None)
+
+        # Calculate update range (next day after cache to today)
+        from datetime import timedelta
+
+        cached_end_dt = datetime.fromisoformat(cached_end).date()
+        update_start = cached_end_dt + timedelta(days=1)
+        update_end = datetime.fromisoformat(today).date()
+
+        # Dry run: just report what would be updated
+        if dry_run:
+            # Estimate bars (assuming trading days, not calendar days)
+            days_diff = (update_end - update_start).days
+            estimated_bars = days_diff * 5 // 7  # Rough estimate: 5 trading days per 7 calendar days
+
+            logger.info(
+                "schwab_cache.dry_run",
+                symbol=self.instrument.symbol,
+                update_start=update_start.isoformat(),
+                update_end=update_end.isoformat(),
+                estimated_bars=estimated_bars,
+            )
+            return (estimated_bars, update_start, update_end)
+
+        logger.info(
+            "schwab_cache.incremental_update_start",
+            symbol=self.instrument.symbol,
+            update_start=update_start.isoformat(),
+            update_end=update_end.isoformat(),
+        )
+
+        # Fetch new bars from API
+
+        try:
+            new_bars = list(self._fetch_from_api(update_start.isoformat(), update_end.isoformat()))
+
+            if not new_bars:
+                logger.info(
+                    "schwab_cache.no_new_bars",
+                    symbol=self.instrument.symbol,
+                    update_start=update_start.isoformat(),
+                    update_end=update_end.isoformat(),
+                )
+                return (0, update_start, update_end)
+
+            # Load existing cache
+            existing_bars = self._read_all_from_cache()
+            before_count = len(existing_bars)
+
+            # Merge and write
+            all_bars = self._merge_bars(existing_bars, new_bars)
+            after_count = len(all_bars)
+            bars_added = after_count - before_count
+            self._write_to_cache(all_bars)
+
+            logger.info(
+                "schwab_cache.incremental_update_complete",
+                symbol=self.instrument.symbol,
+                new_bars=bars_added,
+                total_bars=after_count,
+                update_start=update_start.isoformat(),
+                update_end=update_end.isoformat(),
+            )
+
+            # Only report bars added if truly new
+            if bars_added == 0:
+                return (0, None, None)
+            return (bars_added, update_start, update_end)
+
+        except Exception as e:
+            logger.error(
+                "schwab_cache.incremental_update_error",
+                symbol=self.instrument.symbol,
+                error=str(e),
+            )
+            raise
+
     def read_bars(
         self,
         start_date: str,
@@ -627,25 +886,130 @@ class SchwabOHLCAdapter:
             - Rate limited to 10 requests/second
             - Automatic token refresh
         """
-        # Step 1: Try cache first
-        if self.metadata_manager:
+        # Get caching strategy from config (default: "smart")
+        strategy = self.config.get("cache_strategy", "smart")
+        force_refresh = self.config.get("force_refresh", False)
+
+        # Force refresh: ignore cache and fetch fresh
+        if force_refresh:
+            logger.info(
+                "schwab_cache.force_refresh",
+                symbol=self.instrument.symbol,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            bars_from_api = list(self._fetch_from_api(start_date, end_date, frequency_type, frequency))
+            if self.metadata_manager and bars_from_api:
+                self._write_to_cache(bars_from_api, frequency_type, frequency)
+            for bar in bars_from_api:
+                yield bar
+            return
+
+        # STRATEGY: DISABLED - always fetch from API
+        if strategy == "disabled" or not self.metadata_manager:
+            for bar in self._fetch_from_api(start_date, end_date, frequency_type, frequency):
+                yield bar
+            return
+
+        # STRATEGY: SIMPLE - all-or-nothing caching (original behavior)
+        if strategy == "simple":
             cached_bars = self._read_from_cache(start_date, end_date)
             if cached_bars:
-                # Cache hit - yield cached bars
                 for bar in cached_bars:
                     yield bar
                 return
 
-        # Step 2: Cache miss - fetch from API
-        bars_from_api = list(self._fetch_from_api(start_date, end_date, frequency_type, frequency))
+            bars_from_api = list(self._fetch_from_api(start_date, end_date, frequency_type, frequency))
+            if bars_from_api:
+                self._write_to_cache(bars_from_api, frequency_type, frequency)
+            for bar in bars_from_api:
+                yield bar
+            return
 
-        # Step 3: Write to cache (if configured)
-        if self.metadata_manager and bars_from_api:
-            self._write_to_cache(bars_from_api, frequency_type, frequency)
+        # STRATEGY: SMART - gap-filling and incremental updates (NEW!)
+        if strategy == "smart":
+            # Auto-update if configured
+            if self.config.get("update_mode") == "auto":
+                try:
+                    self.update_to_latest()
+                except Exception as e:
+                    logger.warning(
+                        "schwab_cache.auto_update_failed",
+                        symbol=self.instrument.symbol,
+                        error=str(e),
+                    )
 
-        # Step 4: Yield bars
-        for bar in bars_from_api:
-            yield bar
+            metadata = self.metadata_manager.read_metadata()
+
+            if not metadata:
+                # No cache yet - fetch and cache
+                logger.info(
+                    "schwab_cache.no_cache_fetching",
+                    symbol=self.instrument.symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                bars = list(self._fetch_from_api(start_date, end_date, frequency_type, frequency))
+                self._write_to_cache(bars, frequency_type, frequency)
+                for bar in bars:
+                    yield bar
+                return
+
+            # Detect gaps between requested range and cache
+            gaps = self._detect_gaps(start_date, end_date, metadata)
+
+            # Fetch gap data from API
+            gap_bars: list[SchwabBar] = []
+            for gap_start, gap_end in gaps:
+                logger.info(
+                    "schwab_cache.fetching_gap",
+                    symbol=self.instrument.symbol,
+                    gap_start=gap_start,
+                    gap_end=gap_end,
+                )
+                gap_bars.extend(self._fetch_from_api(gap_start, gap_end, frequency_type, frequency))
+
+            # Read cached data (overlapping range)
+            cached_start = metadata["date_range"]["start"]
+            cached_end = metadata["date_range"]["end"]
+
+            # Only read cache if it overlaps with request
+            cached_bars = []
+            if start_date <= cached_end and end_date >= cached_start:
+                overlap_start = max(start_date, cached_start)
+                overlap_end = min(end_date, cached_end)
+                cached_bars = self._read_from_cache(overlap_start, overlap_end) or []
+
+            # Merge all data
+            all_bars = self._merge_bars(cached_bars, gap_bars)
+
+            # Update cache if we fetched new data
+            if gap_bars:
+                self._write_to_cache(all_bars, frequency_type, frequency)
+
+            # Filter to requested range and yield
+            for bar in all_bars:
+                bar_date = bar.timestamp.date().isoformat()
+                if start_date <= bar_date <= end_date:
+                    yield bar
+            return
+
+        # Fallback to simple strategy if unknown
+        logger.warning(
+            "schwab_cache.unknown_strategy",
+            symbol=self.instrument.symbol,
+            strategy=strategy,
+        )
+        cached_bars = self._read_from_cache(start_date, end_date)
+        if cached_bars:
+            for bar in cached_bars:
+                yield bar
+        else:
+            bars_from_api = list(self._fetch_from_api(start_date, end_date, frequency_type, frequency))
+            if self.metadata_manager and bars_from_api:
+                self._write_to_cache(bars_from_api, frequency_type, frequency)
+            for bar in bars_from_api:
+                yield bar
 
     def _fetch_from_api(
         self,
@@ -780,11 +1144,11 @@ class SchwabOHLCAdapter:
             Tuple of (min_date, max_date) in ISO format, or (None, None) if no data
         """
         try:
-            # Query last 20 years (max historical data)
+            # Query last 30 years (max historical data)
             params = {
                 "symbol": self.instrument.symbol,
                 "periodType": "year",
-                "period": 20,
+                "period": 30,
                 "frequencyType": "daily",
                 "frequency": 1,
             }

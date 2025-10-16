@@ -3,7 +3,8 @@ Create isolated unit tests using pytest for the selected code module following t
 1. Essential Guidelines:
 
 - Follow general copilot instructions in .github/instructions/copilot-instructions.md
-- Test one behavior per function
+- follow folder structure mirroring src code being tested
+- if a directory is given, create test for all in that directory
 - Use descriptive names: `test_<function>_<scenario>_<expected>`
 - Follow the Arrange-Act-Assert pattern
 - Keep tests focused and independent

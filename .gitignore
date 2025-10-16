@@ -215,5 +215,14 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-backtest_results/* 
+
+# QTrader specific
 output/*
+data/*
+.tokens/
+schwab_tokens.json
+
+# Editor backup files
+*~
+.~*
+

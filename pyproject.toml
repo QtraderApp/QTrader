@@ -1,3 +1,7 @@
+################################################################################
+# PROJECT METADATA
+################################################################################
+
 [project]
 name = "qtrader"
 version = "0.1.0"
@@ -7,18 +11,27 @@ requires-python = ">=3.13"
 authors = [{ name = "QTrader", email = "q@qtrader.app" }]
 maintainers = [{ name = "QTrader", email = "q@qtrader.app" }]
 
+################################################################################
+# DEPENDENCIES
+################################################################################
+
 dependencies = [
+    # Data Processing
     "duckdb>=1.4.0",
     "pandas>=2.3.2",
     "pyarrow>=21.0.0",
+    # CLI & UI
     "click>=8.0.0",
+    "rich>=13.0.0",
+    # Configuration & Validation
     "pydantic>=2.11.9",
     "pyyaml>=6.0",
+    # Utilities
     "pytz>=2024.1",
     "structlog>=24.4.0",
+    # Network & API
     "requests>=2.32.5",
     "websockets>=15.0.1",
-    "rich>=13.0.0",
     "cryptography>=46.0.2",
 ]
 
@@ -27,28 +40,37 @@ qtrader = "qtrader.cli:main"
 
 [dependency-groups]
 dev = [
+    # Code Quality
     "isort>=6.0.1",
+    "ruff>=0.13.0",
+    "mypy>=1.14.0",
     "pre-commit>=4.3.0",
+    # Testing
     "pytest>=8.4.2",
     "pytest-cov>=6.0.0",
     "pytest-xdist>=3.8.0",
     "pytest-watch>=4.2.0",
-    "mypy>=1.14.0",
-    "ruff>=0.13.0",
+    # Documentation
     "mdformat>=0.7.21",
     "mdformat-gfm>=0.3.6",
     "mdformat-tables>=1.0.0",
     "mdformat-frontmatter>=2.0.8",
+    # Type Stubs
     "pandas-stubs>=2.3.2.250926",
     "types-pyyaml>=6.0.12.20250915",
     "types-requests>=2.32.4.20250913",
 ]
 
-
-# Tool configurations
+################################################################################
+# BUILD SYSTEM
+################################################################################
 
 [tool.uv]
 package = true # Enable package installation for entry points
+
+################################################################################
+# CODE FORMATTING & LINTING
+################################################################################
 
 [tool.ruff]
 line-length = 120
@@ -75,6 +97,10 @@ src_paths = ["src"]
 wrap = "no"        # Do not wrap lines
 end_of_line = "lf" # Use LF line endings (Unix style)
 
+################################################################################
+# TYPE CHECKING
+################################################################################
+
 [tool.mypy]
 python_version = "3.13"
 warn_return_any = true
@@ -96,3 +122,50 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "pyarrow.*"
 ignore_missing_imports = true
+
+################################################################################
+# TESTING
+################################################################################
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",              # Show extra test summary info for all except passed
+    "--strict-markers", # Raise error on unknown markers
+    "--strict-config",  # Raise error on unknown config options
+    "--showlocals",     # Show local variables in tracebacks
+]
+
+################################################################################
+# CODE COVERAGE
+################################################################################
+
+[tool.coverage.run]
+source = ["src"] # Only measure coverage for src/ directory
+omit = [
+    "*/tests/*",         # Exclude all test files
+    "*/__pycache__/*",   # Exclude cache
+    "*/site-packages/*", # Exclude dependencies
+]
+branch = true # Measure branch coverage
+
+[tool.coverage.report]
+precision = 0 # No decimal places in percentages
+show_missing = true # Show line numbers of missing coverage
+skip_covered = false # Show all files, even 100% covered
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"

@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from qtrader.config.logging_config import LoggerFactory
+from qtrader.config import LoggerFactory
 
 logger = LoggerFactory.get_logger()
 
