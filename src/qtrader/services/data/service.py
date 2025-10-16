@@ -324,18 +324,50 @@ class DataService:
 
         Notes:
             - Converts Pydantic config to dict format expected by adapters
-            - Looks up adapter settings from resolver
+            - Looks up adapter settings using source_selector
             - This is a temporary bridge until Phase 2
         """
-        # Use source_selector provider to find adapter config
-        provider = self.config.source_selector.provider or "algoseek"  # Default to algoseek
+        # Use source_selector to find matching source
+        try:
+            # Find matching source by selector criteria
+            matching_sources = []
+            for source_name, source_config in self.resolver.sources.items():
+                if self.config.source_selector.matches(source_config):
+                    matching_sources.append((source_name, source_config))
 
-        # Get adapter config from resolver
-        if provider in self.resolver.sources:
-            adapter_config = self.resolver.sources[provider].copy()
-            return adapter_config
+            if matching_sources:
+                # Use first match
+                source_name, adapter_config = matching_sources[0]
+                logger.debug(
+                    "data_service.adapter_config_resolved",
+                    source_name=source_name,
+                    selector=self.config.source_selector.to_tag(),
+                )
+                return adapter_config.copy()
+
+            # If no match by selector, try backward compatibility with provider name
+            provider = self.config.source_selector.provider
+            if provider:
+                for source_name, source_config in self.resolver.sources.items():
+                    if source_config.get("provider") == provider:
+                        logger.debug(
+                            "data_service.adapter_config_resolved_by_provider",
+                            source_name=source_name,
+                            provider=provider,
+                        )
+                        return source_config.copy()
+        except Exception as e:
+            logger.warning(
+                "data_service.adapter_config_lookup_failed",
+                error=str(e),
+                selector=self.config.source_selector.to_tag(),
+            )
 
         # Fallback to basic config
+        logger.warning(
+            "data_service.using_fallback_adapter_config",
+            selector=self.config.source_selector.to_tag(),
+        )
         return {
             "adapter": "algoseekOHLC",
             "root_path": "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample",
