@@ -148,12 +148,61 @@ class DatasetUpdater:
                 f"Add update_to_latest() method to enable dataset updates."
             )
 
+        # Load universe file if configured
+        self.universe_symbols = self._load_universe_symbols()
+
         logger.info(
             "dataset_updater.initialized",
             dataset=dataset_name,
             adapter=adapter_name,
             cache_enabled=self._supports_caching(),
+            universe_symbols=len(self.universe_symbols) if self.universe_symbols else 0,
         )
+
+    def _load_universe_symbols(self) -> Optional[List[str]]:
+        """
+        Load symbols from configured universe file.
+
+        Returns:
+            List of symbols from universe.csv, or None if not configured/not found
+        """
+        universe_path_str = self.adapter_config.get("universe_file")
+        if not universe_path_str:
+            return None
+
+        universe_path = Path(universe_path_str)
+        if not universe_path.exists():
+            logger.debug(
+                "dataset_updater.universe_file_not_found",
+                path=str(universe_path),
+            )
+            return None
+
+        try:
+            import csv
+
+            symbols = []
+            with open(universe_path) as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    symbol = row.get("SYMBOL", "").strip()
+                    if symbol:
+                        symbols.append(symbol)
+
+            logger.info(
+                "dataset_updater.universe_loaded",
+                path=str(universe_path),
+                symbol_count=len(symbols),
+            )
+            return symbols
+
+        except Exception as e:
+            logger.warning(
+                "dataset_updater.universe_load_error",
+                path=str(universe_path),
+                error=str(e),
+            )
+            return None
 
     def _supports_caching(self) -> bool:
         """
@@ -205,6 +254,23 @@ class DatasetUpdater:
         )
         return sorted(symbols)
 
+    def _symbol_has_cache(self, symbol: str) -> bool:
+        """
+        Check if a symbol has cached data.
+
+        Args:
+            symbol: Stock symbol to check
+
+        Returns:
+            True if symbol has cache directory with data.parquet
+        """
+        cache_root = self._get_cache_root()
+        if not cache_root:
+            return False
+
+        symbol_cache = cache_root / symbol / "data.parquet"
+        return symbol_cache.exists()
+
     def update_symbol(
         self,
         symbol: str,
@@ -248,19 +314,98 @@ class DatasetUpdater:
             # Create adapter instance for this symbol
             adapter = self.resolver.resolve_by_dataset(self.dataset_name, instrument)
 
-            # Call adapter's update method
-            # Adapters should return (bars_added, start_date, end_date)
-            result = adapter.update_to_latest(dry_run=dry_run)
+            # Check if cache exists for this symbol
+            cache_exists = self._symbol_has_cache(symbol)
 
-            # Parse adapter result
-            # Expected format: (bars_added: int, start_date: date | None, end_date: date | None)
-            if isinstance(result, tuple) and len(result) == 3:
-                bars_added, start_date, end_date = result
+            if not cache_exists:
+                # No cache: Full backfill from earliest available
+                if verbose:
+                    logger.info(
+                        "dataset_updater.full_backfill_needed",
+                        symbol=symbol,
+                        reason="no_cache_found",
+                    )
+
+                if dry_run:
+                    # Dry run for full backfill
+                    return DatasetUpdateResult(
+                        symbol=symbol,
+                        success=True,
+                        bars_added=0,  # Unknown until fetched
+                        start_date=None,
+                        end_date=None,
+                        error="Would perform full backfill (no cache)",
+                    )
+
+                # Perform full backfill from earliest available date
+                # Query API to get the actual earliest available date for this symbol
+                if verbose:
+                    logger.info(
+                        "dataset_updater.querying_date_range",
+                        symbol=symbol,
+                    )
+
+                # Get available date range from adapter
+                min_date, max_date = adapter.get_available_date_range()
+
+                if not min_date or not max_date:
+                    # If we can't get date range, fall back to 20 years
+                    logger.warning(
+                        "dataset_updater.date_range_unavailable",
+                        symbol=symbol,
+                        fallback="20_years",
+                    )
+                    from datetime import timedelta
+
+                    end_date_obj = date.today()
+                    start_date_obj = end_date_obj - timedelta(days=7300)  # ~20 years
+                    min_date = start_date_obj.isoformat()
+                    max_date = end_date_obj.isoformat()
+
+                if verbose:
+                    logger.info(
+                        "dataset_updater.full_backfill_range",
+                        symbol=symbol,
+                        start_date=min_date,
+                        end_date=max_date,
+                    )
+
+                # Fetch all bars from earliest to latest (this will cache them automatically)
+                bars = list(adapter.read_bars(min_date, max_date))
+
+                bars_added = len(bars)
+                start_date = bars[0].timestamp.date() if bars else None
+                end_date = bars[-1].timestamp.date() if bars else None
+
+                if verbose:
+                    logger.info(
+                        "dataset_updater.full_backfill_complete",
+                        symbol=symbol,
+                        bars_cached=bars_added,
+                        start_date=str(start_date) if start_date else None,
+                        end_date=str(end_date) if end_date else None,
+                    )
             else:
-                # Fallback for adapters that don't return structured result
-                bars_added = result if isinstance(result, int) else 0
-                start_date = None
-                end_date = None
+                # Cache exists: Incremental update
+                if verbose:
+                    logger.info(
+                        "dataset_updater.incremental_update",
+                        symbol=symbol,
+                    )
+
+                # Call adapter's update method
+                # Adapters should return (bars_added, start_date, end_date)
+                result = adapter.update_to_latest(dry_run=dry_run)
+
+                # Parse adapter result
+                # Expected format: (bars_added: int, start_date: date | None, end_date: date | None)
+                if isinstance(result, tuple) and len(result) == 3:
+                    bars_added, start_date, end_date = result
+                else:
+                    # Fallback for adapters that don't return structured result
+                    bars_added = result if isinstance(result, int) else 0
+                    start_date = None
+                    end_date = None
 
             if verbose:
                 logger.info(
