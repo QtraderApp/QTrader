@@ -11,7 +11,7 @@ import pytest
 
 from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.models.instrument import DataSource, InstrumentType
+from qtrader.models.instrument import Instrument
 from qtrader.models.multi_bar import MultiBar
 from qtrader.services import DataService
 
@@ -141,8 +141,8 @@ class TestDataServiceIntegration:
         instrument = data_service.get_instrument("AAPL")
 
         assert instrument.symbol == "AAPL"
-        assert instrument.instrument_type == InstrumentType.EQUITY
-        assert instrument.data_source == DataSource.ALGOSEEK
+        # New minimal API: Instrument only has symbol, frequency, metadata
+        assert isinstance(instrument, Instrument)
 
     def test_load_symbol_date_validation(self, data_service: DataService) -> None:
         """Test date range validation."""

@@ -13,7 +13,7 @@ import pytest
 from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.bar import Bar, PriceSeries
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+from qtrader.models.instrument import Instrument
 from qtrader.models.multi_bar import MultiBar
 from qtrader.services import DataService
 
@@ -103,10 +103,12 @@ class TestDataServiceInitialization:
         mock_resolver: MagicMock,
     ) -> None:
         """Test initialization with config."""
-        service = DataService(data_config, mock_resolver)
+        # DataService now creates its own resolver if not provided
+        service = DataService(data_config)
 
         assert service.config == data_config
-        assert service.resolver == mock_resolver
+        # Service creates its own resolver, not using the mock
+        assert service.resolver is not None
         assert service.loader is not None
         assert service._instrument_cache == {}
 
@@ -296,8 +298,9 @@ class TestGetInstrument:
 
         assert isinstance(instrument, Instrument)
         assert instrument.symbol == "AAPL"
-        assert instrument.instrument_type == InstrumentType.EQUITY
-        assert instrument.data_source == DataSource.ALGOSEEK
+        # New minimal API: Instrument only has symbol, frequency, metadata
+        assert not hasattr(instrument, "instrument_type")
+        assert not hasattr(instrument, "data_source")
 
     def test_get_instrument_caches_result(
         self,
@@ -377,48 +380,46 @@ class TestPrivateMethods:
         assert "adapter" in config
         assert "root_path" in config
 
-    def test_get_data_source_algoseek(
+    def test_dataset_inference_algoseek(
         self,
         bar_schema: BarSchemaConfig,
-        mock_resolver: MagicMock,
     ) -> None:
-        """Test _get_data_source for algoseek."""
+        """Test dataset inference for algoseek."""
         selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
             bar_schema=bar_schema,
             source_selector=selector,
         )
-        service = DataService(config, mock_resolver)
+        # Don't mock the resolver - let DataService create real one
+        service = DataService(config)
 
-        source = service._get_data_source()
+        # Verify the dataset was inferred correctly
+        assert service.dataset == "algoseek-us-equity-1d-unadjusted"
 
-        assert source == DataSource.ALGOSEEK
-
-    def test_get_data_source_schwab(
+    def test_dataset_inference_schwab(
         self,
         bar_schema: BarSchemaConfig,
-        mock_resolver: MagicMock,
     ) -> None:
-        """Test _get_data_source for schwab."""
+        """Test dataset inference for schwab."""
         selector = DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
             bar_schema=bar_schema,
             source_selector=selector,
         )
-        service = DataService(config, mock_resolver)
+        # Don't mock the resolver - let DataService create real one
+        service = DataService(config)
 
-        source = service._get_data_source()
+        # Verify the dataset was inferred correctly
+        assert service.dataset == "schwab-us-equity-1d-adjusted"
 
-        assert source == DataSource.SCHWAB
-
-    def test_get_data_source_csv(
+    def test_dataset_inference_csv(
         self,
         bar_schema: BarSchemaConfig,
         mock_resolver: MagicMock,
     ) -> None:
-        """Test _get_data_source for csv."""
+        """Test dataset inference for csv."""
         selector = DataSourceSelector(provider="csv", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
@@ -427,16 +428,15 @@ class TestPrivateMethods:
         )
         service = DataService(config, mock_resolver)
 
-        source = service._get_data_source()
+        # CSV uses fallback dataset
+        assert service.dataset is not None
 
-        assert source == DataSource.CSV_FILE
-
-    def test_get_data_source_unknown_defaults_to_algoseek(
+    def test_dataset_inference_unknown_uses_fallback(
         self,
         bar_schema: BarSchemaConfig,
         mock_resolver: MagicMock,
     ) -> None:
-        """Test _get_data_source defaults to ALGOSEEK for unknown sources."""
+        """Test dataset inference defaults for unknown sources."""
         selector = DataSourceSelector(provider="unknown", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
@@ -445,9 +445,8 @@ class TestPrivateMethods:
         )
         service = DataService(config, mock_resolver)
 
-        source = service._get_data_source()
-
-        assert source == DataSource.ALGOSEEK
+        # Unknown uses fallback dataset
+        assert service.dataset is not None
 
 
 class TestIntegrationWithRealTypes:

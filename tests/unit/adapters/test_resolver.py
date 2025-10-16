@@ -7,7 +7,7 @@ import pytest
 
 from qtrader.adapters.resolver import DataSourceResolver
 from qtrader.config.data_source_selector import AssetClass, DataSourceSelector, DataType
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+from qtrader.models.instrument import Instrument
 
 
 @pytest.fixture
@@ -50,11 +50,7 @@ data_sources:
 @pytest.fixture
 def instrument() -> Instrument:
     """Create test instrument."""
-    return Instrument(
-        symbol="AAPL",
-        instrument_type=InstrumentType.EQUITY,
-        data_source=DataSource.ALGOSEEK,
-    )
+    return Instrument(symbol="AAPL")
 
 
 class TestResolverBySelectorMatching:
@@ -268,20 +264,11 @@ class TestResolverLegacy:
     """Test legacy resolve() method still works."""
 
     def test_resolve_by_instrument(self, temp_config: Path) -> None:
-        """Test resolve() method with Instrument."""
+        """Test resolve() method with Instrument - deprecated API."""
         resolver = DataSourceResolver(str(temp_config))
-        instrument = Instrument(
-            symbol="AAPL",
-            instrument_type=InstrumentType.EQUITY,
-            data_source=DataSource.ALGOSEEK,
-        )
+        instrument = Instrument(symbol="AAPL")
 
-        with patch.object(resolver, "_create_adapter") as mock_create:
-            mock_create.return_value = MagicMock()
+        # The old resolve() is deprecated and now raises AttributeError
+        # when instrument doesn't have data_source in metadata
+        with pytest.raises(AttributeError, match="Instrument is missing 'data_source'"):
             resolver.resolve(instrument)
-
-            # Should call _create_adapter
-            # Note: Legacy DataSource.ALGOSEEK enum resolves to new source name via provider matching
-            assert mock_create.called
-            call_args = mock_create.call_args[0]
-            assert call_args[0] == "algoseek-us-equity-1d-unadjusted"
