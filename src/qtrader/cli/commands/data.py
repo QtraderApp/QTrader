@@ -1,69 +1,24 @@
-"""QTrader CLI - Clean implementation."""
+"""Data management commands - thin CLI orchestration layer."""
 
-import importlib.util
-import inspect
 import sys
 from datetime import datetime
-from typing import Any, Dict
 
 import click
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TimeElapsedColumn
-from rich.table import Table
 
+from qtrader.cli.ui import (
+    create_bar_table,
+    create_cache_info_table,
+    create_update_progress,
+    create_update_summary_table,
+)
+from qtrader.cli.ui.formatters import add_bar_data, add_cache_info_row, add_update_result_row
 from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.services import DataService
+from qtrader.services.data.update_service import UpdateService
 
 
-def _load_module(path: str):
-    """Load Python module from file path."""
-    spec = importlib.util.spec_from_file_location("strategy", path)
-    if not spec or not spec.loader:
-        raise ImportError(f"Cannot load {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["strategy"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _find_strategy_class(module):
-    """Find Strategy class (has on_bar method)."""
-    classes = [
-        (n, o)
-        for n, o in inspect.getmembers(module, inspect.isclass)
-        if hasattr(o, "on_bar") and o.__module__ == module.__name__
-    ]
-    if not classes:
-        raise ValueError("No Strategy class found")
-    if len(classes) > 1:
-        raise ValueError(f"Multiple classes found: {[n for n, _ in classes]}")
-    return classes[0][1]
-
-
-def _apply_overrides(config: Dict[str, Any], overrides: tuple) -> Dict[str, Any]:
-    """Apply --set overrides to config."""
-    import ast
-
-    config = dict(config)
-    for override in overrides:
-        if "=" not in override:
-            raise ValueError(f"Invalid: {override}")
-        key, val = override.split("=", 1)
-        try:
-            config[key.strip()] = ast.literal_eval(val.strip())
-        except (ValueError, SyntaxError):
-            config[key.strip()] = val.strip()
-    return config
-
-
-@click.group()
-@click.version_option(version="0.1.0")
-def main():
-    """QTrader - Quantitative Trading Backtest System"""
-    pass
-
-
-@main.group("data")
+@click.group("data")
 def data_group():
     """Data management commands - browse, fetch, cache, and update market data"""
     pass
@@ -115,11 +70,11 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
 
         # Configure data service
         selector = DataSourceSelector(
-            provider=source.lower(),  # e.g., "algoseek" or "schwab"
+            provider=source.lower(),
             asset_class=AssetClass.EQUITY,
         )
         config = DataConfig(
-            mode="adjusted",  # Internal processing mode
+            mode="adjusted",
             frequency="1d",
             timezone="America/New_York",
             source_selector=selector,
@@ -146,21 +101,21 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
             bar = multi_bar.unadjusted
 
             # Create table for this bar
-            table = Table(title=f"Bar {idx}/{len(bars)} - {symbol} (raw)")
-            table.add_column("Field", style="cyan", no_wrap=True)
-            table.add_column("Value", style="white")
+            table = create_bar_table(symbol, idx, len(bars))
 
-            # Display bar data (uniform interface for all data sources)
-            table.add_row("Date", str(multi_bar.trade_datetime.date()))
-            table.add_row("Open", f"${bar.open:.2f}")
-            table.add_row("High", f"${bar.high:.2f}")
-            table.add_row("Low", f"${bar.low:.2f}")
-            table.add_row("Close", f"${bar.close:.2f}")
-            table.add_row("Volume", f"{bar.volume:,}")
+            # Prepare bar data
+            bar_data = {
+                "date": str(multi_bar.trade_datetime.date()),
+                "open": bar.open,
+                "high": bar.high,
+                "low": bar.low,
+                "close": bar.close,
+                "volume": bar.volume,
+                "dividend": bar.dividend,
+            }
 
-            # Show dividend if present (on ex-dividend date)
-            if bar.dividend:
-                table.add_row("Dividend", f"${bar.dividend:.4f}", style="green bold")
+            # Add data to table
+            add_bar_data(table, bar_data)
 
             # Display table
             console.print(table)
@@ -232,8 +187,6 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
         # Update Algoseek dataset
         qtrader data update --dataset algoseek-us-equity-1d-adjusted
     """
-    from qtrader.data.dataset_updater import DatasetUpdater
-
     console = Console()
 
     try:
@@ -244,48 +197,27 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
         mode_str = "[yellow]DRY RUN[/yellow]" if dry_run else "[green]UPDATING[/green]"
         console.print(f"\n{mode_str} Dataset: [cyan]{dataset}[/cyan]\n")
 
-        # Create updater
-        updater = DatasetUpdater(dataset)
+        # Create update service
+        service = UpdateService(dataset)
 
-        # Get symbols to update (priority: --symbols > universe.csv > cached symbols)
-        if symbol_list:
-            # Explicit --symbols takes precedence
-            symbols_to_update = symbol_list
-            console.print(f"[cyan]Updating {len(symbols_to_update)} symbols (--symbols)...[/cyan]\n")
-        elif updater.universe_symbols:
-            # Use configured universe file
-            symbols_to_update = updater.universe_symbols
-            console.print(
-                f"[cyan]Updating {len(symbols_to_update)} symbols from universe.csv "
-                f"(full backfill + incremental)...[/cyan]\n"
-            )
-        else:
-            # Fallback to scan cache
-            symbols_to_update = updater._scan_cached_symbols()
-            if not symbols_to_update:
-                console.print("[yellow]No symbols found to update[/yellow]")
-                console.print("[dim]Tip: Create universe.csv in cache directory or use --symbols[/dim]")
-                return
-            console.print(f"[cyan]Updating {len(symbols_to_update)} cached symbols...[/cyan]\n")
+        # Get symbols to update (service handles priority logic)
+        symbols_to_update, source_desc = service.get_symbols_to_update(symbol_list)
+
+        if not symbols_to_update:
+            console.print("[yellow]No symbols found to update[/yellow]")
+            console.print("[dim]Tip: Create universe.csv in cache directory or use --symbols[/dim]")
+            return
+
+        console.print(f"[cyan]Updating {source_desc}...[/cyan]\n")
 
         # Update with progress bar
         results = []
 
-        with Progress(
-            SpinnerColumn(),
-            "[progress.description]{task.description}",
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
+        with create_update_progress(console) as progress:
             task = progress.add_task("[cyan]Updating symbols...", total=len(symbols_to_update))
 
             # Update each symbol and show progress
-            iterator = updater.update_symbols(symbols_to_update, dry_run=dry_run, verbose=verbose)
-
-            for result in iterator:
-                # Update progress bar description with current symbol
+            for result in service.update_symbols(symbols_to_update, dry_run=dry_run, verbose=verbose):
                 status_emoji = "✓" if result.success else "✗"
                 progress.update(task, description=f"[cyan]{status_emoji} {result.symbol}", advance=1)
                 results.append(result)
@@ -298,53 +230,33 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
             return
 
         # Create summary table
-        table = Table(title="Update Summary")
-        table.add_column("Symbol", style="cyan", no_wrap=True)
-        table.add_column("Status", style="white")
-        table.add_column("Bars Added", style="magenta", justify="right")
-        table.add_column("Date Range", style="dim")
+        table = create_update_summary_table()
 
         successful = 0
         total_bars = 0
         errors = []
 
         for result in results:
-            # Read full cached date range and bar count from metadata
-
-            cache_root = updater._get_cache_root()
-            start_date = end_date = row_count = "-"
-            if cache_root is not None:
-                metadata_file = cache_root / result.symbol / ".metadata.json"
-                if metadata_file.exists():
-                    import json
-
-                    try:
-                        with open(metadata_file) as f:
-                            metadata = json.load(f)
-                        date_range = metadata.get("date_range", {})
-                        start_date = date_range.get("start", "-")
-                        end_date = date_range.get("end", "-")
-                        row_count = metadata.get("row_count", "-")
-                    except Exception:
-                        pass
+            # Get full cached metadata
+            start_date, end_date, row_count = service.get_cache_metadata(result.symbol)
 
             if result.success:
                 successful += 1
                 total_bars += result.bars_added
-
-                if result.bars_added == 0:
-                    status = "[green]✓ Current[/green]"
-                    bars_str = "-"
-                else:
-                    status = "[green]✓ Updated[/green]"
-                    bars_str = str(result.bars_added)
             else:
-                status = "[red]✗ Error[/red]"
-                bars_str = "-"
                 errors.append((result.symbol, result.error))
 
-            # Show full cached range and bar count
-            table.add_row(result.symbol, status, bars_str, f"{start_date} to {end_date}", str(row_count))
+            # Add row to table
+            add_update_result_row(
+                table,
+                result.symbol,
+                result.success,
+                result.bars_added,
+                start_date,
+                end_date,
+                row_count,
+                result.error,
+            )
 
         console.print(table)
 
@@ -386,20 +298,19 @@ def cache_info(dataset: str):
     Example:
         qtrader data cache-info --dataset schwab-us-equity-1d-adjusted
     """
-    from qtrader.data.dataset_updater import DatasetUpdater
-
     console = Console()
 
     try:
-        updater = DatasetUpdater(dataset)
+        # Create update service
+        service = UpdateService(dataset)
 
         # Get cache info
-        cache_root = updater._get_cache_root()
+        cache_root = service.get_cache_root()
         if not cache_root or not cache_root.exists():
             console.print(f"[yellow]No cache found for dataset: {dataset}[/yellow]")
             return
 
-        symbols = updater._scan_cached_symbols()
+        symbols = service.scan_cached_symbols()
         if not symbols:
             console.print(f"[yellow]Cache directory empty: {cache_root}[/yellow]")
             return
@@ -409,41 +320,20 @@ def cache_info(dataset: str):
         console.print(f"[cyan]Cache location:[/cyan] {cache_root}")
         console.print(f"[cyan]Cached symbols:[/cyan] {len(symbols)}\n")
 
-        # List symbols with metadata
-        table = Table(title="Cached Symbols")
-        table.add_column("Symbol", style="cyan", no_wrap=True)
-        table.add_column("Start Date", style="green")
-        table.add_column("End Date", style="green")
-        table.add_column("Bars", justify="right", style="yellow")
-        table.add_column("Last Update", style="dim")
+        # Create table
+        table = create_cache_info_table()
 
+        # Add rows for each symbol
         for symbol in symbols:
-            # Read metadata if available
-            metadata_file = cache_root / symbol / ".metadata.json"
-
-            if metadata_file.exists():
-                import json
-
-                try:
-                    with open(metadata_file) as f:
-                        metadata = json.load(f)
-
-                    date_range = metadata.get("date_range", {})
-                    start_date = date_range.get("start", "N/A")
-                    end_date = date_range.get("end", "N/A")
-                    row_count = metadata.get("row_count", "N/A")
-                    last_update = metadata.get("last_update", "N/A")
-
-                    # Format last update (show just date/time, not full ISO)
-                    if last_update != "N/A" and "T" in last_update:
-                        last_update = last_update.split("T")[0] + " " + last_update.split("T")[1][:8]
-
-                    table.add_row(symbol, start_date, end_date, str(row_count), last_update)
-                except Exception as e:
-                    table.add_row(symbol, "Error", "Error", "Error", str(e)[:20])
-            else:
-                # No metadata file - just show that cache exists
-                table.add_row(symbol, "N/A", "N/A", "N/A", "No metadata")
+            metadata = service.read_symbol_metadata(symbol, cache_root)
+            add_cache_info_row(
+                table,
+                metadata["symbol"],
+                metadata["start_date"],
+                metadata["end_date"],
+                str(metadata["row_count"]),
+                metadata["last_update"],
+            )
 
         console.print(table)
 
@@ -456,7 +346,3 @@ def cache_info(dataset: str):
 
         console.print(traceback.format_exc())
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
