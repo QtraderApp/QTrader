@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from qtrader.config import BarSchemaConfig, DataConfig
+from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.bar import Bar, PriceSeries
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
@@ -35,11 +35,12 @@ def bar_schema() -> BarSchemaConfig:
 @pytest.fixture
 def data_config(bar_schema: BarSchemaConfig) -> DataConfig:
     """Standard data configuration for tests."""
+    selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
     return DataConfig(
         mode="adjusted",
         frequency="1d",
         timezone="America/New_York",
-        source_tag="algoseek-adjusted",
+        source_selector=selector,
         bar_schema=bar_schema,
     )
 
@@ -382,10 +383,11 @@ class TestPrivateMethods:
         mock_resolver: MagicMock,
     ) -> None:
         """Test _get_data_source for algoseek."""
+        selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
             bar_schema=bar_schema,
-            source_tag="algoseek-adjusted",
+            source_selector=selector,
         )
         service = DataService(config, mock_resolver)
 
@@ -399,10 +401,11 @@ class TestPrivateMethods:
         mock_resolver: MagicMock,
     ) -> None:
         """Test _get_data_source for schwab."""
+        selector = DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
             bar_schema=bar_schema,
-            source_tag="schwab-live",
+            source_selector=selector,
         )
         service = DataService(config, mock_resolver)
 
@@ -416,10 +419,11 @@ class TestPrivateMethods:
         mock_resolver: MagicMock,
     ) -> None:
         """Test _get_data_source for csv."""
+        selector = DataSourceSelector(provider="csv", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
             bar_schema=bar_schema,
-            source_tag="csv-file",
+            source_selector=selector,
         )
         service = DataService(config, mock_resolver)
 
@@ -433,10 +437,11 @@ class TestPrivateMethods:
         mock_resolver: MagicMock,
     ) -> None:
         """Test _get_data_source defaults to ALGOSEEK for unknown sources."""
+        selector = DataSourceSelector(provider="unknown", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
             bar_schema=bar_schema,
-            source_tag="unknown-source",
+            source_selector=selector,
         )
         service = DataService(config, mock_resolver)
 

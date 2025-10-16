@@ -99,7 +99,7 @@ class DataService:
         logger.info(
             "data_service.initialized",
             mode=config.mode,
-            source=config.source_tag,
+            source=config.source_selector.to_tag(),
         )
 
     def load_symbol(
@@ -325,12 +325,12 @@ class DataService:
             - Looks up adapter settings from resolver
             - This is a temporary bridge until Phase 2
         """
-        # For now, use source_tag to find adapter config
-        source_name = self.config.source_tag.split("-")[0]  # e.g., "algoseek" from "algoseek-adjusted"
+        # Use source_selector provider to find adapter config
+        provider = self.config.source_selector.provider or "algoseek"  # Default to algoseek
 
         # Get adapter config from resolver
-        if source_name in self.resolver.sources:
-            adapter_config = self.resolver.sources[source_name].copy()
+        if provider in self.resolver.sources:
+            adapter_config = self.resolver.sources[provider].copy()
             return adapter_config
 
         # Fallback to basic config
@@ -347,21 +347,21 @@ class DataService:
             DataSource enum value
 
         Notes:
-            - Maps config source_tag to DataSource enum
+            - Maps config source_selector provider to DataSource enum
             - Defaults to ALGOSEEK if not recognized
         """
-        source_tag = self.config.source_tag.lower()
+        provider = (self.config.source_selector.provider or "").lower()
 
-        if "algoseek" in source_tag:
+        if "algoseek" in provider:
             return DataSource.ALGOSEEK
-        elif "schwab" in source_tag:
+        elif "schwab" in provider:
             return DataSource.SCHWAB
-        elif "csv" in source_tag:
+        elif "csv" in provider:
             return DataSource.CSV_FILE
         else:
             logger.warning(
-                "data_service.unknown_source",
-                source_tag=source_tag,
+                "data_service.unknown_provider",
+                provider=provider,
                 default="ALGOSEEK",
             )
             return DataSource.ALGOSEEK

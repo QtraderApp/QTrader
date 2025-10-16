@@ -3,7 +3,9 @@
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from qtrader.config.data_source_selector import DataSourceSelector
 
 
 class ValidationConfig(BaseModel):
@@ -46,14 +48,24 @@ class DataConfig(BaseModel):
     )
     frequency: str = Field(default="1d", description="Bar frequency (1m|5m|15m|1h|1d)")
     timezone: str = Field(default="America/New_York", description="Timezone for timestamps")
-    strict_frequency: bool = Field(default=True, description="Raise on frequency mismatch")
-    decimals: dict[str, int] = Field(default={"price": 4, "cash": 4}, description="Decimal precision")
-    source_tag: str = Field(default="algoseek-adjusted", description="Data source identifier")
+    source_selector: DataSourceSelector = Field(
+        description="Data source selector - structured selection by provider, asset class, etc."
+    )
     validation: ValidationConfig = Field(default_factory=ValidationConfig, description="Validation rules")
     bar_schema: BarSchemaConfig = Field(description="Vendor schema → Bar mapping")
     adjustment_schema: Optional[AdjustmentSchemaConfig] = Field(
         default=None, description="Vendor schema → AdjustmentEvent mapping (optional)"
     )
+
+    @field_validator("source_selector")
+    @classmethod
+    def validate_selector(cls, v: DataSourceSelector) -> DataSourceSelector:
+        """Ensure at least one criterion specified in selector."""
+        if not any([v.provider, v.asset_class, v.exchange, v.frequency]):
+            raise ValueError(
+                "DataSourceSelector must specify at least one criterion (provider, asset_class, exchange, or frequency)"
+            )
+        return v
 
     @classmethod
     def from_yaml(cls, path: Path) -> "DataConfig":
