@@ -50,7 +50,7 @@ def mock_resolver() -> MagicMock:
     """Mock DataSourceResolver."""
     resolver = MagicMock()
     resolver.sources = {
-        "algoseek": {
+        "algoseek-us-equity-1d-unadjusted": {
             "adapter": "algoseekOHLC",
             "root_path": "data/test",
             "mode": "standard_adjusted",
