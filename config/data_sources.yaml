@@ -55,6 +55,7 @@ data_sources:
     # Adapter configuration
     adapter: schwabOHLC
     cache_root: "data/us-equity-daily-adjusted-schwab"
+    universe_file: "data/us-equity-daily-adjusted-schwab/universe.csv" # Optional: symbols to maintain
     mode: adjusted_only
 
     # Caching strategy (NEW)
