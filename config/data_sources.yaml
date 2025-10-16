@@ -3,22 +3,56 @@
 # Maps logical data sources (used in Instrument) to physical adapters.
 # Supports environment variable substitution using ${VAR_NAME} syntax.
 #
+# NAMING CONVENTION:
+#   Source names should follow: <provider>-<region>-<asset>-<freq>[-variant]
+#   Examples:
+#     - algoseek-us-equity-1d-unadjusted
+#     - schwab-us-equity-1d-adjusted
+#     - binance-crypto-1m
+#     - algoseek-us-futures-1d-unadjusted
+#
+# METADATA FIELDS (for DataSourceSelector matching):
+#   - provider: Data provider name (algoseek, schwab, binance, etc.)
+#   - asset_class: equity, futures, options, crypto, forex, fixed_income
+#   - data_type: ohlcv, trades, quotes, greeks, fundamentals
+#   - frequency: Use format like 1m, 5m, 15m, 1h, 1d (not "daily", "hourly")
+#   - region: US, EU, ASIA, etc. (optional)
+#   - adjustment_mode: unadjusted, adjusted, split_adjusted (optional)
+#
 # Configuration precedence:
 #   1. Explicit path provided to DataSourceResolver
 #   2. ./config/data_sources.yaml (project-relative)
 #   3. ~/.qtrader/data_sources.yaml (user home)
 
 data_sources:
-  # Algoseek Parquet (local files with OHLC data)
-  algoseek:
+  # Algoseek US Equity Daily Data (Unadjusted)
+  algoseek-us-equity-1d-unadjusted:
+    # Source metadata (for DataSourceSelector matching)
+    provider: algoseek
+    asset_class: equity
+    data_type: ohlcv
+    frequency: 1d
+    region: US
+    adjustment_mode: unadjusted # Algoseek provides unadjusted data
+
+    # Adapter configuration
     adapter: algoseekOHLC
     root_path: "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample"
     mode: standard_adjusted
     path_template: "{root_path}/SecId={secid}/*.parquet"
     symbol_map: "data/equity_security_master_sample.csv"
 
-  # Schwab API (with cache-first strategy)
-  schwab:
+  # Schwab US Equity Daily Data (Adjusted)
+  schwab-us-equity-1d-adjusted:
+    # Source metadata (for DataSourceSelector matching)
+    provider: schwab
+    asset_class: equity
+    data_type: ohlcv
+    frequency: 1d
+    region: US
+    adjustment_mode: adjusted # Schwab only provides split-adjusted data
+
+    # Adapter configuration
     adapter: schwabOHLC
     cache_root: "data/us-equity-daily-adjusted-schwab"
     mode: adjusted_only
@@ -36,23 +70,3 @@ data_sources:
 
     # Rate limiting
     requests_per_second: 10
-
-  # Database (PostgreSQL example - requires environment variables)
-  # database:
-  #   adapter: postgres_adapter
-  #   connection_string: "${DB_CONNECTION_STRING}"
-  #   schema: "market_data"
-  #   table: "bars_daily"
-
-  # IQFeed (live data API example)
-  # iqfeed:
-  #   adapter: iqfeed_api
-  #   api_key: "${IQFEED_API_KEY}"
-  #   base_url: "https://api.iqfeed.net/v1"
-
-  # Binance (crypto exchange API)
-  # binance:
-  #   adapter: binance_api
-  #   api_key: "${BINANCE_API_KEY}"
-  #   api_secret: "${BINANCE_API_SECRET}"
-  #   base_url: "https://api.binance.com"
