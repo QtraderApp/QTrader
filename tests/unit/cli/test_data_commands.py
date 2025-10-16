@@ -811,3 +811,193 @@ class TestUpdateDatasetSymbolParsing:
         assert result.exit_code == 0
         call_args = mock_service.get_symbols_to_update.call_args[0][0]
         assert call_args == ["AAPL"]
+
+
+class TestListDatasetsCommand:
+    """Test the list datasets command."""
+
+    @patch("qtrader.cli.commands.data.DataSourceResolver")
+    def test_list_datasets_success(self, mock_resolver_class):
+        """Test successful dataset listing."""
+        # Arrange
+        runner = CliRunner()
+        mock_resolver = MagicMock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.config_path = "/path/to/data_sources.yaml"
+        mock_resolver.list_sources.return_value = [
+            "schwab-us-equity-1d-adjusted",
+            "algoseek-us-equity-1d-unadjusted",
+        ]
+        mock_resolver.get_source_config.side_effect = [
+            {
+                "provider": "schwab",
+                "adapter": "schwabOHLC",
+                "asset_class": "equity",
+            },
+            {
+                "provider": "algoseek",
+                "adapter": "algoseekOHLC",
+                "asset_class": "equity",
+            },
+        ]
+
+        # Act
+        result = runner.invoke(data_group, ["list"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "Found 2 configured dataset(s)" in result.output
+        assert "schwab-us-equity-1d-adjusted" in result.output
+        assert "algoseek-us-equity-1d-unadjusted" in result.output
+        assert "schwab" in result.output
+        assert "algoseek" in result.output
+
+    @patch("qtrader.cli.commands.data.DataSourceResolver")
+    def test_list_datasets_verbose(self, mock_resolver_class):
+        """Test dataset listing with verbose flag."""
+        # Arrange
+        runner = CliRunner()
+        mock_resolver = MagicMock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.config_path = "/path/to/data_sources.yaml"
+        mock_resolver.list_sources.return_value = ["schwab-us-equity-1d-adjusted"]
+        mock_resolver.get_source_config.return_value = {
+            "provider": "schwab",
+            "adapter": "schwabOHLC",
+            "asset_class": "equity",
+            "frequency": "1d",
+            "cache_root": "/cache/path",
+        }
+
+        # Act
+        result = runner.invoke(data_group, ["list", "--verbose"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "schwab-us-equity-1d-adjusted" in result.output
+        assert "1d" in result.output  # Frequency shown in verbose
+        assert "✓" in result.output or "✗" in result.output  # Cache status
+
+    @patch("qtrader.cli.commands.data.DataSourceResolver")
+    def test_list_datasets_no_cache(self, mock_resolver_class):
+        """Test dataset listing shows no cache indicator."""
+        # Arrange
+        runner = CliRunner()
+        mock_resolver = MagicMock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.config_path = "/path/to/data_sources.yaml"
+        mock_resolver.list_sources.return_value = ["algoseek-us-equity-1d"]
+        mock_resolver.get_source_config.return_value = {
+            "provider": "algoseek",
+            "adapter": "algoseekOHLC",
+            "asset_class": "equity",
+            "frequency": "1d",
+            # No cache_root
+        }
+
+        # Act
+        result = runner.invoke(data_group, ["list", "--verbose"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "algoseek-us-equity-1d" in result.output
+
+    @patch("qtrader.cli.commands.data.DataSourceResolver")
+    def test_list_datasets_empty(self, mock_resolver_class):
+        """Test dataset listing with no configured datasets."""
+        # Arrange
+        runner = CliRunner()
+        mock_resolver = MagicMock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.list_sources.return_value = []
+
+        # Act
+        result = runner.invoke(data_group, ["list"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "No datasets configured" in result.output
+
+    @patch("qtrader.cli.commands.data.DataSourceResolver")
+    def test_list_datasets_config_not_found(self, mock_resolver_class):
+        """Test dataset listing when config file not found."""
+        # Arrange
+        runner = CliRunner()
+        mock_resolver_class.side_effect = FileNotFoundError("data_sources.yaml not found")
+
+        # Act
+        result = runner.invoke(data_group, ["list"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "data_sources.yaml not found" in result.output
+
+    @patch("qtrader.cli.commands.data.DataSourceResolver")
+    def test_list_datasets_handles_missing_fields(self, mock_resolver_class):
+        """Test dataset listing handles missing configuration fields gracefully."""
+        # Arrange
+        runner = CliRunner()
+        mock_resolver = MagicMock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.config_path = "/path/to/data_sources.yaml"
+        mock_resolver.list_sources.return_value = ["incomplete-dataset"]
+        mock_resolver.get_source_config.return_value = {
+            "adapter": "someAdapter",
+            # Missing provider, asset_class, etc.
+        }
+
+        # Act
+        result = runner.invoke(data_group, ["list"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "incomplete-dataset" in result.output
+        assert "N/A" in result.output  # Should show N/A for missing fields
+
+    @patch("qtrader.cli.commands.data.DataSourceResolver")
+    def test_list_datasets_sorted_output(self, mock_resolver_class):
+        """Test that datasets are displayed in sorted order."""
+        # Arrange
+        runner = CliRunner()
+        mock_resolver = MagicMock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.config_path = "/path/to/data_sources.yaml"
+        # Return datasets in random order
+        mock_resolver.list_sources.return_value = [
+            "zebra-dataset",
+            "alpha-dataset",
+            "beta-dataset",
+        ]
+        mock_resolver.get_source_config.return_value = {
+            "provider": "test",
+            "adapter": "testAdapter",
+            "asset_class": "equity",
+        }
+
+        # Act
+        result = runner.invoke(data_group, ["list"])
+
+        # Assert
+        assert result.exit_code == 0
+        # All datasets should appear in output (order checked by position)
+        alpha_pos = result.output.find("alpha-dataset")
+        beta_pos = result.output.find("beta-dataset")
+        zebra_pos = result.output.find("zebra-dataset")
+        # Should be in alphabetical order
+        assert alpha_pos < beta_pos < zebra_pos
+
+    @patch("qtrader.cli.commands.data.DataSourceResolver")
+    def test_list_datasets_exception_handling(self, mock_resolver_class):
+        """Test dataset listing handles unexpected exceptions."""
+        # Arrange
+        runner = CliRunner()
+        mock_resolver = MagicMock()
+        mock_resolver_class.return_value = mock_resolver
+        mock_resolver.list_sources.side_effect = Exception("Unexpected error")
+
+        # Act
+        result = runner.invoke(data_group, ["list"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "Unexpected error" in result.output

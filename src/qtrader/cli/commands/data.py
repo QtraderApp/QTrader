@@ -5,7 +5,9 @@ from datetime import datetime
 
 import click
 from rich.console import Console
+from rich.table import Table
 
+from qtrader.adapters.resolver import DataSourceResolver
 from qtrader.cli.ui import (
     create_bar_table,
     create_cache_info_table,
@@ -22,6 +24,95 @@ from qtrader.services.data.update_service import UpdateService
 def data_group():
     """Data management commands - browse, fetch, cache, and update market data"""
     pass
+
+
+@data_group.command("list")
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Show detailed information about each dataset",
+)
+def list_datasets(verbose: bool):
+    """
+    List all available datasets configured in data_sources.yaml.
+
+    Displays dataset names, providers, adapters, and asset classes.
+    Use --verbose for additional configuration details.
+
+    Example:
+        qtrader data list
+        qtrader data list --verbose
+    """
+    console = Console()
+
+    try:
+        # Load resolver to access configured datasets
+        resolver = DataSourceResolver()
+
+        # Get list of all datasets
+        datasets = resolver.list_sources()
+
+        if not datasets:
+            console.print("[yellow]No datasets configured in data_sources.yaml[/yellow]")
+            return
+
+        # Display summary
+        console.print(f"\n[cyan]Found {len(datasets)} configured dataset(s)[/cyan]")
+        console.print(f"[dim]Configuration file: {resolver.config_path}[/dim]\n")
+
+        # Create table
+        table = Table(title="Available Datasets", show_header=True, header_style="bold cyan")
+        table.add_column("Dataset Name", style="green", no_wrap=True)
+        table.add_column("Provider", style="cyan")
+        table.add_column("Adapter", style="yellow")
+        table.add_column("Asset Class", style="magenta")
+
+        if verbose:
+            table.add_column("Frequency", style="blue")
+            table.add_column("Cache", style="white")
+
+        # Add rows for each dataset
+        for dataset_name in sorted(datasets):
+            config = resolver.get_source_config(dataset_name)
+
+            provider = config.get("provider", "N/A")
+            adapter = config.get("adapter", "N/A")
+            asset_class = config.get("asset_class", "N/A")
+
+            if verbose:
+                frequency = config.get("frequency", "N/A")
+                cache_status = "✓" if config.get("cache_root") else "✗"
+                table.add_row(
+                    dataset_name,
+                    provider,
+                    adapter,
+                    asset_class,
+                    frequency,
+                    cache_status,
+                )
+            else:
+                table.add_row(dataset_name, provider, adapter, asset_class)
+
+        console.print(table)
+        console.print()
+
+        # Show helpful tips
+        if verbose:
+            console.print("[dim]Cache column: ✓ = caching enabled, ✗ = no cache[/dim]")
+        else:
+            console.print("[dim]Tip: Use --verbose for more details[/dim]")
+
+    except FileNotFoundError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[yellow]No data_sources.yaml found. Create one in config/ directory.[/yellow]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {e}[/red]")
+        import traceback
+
+        console.print(traceback.format_exc())
+        sys.exit(1)
 
 
 @data_group.command("raw")

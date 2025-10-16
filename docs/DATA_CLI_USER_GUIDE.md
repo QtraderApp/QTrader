@@ -12,13 +12,74 @@ qtrader data --help
 
 Commands:
 
+- `qtrader data list` - List all available datasets
 - `qtrader data raw` - Browse raw historical data interactively
 - `qtrader data update` - Update cached data to latest
 - `qtrader data cache-info` - View cache status and contents
 
 ## Commands
 
-### 1. Browse Raw Data (`qtrader data raw`)
+### 1. List Available Datasets (`qtrader data list`)
+
+Displays all datasets configured in `data_sources.yaml` with their providers, adapters, and asset classes.
+
+**Usage:**
+
+```bash
+# Basic list
+qtrader data list
+
+# Detailed information
+qtrader data list --verbose
+```
+
+**Options:**
+
+- `--verbose`, `-v`: Show additional details (frequency, cache status)
+
+**Example Output:**
+
+```
+Found 3 configured dataset(s)
+Configuration file: /home/user/Projects/QTrader/config/data_sources.yaml
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Dataset Name                     ┃ Provider  ┃ Adapter     ┃ Asset Class┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ algoseek-us-equity-1d-unadjusted │ algoseek  │ algoseekOHLC│ equity     │
+│ binance-crypto-1m                │ binance   │ binanceAPI  │ crypto     │
+│ schwab-us-equity-1d-adjusted     │ schwab    │ schwabOHLC  │ equity     │
+└──────────────────────────────────┴───────────┴─────────────┴────────────┘
+
+Tip: Use --verbose for more details
+```
+
+**Example Output (Verbose):**
+
+```
+Found 2 configured dataset(s)
+Configuration file: /home/user/Projects/QTrader/config/data_sources.yaml
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┓
+┃ Dataset Name                     ┃ Provider ┃ Adapter     ┃ Asset Class┃ Frequency ┃ Cache ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━┩
+│ algoseek-us-equity-1d-unadjusted │ algoseek │ algoseekOHLC│ equity     │ 1d        │ ✓     │
+│ schwab-us-equity-1d-adjusted     │ schwab   │ schwabOHLC  │ equity     │ 1d        │ ✓     │
+└──────────────────────────────────┴──────────┴─────────────┴────────────┴───────────┴───────┘
+
+Cache column: ✓ = caching enabled, ✗ = no cache
+```
+
+**Use Cases:**
+
+- Discover what datasets are available before running other commands
+- Verify dataset configuration is loaded correctly
+- Check which datasets support caching
+- Find the correct dataset name for `update` and `cache-info` commands
+
+______________________________________________________________________
+
+### 2. Browse Raw Data (`qtrader data raw`)
 
 Displays historical price data interactively, one bar at a time.
 
