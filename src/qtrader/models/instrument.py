@@ -35,39 +35,48 @@ class DataSource(Enum):
 
 class Instrument(NamedTuple):
     """
-    Logical instrument specification.
+    Minimal instrument specification.
 
-    Represents a tradable instrument independent of how/where data is stored.
-    The DataSourceResolver maps this logical instrument to a physical adapter.
+    Represents a tradable instrument by symbol only. Dataset configuration
+    (provider, asset type, etc.) is specified separately via dataset name.
+
+    This design:
+    - Eliminates duplication between config and instrument metadata
+    - Makes dataset the single source of truth for provider/asset type
+    - Puts responsibility on user to provide correct ticker for each dataset
+    - Supports complex symbol mappings (e.g., futures: XYT vs XYT1)
+
+    Philosophy:
+        User specifies: "Give me bars for symbol AAPL from dataset schwab-us-equity-1d"
+        Not: "Give me bars for AAPL (equity, from Schwab)" - that duplicates what dataset already specifies
 
     Examples:
-        >>> # Single equity from Algoseek
-        >>> apple = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        >>> # Basic instrument (just symbol)
+        >>> instrument = Instrument("AAPL")
 
-        >>> # Crypto with custom frequency
-        >>> btc = Instrument(
-        ...     "BTCUSD",
-        ...     InstrumentType.CRYPTO,
-        ...     DataSource.BINANCE,
-        ...     frequency="1m"
+        >>> # With custom frequency (overrides dataset default)
+        >>> instrument = Instrument("BTCUSD", frequency="1m")
+
+        >>> # With metadata (custom attributes)
+        >>> instrument = Instrument(
+        ...     "ES_Z24",
+        ...     metadata={"contract_month": "2024-12", "exchange": "CME"}
         ... )
 
-        >>> # Signal with metadata
-        >>> sentiment = Instrument(
-        ...     "NEWS_SENTIMENT",
-        ...     InstrumentType.SIGNAL,
-        ...     DataSource.DATABASE,
-        ...     metadata={"provider": "RavenPack", "lag_days": 1}
-        ... )
+    Note:
+        Dataset is specified separately when resolving to adapter:
+        >>> adapter = resolver.resolve_by_dataset("schwab-us-equity-1d-adjusted", instrument)
+
+        This makes it explicit: dataset config is the source of truth,
+        instrument is just the symbol + optional overrides.
     """
 
     symbol: str
-    instrument_type: InstrumentType
-    data_source: DataSource
-    frequency: Optional[str] = None  # e.g., "1d", "1m" (None = use global default)
-    metadata: Dict[str, Any] = {}  # Custom attributes (provider, lag, etc.)
+    frequency: Optional[str] = None  # Override dataset default frequency
+    metadata: Dict[str, Any] = {}  # Custom attributes (exchange, contract, etc.)
 
     def __repr__(self) -> str:
         """Human-readable representation."""
         freq = f"@{self.frequency}" if self.frequency else ""
-        return f"Instrument({self.symbol}{freq}, {self.instrument_type.value}, {self.data_source.value})"
+        meta = f" {self.metadata}" if self.metadata else ""
+        return f"Instrument({self.symbol}{freq}{meta})"
