@@ -57,6 +57,11 @@ data_sources:
     cache_root: "data/us-equity-daily-adjusted-schwab"
     mode: adjusted_only
 
+    # Caching strategy (NEW)
+    cache_strategy: "smart" # Options: "smart", "simple", "disabled"
+    enable_incremental_update: true
+    update_mode: "manual" # Options: "auto", "manual" (CLI controls when)
+
     # OAuth credentials (required)
     client_id: "${SCHWAB_API_KEY}"
     client_secret: "${SCHWAB_API_SECRET}"
