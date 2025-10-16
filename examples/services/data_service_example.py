@@ -111,8 +111,8 @@ def main() -> None:
     print("\n--- Instrument metadata ---")
     instrument = service.get_instrument("AAPL")
     print(f"Symbol: {instrument.symbol}")
-    print(f"Type: {instrument.instrument_type.value}")
-    print(f"Data Source: {instrument.data_source.value}")
+    print(f"Frequency: {instrument.frequency or 'default'}")
+    print(f"Metadata: {instrument.metadata or 'none'}")
 
     # 6. Demonstrate error handling
     print("\n--- Error handling ---")

@@ -1,6 +1,4 @@
-but can not# Data Update Guide
-
-## Overview
+# Overview
 
 The `qtrader data update` command automatically handles both **full backfill** (for new symbols) and **incremental updates** (for existing symbols) in a single command.
 

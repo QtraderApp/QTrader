@@ -1,4 +1,4 @@
-Schwab Streamer API
+# Schwab Streamer API
 
 The Streamer API enables clients to connect into different services to stream market data and account activity with JSON-formatting via WebSockets. Authentication and entitlements are provided via the Access token generated from the POST Token endpoint. Streamer information to establish the connection can be found on the GET User Preference endpoint. Client as referenced throughout this document is in reference to the application. Contents
 
@@ -32,7 +32,7 @@ Example: One Request { "requestid": "0", "service": "LEVELONE_EQUITIES", "comman
 
 Multiple Requests { "requests": [ { "requestid": "1", "service": "ADMIN", "command": "LOGIN", "SchwabClientCustomerId": "Someone", "SchwabClientCorrelId": "2be0b7e7-5b8b-4fd3-9bed-7f49106cfe1", "parameters": { "Authorization": "PN", "SchwabClientChannel": "IO", "SchwabClientFunctionId": "Tradeticket" } }, { "requestid":"3", "service":"LEVELONE_EQUITIES", "command":"SUBS", "SchwabClientCustomerId":"Someone", "SchwabClientCorrelId":"2be0b7e7-5b8b-4fd3-9bed-7f49106cfe1", "parameters":{ "keys":"AAPL", "fields":"0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19" } } ] }
 
-3. Response Format There are currently three types of responses:
+1. Response Format There are currently three types of responses:
 
    Response â€“ Response to a request Notify â€“ Notification of heartbeats Data â€“ Streaming market data
 
@@ -44,7 +44,7 @@ Examples: {"notify":[{"heartbeat":"1668715930582"}]}
 
 { "response": [ { "service": "LEVELONE_EQUITIES", "command": "SUBS", "requestid": "0", "SchwabClientCorrelId": "3be0b7e7-5b8b-4fd3-9bed-7f49106cfe1", "timestamp": 1668715930582, "content": { "code": 0, "msg": "SUBS command succeeded" } } ] } { "data": \[ { "service": "LEVELONE_EQUITIES", "timestamp": 1668715930585, "command": "SUBS", "content": [ { "1": 149.81, "2": 149.82, "3": 149.811, "4": 4, "5": 2, "6": "Q", "7": "P", "8": 56049058, "9": 300, "10": 151.48, "11": 146.15, "12": " ", "13": 142.41, "14": "Q", "15": false, "16": "APPLE INC", "17": "D", "18": 146.43, "19": 7.401, "20": 182.94, "21": 129.04, "22": 0.04062, "23": 0, "24": 0, "25": 0, "26": "NASDAQ", "27": "", "28": true, "29": true, "30": 149.811, "31": 300, "32": 7.401, "33": "Normal", "34": 149.811, "35": 1668715930570, "36": 1668715930345, "37": 1668715930345, "38": 1668715930570, "39": 1668715930522, "40": "XNAS", "41": "ARCX", "42": "XADF", "43": 5.19696651, "44": 5.19696651, "45": 7.401, "46": 5.19696651, "key": "AAPL", "delayed": false } ] } \] }
 
-4. Response Codes
+1. Response Codes
 
 Code Name Description Connection Severed Error Notes 0 SUCCESS The request was successful No n/a - success 3 LOGIN_DENIED The user login has been denied Yes Client should reconnect and re-login with new token. Client to determine if failed logins are expected. 9 UNKNOWN_FAILURE Error of last-resort when no specific error was caught TBD Should be investigated by Trader API team. Please contact <TraderAPI@Schwab.com> if you see this with the `schwabClientCorrelId` of subscription. 11 SERVICE_NOT_AVAILABLE The service is not available No Should be investigated by Trader API team. Please contact <TraderAPI@Schwab.com> if you see this with the `schwabClientCorrelId` of subscription. Either client is requesting an unsupported service or the service is not running from the source. 12 CLOSE_CONNECTION You've reached the maximum number of connections allowed. Yes Client to determine if max connections are expected and proper response to customer. A limit of 1 Streamer connection at any given time from a given user is available. 19 REACHED_SYMBOL_LIMIT Subscribe or Add command has reached a total subscription symbol limit No Client to determine if symbol limit is expected and proper response to customer. 20 STREAM_CONN_NOT_FOUND No connection found for user or new session but no login request TBD
 
@@ -72,11 +72,11 @@ See message provided for details. Common Causes:
 Typically due to no subscriptions.
 ```
 
-5. Delivery Types
+1. Delivery Types
 
 Delivery Types Description All Sequence All data is streamed to the client and includes a sequence number. Data is not conflated by the streamer although the underlying source of the data may conflate. Change Only fields that clients are interested in, and have changed, are streamed to the client. Data is conflated by the streamer. Whole Data is streamed as a whole unit to the client, in throttled mode. All Sequence All data is streamed to the client and includes a sequence number. Data is not conflated by the streamer although the underlying source of the data may conflate.
 
-2. Admin Services
+1. Admin Services
 
 1. Login Request
 
@@ -84,7 +84,7 @@ Delivery Types Description Type Length Description service String Variable ADMIN
 
 Streamer LOGIN Request Example: { "requests": [ { "requestid": "1", "service": "ADMIN", "command": "LOGIN", "SchwabClientCustomerId": "Someone", "SchwabClientCorrelId": "5be0b7e7-5b8b-4fd3-9bed-7f49106cfe96", "parameters": { "Authorization": "Access Token", "SchwabClientChannel": "N9", "SchwabClientFunctionId": "APIAPP" } } ] }
 
-2. Login Response
+1. Login Response
 
 Type Request Name Type Description response service ADMIN\
 requestid Unique request ID number\
@@ -97,11 +97,11 @@ Streamer LOGIN Response Examples: Login Successful { "response": [ { "service": 
 
 Login Denied { "response": [ { "service": "ADMIN", "command": "LOGIN", "requestid": "1", "SchwabClientCorrelId": "5be0b7e7-5b8b-4fd3-9bed-7f49106cfe96", "timestamp": 1669828982588, "content": { "code": 3, "msg": "Login Denied.: token is invalid or has expired." } } ] }
 
-3. Logout request
+1. Logout request
 
 Streamer Contract name Type Length Description service String Variable ADMIN command String Variable LOGOUT requestid Integer Variable Unique number that will identify this request. SchwabClientCustomerId String Variable Identifies the page or source in the channel where quote is being called from (5 alphanumeric). Found through the GET User Preferences endpoint. SchwabClientCorrelId String Variable Unique identifier value that is attached to requests and messages that allow reference to a particular transaction or event chain. parameters String Variable Can leave empty
 
-4. Logout response
+1. Logout response
 
 Type Request Name Type Description response service ADMIN\
 requestid Unique request ID number\
@@ -112,7 +112,7 @@ content code Integer 0 = Success, 3 = Login denied msg String SUCCESS, FAILURE
 
 Streamer Logout Response Examples: { "response": [ { "service": "ADMIN", "command": "LOGOUT", "requestid": "0", "SchwabClientCorrelId": "5be0b7e7-5b8b-4fd3-9bed-7f49106cfe95", "timestamp": 1669830137089, "content": { "code": 0, "msg": "SUCCESS" } } ] }
 
-3. LEVELONE Services
+1. LEVELONE Services
 
 1. LEVELONE_EQUITIES
 
@@ -152,7 +152,7 @@ Exchange Code Realtime/NFL AMEX A Both Indicator : Realtime Only Indices 0 Realt
 
 > = 0 is valid quantity 47 Hard To Borrow Rate double null = NULL valid range = -99,999.999 to +99,999.999 48 Hard to Borrow integer -1 = NULL 1 = true 0 = false 49 shortable integer -1 = NULL 1 = true 0 = false 50 Post-Market Net Change double Change in price since the end of the regular session (typically 4:00pm) PostMarketLastPrice - RegularMarketLastPrice 51 Post-Market Percent Change double Percent Change in price since the end of the regular session (typically 4:00pm) PostMarketNetChange / RegularMarketLastPrice * 100
 
-2. LEVELONE_OPTIONS
+1. LEVELONE_OPTIONS
 
 Please refer to LEVELONE_EQUITIES for REQUESTS and RESPONSE examples. Replace LEVELONE_EQUITIES with LEVELONE_OPTIONS.
 
@@ -215,7 +215,7 @@ Streamer Contract name Type Length Description 0 Symbol String Ticker symbol in 
 52 Indicative Ask Price double Only valid for index options (0 for all other options) 53 Indicative Bid Price double Only valid for index options (0 for all other options) 54 Indicative Quote Time long The latest time the indicative bid/ask prices updated in milliseconds since Epoch Only valid for index options (0 for all other options) The difference, measured in milliseconds, between the time an event occurs and midnight, January 1, 1970 UTC.\
 55 Exercise Type char
 
-3. LEVELONE_FUTURES
+1. LEVELONE_FUTURES
 
 Please refer to LEVELONE_EQUITIES for REQUESTS and RESPONSE examples. Replace LEVELONE_EQUITIES with LEVELONE_FUTURES.
 
@@ -288,7 +288,7 @@ For more examples on Futures Price format, see: <https://www.cmegroup.com/conflu
 
 If the DST-flag is present for Futures Trading Hours (field 29), please see the following hours for DST days: <https://www.cmegroup.com/confluence/display/EPICSANDBOX/Fractional+Pricing+-+Display+Examples>
 
-4. LEVELONE_FUTURES_OPTIONS
+1. LEVELONE_FUTURES_OPTIONS
 
 Please refer to LEVELONE_EQUITIES for REQUESTS and RESPONSE examples. Replace LEVELONE_EQUITIES with LEVELONE_FUTURES_OPTIONS.
 
@@ -344,7 +344,7 @@ Fields Field Name Type Field Description Update Regular Hours Update AM/PM Hours
 29 Security Status String Yes Yes Indicates a symbol's current trading status: Normal, Halted, Closed 30 Exchange char Exchange character Yes Yes\
 31 Exchange Name String Display name of exchange Yes Yes
 
-5. LEVELONE_FOREX
+1. LEVELONE_FOREX
 
 Please refer to LEVELONE_EQUITIES for REQUESTS and RESPONSE examples. Replace LEVELONE_EQUITIES with LEVELONE_FOREX.
 
@@ -380,9 +380,9 @@ Fields Field Name Type Field Description Update Regular Hours Update AM/PM Hours
 28 52 Week Low double Lowest price traded in the past 12 months, or 52 weeks Yes Yes\
 29 Mark double Mark-to-Market value is calculated daily using current prices to determine profit/loss Yes Yes
 
-4. BOOK Services
+1. BOOK Services
 
-1. Book Common
+   1. Book Common
 
 Streamer Contract name Type Length Description service String Variable NYSE_BOOK, NASDAQ_BOOK, OPTIONS_BOOK command String Variable SUBS, UNSUBS, ADD, VIEW requestid Integer Variable Unique number that will identify this request. SchwabClientCustomerId String Variable `schwabClientCustomerId` as found in GET User Preference endpoint SchwabClientCorrelId String Variable Unique identifiervalue that is attached to requests and messages that allow reference to a particular transaction or event chain. parameters keys String Variable Symbols in upper case and separated by commas. e.g.: AAPL,TSLA,IBM fields String Variable Please see the BOOK Field Definition table below
 
@@ -401,9 +401,9 @@ Book Market Makers Sub-Field for Streamer
 
 Market Makers Field # Field Name Type Description 0 Market Maker ID String Market Maker ID 1 Size long Size of the Market Maker for this price level 2 Quote Time long Quote time in milliseconds for this Market Maker's quote
 
-5. CHART Services
+1. CHART Services
 
-1. CHART_EQUITY
+   1. CHART_EQUITY
 
 Chart Equity Request for Streamer
 
@@ -423,7 +423,7 @@ Fields Field Name Type Field Description Update Regular Hours Update AM/PM Hours
 7 Chart Time long Milliseconds since Epoch Yes Yes\
 8 Chart Day int
 
-2. CHART_FUTURES
+1. CHART_FUTURES
 
 Chart Futures Request for Streamer
 
@@ -470,15 +470,15 @@ Fields Field Name Type Field Description Update Regular Hours Update AM/PM Hours
 5 Close Price double Closing price for the minute Yes Yes\
 6 Volume double Total volume for the minute Yes Yes
 
-6. SCREENER services
+1. SCREENER services
 
-1. Screener Common
+   1. Screener Common
 
 Screener Request for Streamer
 
 Streamer Contract name Type Length Description service String Variable SCREENER_EQUITY, SCREENER_OPTION command String Variable SUBS, UNSUBS, ADD, VIEW requestid Integer Variable Unique number that will identify this request. SchwabClientCustomerId String Variable 'schwabClientCustomerId' as found in GET User Preference endpoint SchwabClientCorrelId String Variable Unique identifier value that is attached to requests and messages that allow reference to a particular transaction or event chain. parameters keys String Variable
 
-Symbols in upper case and separated by commas. (PREFIX)_(SORTFIELD)_(FREQUENCY) where PREFIX is:
+Symbols in upper case and separated by commas. (PREFIX)\*(SORTFIELD)\_(FREQUENCY) where PREFIX is:
 
 ```
 Indices: $COMPX $DJI, $SPX, INDEX_ALL
@@ -504,9 +504,9 @@ Response field definitions Index Field Type Description Values 0 symbol String T
 
 Field Type Description description String Description of instrument lastPrice double Last trade price (up to 2 decimal places) marketShare double Market share percentage of instrument (up to 2 decimal places) netChange double Net change value (up to 2 decimal places) netPercentChange double Net percent change value (up to 4 decimal places) symbol String Stock or Option symbol totalVolume long Total volume for the day trades long Number of trades for the frequency requested volume long Volume for the frequency requested
 
-7. ACCOUNT services
+1. ACCOUNT services
 
-1. ACCT_ACTIVITY
+   1. ACCT_ACTIVITY
 
 Account Activity Request for Streamer
 
