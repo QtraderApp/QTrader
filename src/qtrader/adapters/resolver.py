@@ -325,12 +325,48 @@ class DataSourceResolver:
 
         return adapter
 
-    def resolve(self, instrument: Instrument):
+    def resolve_by_dataset(self, dataset: str, instrument: Instrument):
         """
-        Resolve instrument to data adapter.
+        Resolve instrument to data adapter using explicit dataset name.
+
+        This is the preferred method - it's explicit about which dataset to use,
+        avoiding ambiguity and inference. Dataset config is the single source
+        of truth for provider, asset type, frequency, etc.
 
         Args:
-            instrument: Logical instrument specification.
+            dataset: Dataset name from data_sources.yaml (e.g., "schwab-us-equity-1d-adjusted")
+            instrument: Instrument with symbol (and optional overrides)
+
+        Returns:
+            Instantiated data adapter.
+
+        Raises:
+            KeyError: If dataset not configured.
+            ValueError: If adapter cannot be loaded.
+
+        Examples:
+            >>> resolver = DataSourceResolver()
+            >>> instrument = Instrument("AAPL")
+            >>> adapter = resolver.resolve_by_dataset("schwab-us-equity-1d-adjusted", instrument)
+            >>> bars = adapter.read_bars(start_date="2024-01-01", end_date="2024-12-31")
+        """
+        if dataset not in self.sources:
+            raise KeyError(f"Dataset '{dataset}' not configured. Available: {list(self.sources.keys())}")
+
+        source_config = self.sources[dataset]
+        return self._create_adapter(dataset, source_config, instrument)
+
+    def resolve(self, instrument: Instrument):
+        """
+        DEPRECATED: Resolve instrument to data adapter by inferring dataset.
+
+        This method is deprecated because it requires instrument to specify
+        data_source, which duplicates what the config already knows.
+
+        Use resolve_by_dataset() instead with explicit dataset name.
+
+        Args:
+            instrument: Instrument specification (should have data_source for backward compat)
 
         Returns:
             Instantiated data adapter.
@@ -338,8 +374,35 @@ class DataSourceResolver:
         Raises:
             KeyError: If data source not configured.
             ValueError: If adapter cannot be loaded.
+            AttributeError: If instrument doesn't have data_source (new Instrument API)
         """
-        source_name = instrument.data_source.value
+        logger.warning(
+            "resolve() is deprecated. Use resolve_by_dataset() with explicit dataset name. "
+            "This avoids duplication between config and instrument metadata."
+        )
+
+        # For backward compatibility with OLD Instrument API that had data_source field
+        # New Instrument only has (symbol, frequency, metadata)
+        # So this will fail gracefully with clear error message
+
+        try:
+            # Try to get data_source from metadata (temporary backward compat hack)
+            if "data_source" in instrument.metadata:
+                source_name = instrument.metadata["data_source"]
+            else:
+                raise AttributeError(
+                    "Instrument is missing 'data_source'. "
+                    "New Instrument API only has (symbol, frequency, metadata). "
+                    "Use resolve_by_dataset(dataset, instrument) instead. "
+                    "Example: resolver.resolve_by_dataset('schwab-us-equity-1d-adjusted', Instrument('AAPL'))"
+                )
+        except AttributeError:
+            raise AttributeError(
+                "Instrument is missing 'data_source'. "
+                "New Instrument API only has (symbol, frequency, metadata). "
+                "Use resolve_by_dataset(dataset, instrument) instead. "
+                "Example: resolver.resolve_by_dataset('schwab-us-equity-1d-adjusted', Instrument('AAPL'))"
+            )
 
         if source_name not in self.sources:
             # Backward compatibility: Try to find source by provider name
