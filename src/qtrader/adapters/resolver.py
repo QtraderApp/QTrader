@@ -13,6 +13,7 @@ from typing import Any, Dict
 import structlog
 import yaml
 
+from qtrader.config.data_source_selector import DataSourceSelector
 from qtrader.models.instrument import Instrument
 
 logger = structlog.get_logger()
@@ -199,6 +200,131 @@ class DataSourceResolver:
         self._adapter_cache[adapter_name] = adapter_class
         return adapter_class
 
+    def resolve_by_selector(self, selector: DataSourceSelector, instrument: Instrument):
+        """
+        Resolve data source using DataSourceSelector.
+
+        Finds the best matching data source based on selector criteria
+        (provider, asset_class, frequency, etc.). Supports fallback providers.
+
+        Args:
+            selector: Structured selector with matching criteria.
+            instrument: Instrument to load data for.
+
+        Returns:
+            Instantiated data adapter.
+
+        Raises:
+            ValueError: If no matching source found.
+            KeyError: If adapter cannot be loaded.
+
+        Examples:
+            >>> # Match by provider
+            >>> selector = DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
+            >>> adapter = resolver.resolve_by_selector(selector, instrument)
+            >>>
+            >>> # Match any equity source with fallback
+            >>> selector = DataSourceSelector(
+            ...     asset_class=AssetClass.EQUITY,
+            ...     fallback_providers=["schwab", "algoseek"]
+            ... )
+            >>> adapter = resolver.resolve_by_selector(selector, instrument)
+        """
+        # Find matching sources
+        matches = []
+        for source_name, source_config in self.sources.items():
+            if selector.matches(source_config):
+                matches.append((source_name, source_config))
+
+        if not matches:
+            available = list(self.sources.keys())
+            raise ValueError(
+                f"No data source matches selector: {selector.to_tag()}\n"
+                f"Available sources: {available}\n"
+                f"Selector criteria: provider={selector.provider}, "
+                f"asset_class={selector.asset_class}, frequency={selector.frequency}"
+            )
+
+        # Use first match (or implement priority logic later)
+        if len(matches) > 1:
+            logger.info(
+                "resolver.multiple_matches",
+                selector=selector.to_tag(),
+                matches=[m[0] for m in matches],
+                selected=matches[0][0],
+            )
+
+        source_name, source_config = matches[0]
+
+        # Try primary source
+        try:
+            return self._create_adapter(source_name, source_config, instrument)
+        except Exception as e:
+            logger.warning(
+                "resolver.primary_failed",
+                source=source_name,
+                error=str(e),
+            )
+
+            # Try fallback providers
+            for fallback_provider in selector.fallback_providers:
+                try:
+                    fallback_selector = DataSourceSelector(
+                        provider=fallback_provider,
+                        asset_class=selector.asset_class,
+                        data_type=selector.data_type,
+                        frequency=selector.frequency,
+                        exchange=selector.exchange,
+                        region=selector.region,
+                    )
+                    logger.info(
+                        "resolver.trying_fallback",
+                        fallback=fallback_provider,
+                    )
+                    return self.resolve_by_selector(fallback_selector, instrument)
+                except Exception:
+                    continue
+
+            # No fallbacks worked, raise original error
+            raise
+
+    def _create_adapter(self, source_name: str, source_config: Dict[str, Any], instrument: Instrument):
+        """
+        Create adapter instance from config.
+
+        Args:
+            source_name: Name of data source.
+            source_config: Source configuration dict.
+            instrument: Instrument to load data for.
+
+        Returns:
+            Instantiated adapter.
+
+        Raises:
+            ValueError: If adapter cannot be loaded.
+        """
+        # Make a copy to avoid modifying original
+        config = source_config.copy()
+
+        # Substitute environment variables
+        config = self._substitute_env_vars(config)
+
+        # Get adapter class
+        adapter_name = config.pop("adapter")
+        adapter_class = self._get_adapter_class(adapter_name)
+
+        # Instantiate adapter with config and instrument
+        adapter = adapter_class(config, instrument)
+
+        logger.info(
+            "resolver.adapter_created",
+            source=source_name,
+            adapter=adapter_name,
+            instrument=instrument.symbol,
+        )
+
+        return adapter
+
     def resolve(self, instrument: Instrument):
         """
         Resolve instrument to data adapter.
@@ -216,20 +342,23 @@ class DataSourceResolver:
         source_name = instrument.data_source.value
 
         if source_name not in self.sources:
-            raise KeyError(f"Data source '{source_name}' not configured. Available: {list(self.sources.keys())}")
+            # Backward compatibility: Try to find source by provider name
+            # E.g., "algoseek" → "algoseek-us-equity-1d-unadjusted"
+            matching_sources = [name for name, config in self.sources.items() if config.get("provider") == source_name]
 
-        source_config = self.sources[source_name].copy()
+            if not matching_sources:
+                raise KeyError(f"Data source '{source_name}' not configured. Available: {list(self.sources.keys())}")
 
-        # Substitute environment variables
-        source_config = self._substitute_env_vars(source_config)
+            # Use first matching source
+            if len(matching_sources) > 1:
+                logger.warning(
+                    f"Multiple sources match provider '{source_name}': {matching_sources}. "
+                    f"Using first match: {matching_sources[0]}"
+                )
+            source_name = matching_sources[0]
 
-        # Get adapter class
-        adapter_name = source_config.pop("adapter")
-        adapter_class = self._get_adapter_class(adapter_name)
-
-        # Instantiate adapter with config and instrument
-        adapter = adapter_class(source_config, instrument)
-        return adapter
+        source_config = self.sources[source_name]
+        return self._create_adapter(source_name, source_config, instrument)
 
     def list_sources(self) -> list[str]:
         """Get list of configured data sources."""
