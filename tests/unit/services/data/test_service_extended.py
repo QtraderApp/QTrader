@@ -328,11 +328,11 @@ class TestDataServiceBuildAdapterConfig:
         service = DataService(config, resolver=resolver)
 
         # Act
-        config = service._build_adapter_config()
+        adapter_config = service._build_adapter_config()
 
         # Assert - Should use fallback
-        assert "adapter" in config
-        assert "root_path" in config
+        assert "adapter" in adapter_config
+        assert "root_path" in adapter_config
 
     def test_build_adapter_config_handles_exception(self, data_config: DataConfig):
         """Test adapter config handles exceptions gracefully."""

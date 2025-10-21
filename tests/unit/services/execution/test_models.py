@@ -13,13 +13,13 @@ class TestOrderState:
 
     def test_all_states_defined(self) -> None:
         """Test all expected states are defined."""
-        assert OrderState.PENDING == "pending"
-        assert OrderState.SUBMITTED == "submitted"
-        assert OrderState.PARTIAL == "partial"
-        assert OrderState.FILLED == "filled"
-        assert OrderState.CANCELLED == "cancelled"
-        assert OrderState.REJECTED == "rejected"
-        assert OrderState.EXPIRED == "expired"
+        assert OrderState.PENDING.value == "pending"
+        assert OrderState.SUBMITTED.value == "submitted"
+        assert OrderState.PARTIAL.value == "partial"
+        assert OrderState.FILLED.value == "filled"
+        assert OrderState.CANCELLED.value == "cancelled"
+        assert OrderState.REJECTED.value == "rejected"
+        assert OrderState.EXPIRED.value == "expired"
 
 
 class TestOrderSide:
@@ -27,8 +27,8 @@ class TestOrderSide:
 
     def test_buy_sell_defined(self) -> None:
         """Test buy and sell sides defined."""
-        assert OrderSide.BUY == "buy"
-        assert OrderSide.SELL == "sell"
+        assert OrderSide.BUY.value == "buy"
+        assert OrderSide.SELL.value == "sell"
 
 
 class TestOrderType:
@@ -36,10 +36,10 @@ class TestOrderType:
 
     def test_all_types_defined(self) -> None:
         """Test all order types defined."""
-        assert OrderType.MARKET == "market"
-        assert OrderType.LIMIT == "limit"
-        assert OrderType.STOP == "stop"
-        assert OrderType.MARKET_ON_CLOSE == "moc"
+        assert OrderType.MARKET.value == "market"
+        assert OrderType.LIMIT.value == "limit"
+        assert OrderType.STOP.value == "stop"
+        assert OrderType.MARKET_ON_CLOSE.value == "moc"
 
 
 class TestTimeInForce:
@@ -47,10 +47,10 @@ class TestTimeInForce:
 
     def test_all_types_defined(self) -> None:
         """Test all time-in-force types defined."""
-        assert TimeInForce.DAY == "day"
-        assert TimeInForce.GTC == "gtc"
-        assert TimeInForce.IOC == "ioc"
-        assert TimeInForce.FOK == "fok"
+        assert TimeInForce.DAY.value == "day"
+        assert TimeInForce.GTC.value == "gtc"
+        assert TimeInForce.IOC.value == "ioc"
+        assert TimeInForce.FOK.value == "fok"
 
 
 class TestOrder:
@@ -224,8 +224,8 @@ class TestOrder:
 
         # Fill completely
         order.update_fill(Decimal("100"), Decimal("150"), datetime.now())
-        assert order.is_complete
         assert order.state == OrderState.FILLED
+        assert order.is_complete
 
     def test_is_complete_cancelled(self) -> None:
         """Test is_complete returns True for cancelled orders."""
