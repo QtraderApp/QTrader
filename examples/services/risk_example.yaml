@@ -1,0 +1,55 @@
+# Example RiskService Configuration
+#
+# This file demonstrates how to configure the RiskService for a multi-strategy
+# portfolio with different risk allocation, position sizing, and limit controls.
+
+# Strategy Budgets: Define how equity is allocated across strategies
+# - strategy_id: Unique identifier for the strategy
+# - capital_weight: Fraction of available equity allocated to this strategy
+#   (must sum to 1.0 across all strategies)
+budgets:
+  - strategy_id: momentum_v1
+    capital_weight: 0.6 # 60% of equity
+
+  - strategy_id: mean_reversion_v1
+    capital_weight: 0.4 # 40% of equity
+
+# Position Sizing: Define sizing model and parameters per strategy
+# Each strategy can have different sizing aggressiveness
+sizing:
+  momentum_v1:
+    model: fixed_fraction # Only model supported in Phase 4 MVP
+    fraction: 0.03 # Risk 3% of allocated capital per position
+
+  mean_reversion_v1:
+    model: fixed_fraction
+    fraction: 0.02 # More conservative: 2% per position
+
+# Concentration Limit: Maximum exposure to any single symbol
+# Prevents over-concentration in one stock
+concentration:
+  max_position_pct:
+    0.10 # No more than 10% of equity in one symbol
+    # (applies to absolute value: |position_value| / equity)
+
+# Leverage Limits: Portfolio-level exposure constraints
+# Gross = sum(|position_value|) / equity
+# Net = sum(position_value) / equity (considering long/short direction)
+leverage:
+  max_gross: 2.0 # Allow up to 200% gross exposure (e.g., 150% long + 50% short)
+  max_net: 1.0 # But net exposure capped at 100% (fully invested long, or balanced)
+
+# Cash Buffer: Reserve fraction of equity as cash
+# Useful for margin requirements, rebalancing, or unexpected needs
+cash_buffer_pct: 0.02 # Reserve 2% cash (don't allocate to strategies)
+
+# Example Interpretation:
+# - Portfolio equity: $1,000,000
+# - Cash buffer: $1,000,000 * 0.02 = $20,000 reserved
+# - Available for allocation: $980,000
+# - Momentum strategy gets: $980,000 * 0.6 = $588,000
+# - Mean reversion gets: $980,000 * 0.4 = $392,000
+# - Each momentum position: $588,000 * 0.03 = $17,640 target notional
+# - Each mean reversion position: $392,000 * 0.02 = $7,840 target notional
+# - Max position in any symbol: $1,000,000 * 0.10 = $100,000
+# - Total portfolio exposure: Limited to $2,000,000 gross, $1,000,000 net
