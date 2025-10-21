@@ -999,3 +999,397 @@ class PortfolioService:
         """Calculate total realized P&L from ledger."""
         entries = self._ledger.get_entries(entry_type=LedgerEntryType.FILL)
         return sum((e.realized_pnl for e in entries if e.realized_pnl is not None), start=Decimal("0"))
+
+    # ==================== State Management (Week 4) ====================
+
+    def get_snapshot(self, timestamp: datetime | None = None) -> dict:
+        """
+        Get complete portfolio state snapshot for persistence.
+
+        This captures all internal state needed to reconstruct the portfolio,
+        including cash, positions, lots, ledger entries, and cumulative metrics.
+        The snapshot can be serialized to JSON and later restored.
+
+        Args:
+            timestamp: Timestamp for the snapshot (defaults to current state time)
+
+        Returns:
+            Dictionary containing complete portfolio state with:
+            - metadata: timestamp, config
+            - cash: current cash balance
+            - positions: all positions with lots
+            - ledger: all ledger entries
+            - cumulative_metrics: all tracked metrics
+
+        Example:
+            >>> snapshot = portfolio.get_snapshot(datetime.now())
+            >>> import json
+            >>> with open("portfolio_state.json", "w") as f:
+            ...     json.dump(snapshot, f, default=str)
+        """
+        if timestamp is None:
+            timestamp = datetime.now()
+
+        # Serialize positions with their lots
+        positions_data = {}
+        for symbol, position in self._positions.items():
+            # Get lots from tracker
+            lots_data = []
+            if symbol in self._lot_tracker:
+                tracker = self._lot_tracker[symbol]
+                # Get lots for both long and short sides
+                all_lots = tracker.get_lots(LotSide.LONG) + tracker.get_lots(LotSide.SHORT)
+                lots_data = [
+                    {
+                        "lot_id": lot.lot_id,
+                        "symbol": lot.symbol,
+                        "quantity": str(lot.quantity),
+                        "entry_price": str(lot.entry_price),
+                        "entry_timestamp": lot.entry_timestamp.isoformat(),
+                        "entry_fill_id": lot.entry_fill_id,
+                        "side": lot.side,
+                    }
+                    for lot in all_lots
+                ]
+
+            positions_data[symbol] = {
+                "symbol": position.symbol,
+                "quantity": str(position.quantity),
+                "avg_price": str(position.avg_price),
+                "market_value": str(position.market_value),
+                "unrealized_pnl": str(position.unrealized_pnl),
+                "current_price": str(position.current_price) if position.current_price is not None else None,
+                "lots": lots_data,
+            }
+
+        # Serialize ledger entries
+        ledger_entries = [
+            {
+                "entry_id": entry.entry_id,
+                "timestamp": entry.timestamp.isoformat(),
+                "entry_type": entry.entry_type,
+                "symbol": entry.symbol,
+                "quantity": str(entry.quantity) if entry.quantity is not None else None,
+                "price": str(entry.price) if entry.price is not None else None,
+                "cash_flow": str(entry.cash_flow),
+                "commission": str(entry.commission) if entry.commission is not None else None,
+                "realized_pnl": str(entry.realized_pnl) if entry.realized_pnl is not None else None,
+                "fill_id": entry.fill_id,
+                "description": entry.description,
+                "metadata": entry.metadata,
+            }
+            for entry in self._ledger.get_entries()
+        ]
+
+        snapshot = {
+            "metadata": {
+                "timestamp": timestamp.isoformat(),
+                "snapshot_version": "1.0",
+                "config": {
+                    "initial_cash": str(self.config.initial_cash),
+                    "lot_method_long": self.config.lot_method_long,
+                    "lot_method_short": self.config.lot_method_short,
+                    "default_borrow_rate_apr": str(self.config.default_borrow_rate_apr),
+                    "margin_rate_apr": str(self.config.margin_rate_apr),
+                    "day_count_convention": self.config.day_count_convention,
+                },
+            },
+            "cash": str(self._cash),
+            "positions": positions_data,
+            "ledger": ledger_entries,
+            "cumulative_metrics": {
+                "cumulative_realized_pnl": str(self._cumulative_realized_pnl),
+                "total_commissions": str(self._total_commissions),
+                "total_borrow_fees": str(self._total_borrow_fees),
+                "total_margin_interest": str(self._total_margin_interest),
+                "total_dividends_received": str(self._total_dividends_received),
+                "total_dividends_paid": str(self._total_dividends_paid),
+            },
+        }
+
+        logger.info(
+            "portfolio_service.snapshot_created",
+            timestamp=timestamp.isoformat(),
+            num_positions=len(self._positions),
+            num_ledger_entries=len(ledger_entries),
+        )
+
+        return snapshot
+
+    def restore_from_snapshot(self, snapshot: dict) -> None:
+        """
+        Restore portfolio state from snapshot.
+
+        Completely replaces current portfolio state with the saved snapshot.
+        Use with caution - all current state will be lost.
+
+        Args:
+            snapshot: Dictionary from get_snapshot()
+
+        Raises:
+            ValueError: If snapshot is invalid or incompatible
+
+        Example:
+            >>> import json
+            >>> with open("portfolio_state.json") as f:
+            ...     snapshot = json.load(f)
+            >>> portfolio.restore_from_snapshot(snapshot)
+        """
+        # Validate snapshot structure
+        required_keys = {"metadata", "cash", "positions", "ledger", "cumulative_metrics"}
+        if not required_keys.issubset(snapshot.keys()):
+            missing = required_keys - snapshot.keys()
+            raise ValueError(f"Invalid snapshot: missing keys {missing}")
+
+        # Restore cash
+        self._cash = Decimal(snapshot["cash"])
+
+        # Restore positions and lots
+        self._positions = {}
+        self._lot_tracker = {}
+
+        for symbol, pos_data in snapshot["positions"].items():
+            # Restore position
+            position = Position(
+                symbol=symbol,
+                quantity=Decimal(pos_data["quantity"]),
+                avg_price=Decimal(pos_data["avg_price"]),
+                market_value=Decimal(pos_data["market_value"]),
+                unrealized_pnl=Decimal(pos_data["unrealized_pnl"]),
+                current_price=Decimal(pos_data["current_price"]) if pos_data["current_price"] is not None else None,
+            )
+            self._positions[symbol] = position
+
+            # Restore lots
+            if pos_data["lots"]:
+                lots = [
+                    Lot(
+                        lot_id=lot_data["lot_id"],
+                        symbol=lot_data["symbol"],
+                        side=lot_data["side"],
+                        quantity=Decimal(lot_data["quantity"]),
+                        entry_price=Decimal(lot_data["entry_price"]),
+                        entry_timestamp=datetime.fromisoformat(lot_data["entry_timestamp"]),
+                        entry_fill_id=lot_data["entry_fill_id"],
+                    )
+                    for lot_data in pos_data["lots"]
+                ]
+
+                tracker = LotTracker()
+                for lot in lots:
+                    tracker.add_lot(lot)
+                self._lot_tracker[symbol] = tracker
+
+        # Restore ledger
+        self._ledger = Ledger(max_entries=self.config.max_ledger_entries)
+        for entry_data in snapshot["ledger"]:
+            entry = LedgerEntry(
+                entry_id=entry_data["entry_id"],
+                timestamp=datetime.fromisoformat(entry_data["timestamp"]),
+                entry_type=entry_data["entry_type"],
+                symbol=entry_data["symbol"],
+                quantity=Decimal(entry_data["quantity"]) if entry_data["quantity"] is not None else None,
+                price=Decimal(entry_data["price"]) if entry_data["price"] is not None else None,
+                cash_flow=Decimal(entry_data["cash_flow"]),
+                commission=Decimal(entry_data["commission"]) if entry_data["commission"] is not None else Decimal("0"),
+                realized_pnl=Decimal(entry_data["realized_pnl"]) if entry_data["realized_pnl"] is not None else None,
+                fill_id=entry_data["fill_id"],
+                description=entry_data["description"],
+                metadata=entry_data["metadata"],
+            )
+            self._ledger.add_entry(entry)
+
+        # Restore cumulative metrics
+        metrics = snapshot["cumulative_metrics"]
+        self._cumulative_realized_pnl = Decimal(metrics["cumulative_realized_pnl"])
+        self._total_commissions = Decimal(metrics["total_commissions"])
+        self._total_borrow_fees = Decimal(metrics["total_borrow_fees"])
+        self._total_margin_interest = Decimal(metrics["total_margin_interest"])
+        self._total_dividends_received = Decimal(metrics["total_dividends_received"])
+        self._total_dividends_paid = Decimal(metrics["total_dividends_paid"])
+
+        logger.info(
+            "portfolio_service.snapshot_restored",
+            timestamp=snapshot["metadata"]["timestamp"],
+            num_positions=len(self._positions),
+            num_ledger_entries=len(snapshot["ledger"]),
+        )
+
+    # ==================== Query Methods ====================
+
+    def get_fills(
+        self,
+        symbol: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        side: Literal["buy", "sell"] | None = None,
+    ) -> list[LedgerEntry]:
+        """
+        Get fill history with optional filters.
+
+        Returns all fill entries from the ledger, optionally filtered by
+        symbol, date range, and side.
+
+        Args:
+            symbol: Filter by symbol (optional)
+            since: Filter fills on or after this time (optional)
+            until: Filter fills before this time (optional)
+            side: Filter by side "buy" or "sell" (optional)
+
+        Returns:
+            List of LedgerEntry objects representing fills
+
+        Example:
+            >>> # Get all AAPL buys in January
+            >>> fills = portfolio.get_fills(
+            ...     symbol="AAPL",
+            ...     since=datetime(2024, 1, 1),
+            ...     until=datetime(2024, 2, 1),
+            ...     side="buy"
+            ... )
+        """
+        entries = self._ledger.get_entries(since=since, entry_type=LedgerEntryType.FILL)
+
+        # Filter by until time
+        if until is not None:
+            entries = [e for e in entries if e.timestamp < until]
+
+        # Filter by symbol
+        if symbol is not None:
+            entries = [e for e in entries if e.symbol == symbol]
+
+        # Filter by side
+        if side is not None:
+            if side == "buy":
+                entries = [e for e in entries if e.quantity is not None and e.quantity > 0]
+            elif side == "sell":
+                entries = [e for e in entries if e.quantity is not None and e.quantity < 0]
+
+        return entries
+
+    def get_all_lots(self, symbol: str | None = None) -> list[Lot]:
+        """
+        Get all current lots, optionally filtered by symbol.
+
+        Returns the current lot holdings for tracking purposes.
+        Useful for debugging and detailed position analysis.
+
+        Args:
+            symbol: Filter by symbol (optional, returns all if None)
+
+        Returns:
+            List of Lot objects currently held
+
+        Example:
+            >>> # Get all AAPL lots
+            >>> lots = portfolio.get_all_lots("AAPL")
+            >>> for lot in lots:
+            ...     print(f"{lot.quantity} @ ${lot.entry_price}")
+        """
+        if symbol is not None:
+            if symbol in self._lot_tracker:
+                tracker = self._lot_tracker[symbol]
+                return tracker.get_lots(LotSide.LONG) + tracker.get_lots(LotSide.SHORT)
+            return []
+
+        # Return all lots across all symbols
+        all_lots = []
+        for tracker in self._lot_tracker.values():
+            all_lots.extend(tracker.get_lots(LotSide.LONG))
+            all_lots.extend(tracker.get_lots(LotSide.SHORT))
+        return all_lots
+
+    # ==================== Utility Methods ====================
+
+    def clear_positions(self) -> None:
+        """
+        Clear all positions and reset to cash-only state.
+
+        WARNING: This is destructive and mainly useful for testing.
+        Ledger history is preserved but positions and lots are cleared.
+
+        Example:
+            >>> portfolio.clear_positions()
+            >>> assert len(portfolio.get_all_positions()) == 0
+        """
+        self._positions.clear()
+        self._lot_tracker.clear()
+
+        logger.warning(
+            "portfolio_service.positions_cleared",
+            cash_remaining=str(self._cash),
+        )
+
+    def validate_state(self) -> dict[str, bool]:
+        """
+        Validate internal state consistency.
+
+        Performs various consistency checks on portfolio state:
+        - Position quantities match lot quantities
+        - Cumulative realized P&L matches ledger
+        - All positions have corresponding lot trackers
+        - No orphaned lot trackers
+
+        Returns:
+            Dictionary with validation results for each check
+
+        Example:
+            >>> results = portfolio.validate_state()
+            >>> assert all(results.values()), "State inconsistency detected"
+        """
+        results = {}
+
+        # Check: Position quantities match lot quantities
+        position_lot_match = True
+        for symbol, position in self._positions.items():
+            if symbol in self._lot_tracker:
+                tracker = self._lot_tracker[symbol]
+                long_lots = tracker.get_lots(LotSide.LONG)
+                short_lots = tracker.get_lots(LotSide.SHORT)
+                lot_total = sum(lot.quantity for lot in long_lots) + sum(lot.quantity for lot in short_lots)
+                if lot_total != position.quantity:
+                    position_lot_match = False
+                    logger.error(
+                        "portfolio_service.validation_error",
+                        check="position_lot_match",
+                        symbol=symbol,
+                        position_qty=str(position.quantity),
+                        lot_total=str(lot_total),
+                    )
+        results["position_lot_match"] = position_lot_match
+
+        # Check: Cumulative realized P&L matches ledger calculation
+        ledger_realized_pnl = self._calculate_realized_pnl()
+        pnl_match = self._cumulative_realized_pnl == ledger_realized_pnl
+        if not pnl_match:
+            logger.error(
+                "portfolio_service.validation_error",
+                check="realized_pnl_match",
+                cumulative=str(self._cumulative_realized_pnl),
+                ledger_calc=str(ledger_realized_pnl),
+            )
+        results["realized_pnl_match"] = pnl_match
+
+        # Check: All positions have lot trackers
+        positions_have_trackers = all(symbol in self._lot_tracker for symbol in self._positions)
+        if not positions_have_trackers:
+            missing = [s for s in self._positions if s not in self._lot_tracker]
+            logger.error(
+                "portfolio_service.validation_error",
+                check="positions_have_trackers",
+                missing_trackers=missing,
+            )
+        results["positions_have_trackers"] = positions_have_trackers
+
+        # Check: No orphaned lot trackers
+        no_orphaned_trackers = all(symbol in self._positions for symbol in self._lot_tracker)
+        if not no_orphaned_trackers:
+            orphaned = [s for s in self._lot_tracker if s not in self._positions]
+            logger.error(
+                "portfolio_service.validation_error",
+                check="no_orphaned_trackers",
+                orphaned_trackers=orphaned,
+            )
+        results["no_orphaned_trackers"] = no_orphaned_trackers
+
+        return results
