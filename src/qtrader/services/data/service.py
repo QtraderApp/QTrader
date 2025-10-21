@@ -429,3 +429,86 @@ class DataService:
             "adapter": "algoseekOHLC",
             "root_path": "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample",
         }
+
+    def get_corporate_actions(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+    ) -> list:
+        """
+        Get corporate actions for symbol in date range.
+
+        Returns events in chronological order.
+        Empty list if data source doesn't provide corp actions.
+
+        Args:
+            symbol: Ticker symbol
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            List of CorporateActionEvent
+
+        Examples:
+            >>> actions = service.get_corporate_actions(
+            ...     "AAPL",
+            ...     date(2020, 1, 1),
+            ...     date(2020, 12, 31)
+            ... )
+            >>> for action in actions:
+            ...     if action.action_type == "dividend":
+            ...         print(f"Dividend: ${action.dividend_amount}")
+            ...     elif action.action_type == "split":
+            ...         print(f"Split: {action.split_ratio}:1")
+        """
+        if start_date > end_date:
+            raise ValueError(f"Invalid date range: {start_date} > {end_date}")
+
+        logger.info(
+            "data_service.get_corporate_actions",
+            symbol=symbol,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+        )
+
+        # Get instrument and create adapter
+        instrument = self.get_instrument(symbol)
+        adapter_config = self._build_adapter_config()
+
+        # Import adapter dynamically (AlgoseekOHLCVendorAdapter)
+        from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
+
+        adapter = AlgoseekOHLCVendorAdapter(adapter_config, instrument)
+
+        # Check if adapter supports corporate actions
+        if not hasattr(adapter, "get_corporate_actions"):
+            logger.warning(
+                "data_service.get_corporate_actions.not_supported",
+                symbol=symbol,
+                adapter=type(adapter).__name__,
+            )
+            return []
+
+        # Get corporate actions from adapter
+        try:
+            actions: list = adapter.get_corporate_actions(
+                start_date.isoformat(),
+                end_date.isoformat(),
+            )
+
+            logger.info(
+                "data_service.get_corporate_actions.complete",
+                symbol=symbol,
+                count=len(actions),
+            )
+
+            return actions
+
+        except Exception as e:
+            logger.error(
+                "data_service.get_corporate_actions.error",
+                symbol=symbol,
+                error=str(e),
+            )
+            raise

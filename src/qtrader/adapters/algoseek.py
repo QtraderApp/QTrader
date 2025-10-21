@@ -302,6 +302,50 @@ class AlgoseekOHLCVendorAdapter:
         finally:
             conn.close()
 
+    def get_corporate_actions(self, start_date: str, end_date: str):
+        """
+        Detect corporate actions (splits, dividends) in date range.
+
+        Returns list of CorporateActionEvent in chronological order.
+        """
+        from decimal import Decimal
+
+        from qtrader.events.events import CorporateActionEvent
+
+        actions = []
+        previous_close = None
+        for bar in self.read_bars(start_date, end_date):
+            # Dividend event
+            if bar.is_dividend():
+                dividend_amount: Decimal | None = bar.get_dividend_amount(previous_close) if previous_close else None
+                actions.append(
+                    CorporateActionEvent(
+                        symbol=bar.Ticker,
+                        action_type="dividend",
+                        effective_date=bar.TradeDate,
+                        ex_date=bar.TradeDate,
+                        dividend_amount=dividend_amount,
+                        dividend_type="cash",
+                        split_ratio=None,
+                    )
+                )
+            # Split event
+            if bar.is_split():
+                split_ratio = bar.get_split_ratio()
+                actions.append(
+                    CorporateActionEvent(
+                        symbol=bar.Ticker,
+                        action_type="split",
+                        effective_date=bar.TradeDate,
+                        ex_date=None,
+                        dividend_amount=None,
+                        dividend_type="cash",
+                        split_ratio=split_ratio,
+                    )
+                )
+            previous_close = bar.Close
+        return actions
+
     def get_available_date_range(self) -> tuple[Optional[str], Optional[str]]:
         """
         Get available date range for this instrument.
