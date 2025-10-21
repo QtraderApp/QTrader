@@ -115,23 +115,20 @@ class TestSignalEvent(unittest.TestCase):
     """Test SignalEvent."""
 
     def test_signal_event_creation(self):
-        """Test signal event creation."""
+        """Test signal event creation (Phase 4 spec)."""
         event = SignalEvent(
-            signal_id="sig_123",
+            strategy_id="mean_reversion",
             symbol="AAPL",
-            direction="buy",
-            quantity=Decimal("100"),
-            signal_strength=0.85,
-            strategy_name="mean_reversion",
-            reason="Price below 2-sigma band",
+            side="BUY",
+            strength=0.85,
+            metadata={"price": 150.0, "volatility": 0.25},
         )
         self.assertEqual(event.event_type, "signal")
-        self.assertEqual(event.signal_id, "sig_123")
+        self.assertEqual(event.strategy_id, "mean_reversion")
         self.assertEqual(event.symbol, "AAPL")
-        self.assertEqual(event.direction, "buy")
-        self.assertEqual(event.quantity, Decimal("100"))
-        self.assertEqual(event.signal_strength, 0.85)
-        self.assertEqual(event.strategy_name, "mean_reversion")
+        self.assertEqual(event.side, "BUY")
+        self.assertEqual(event.strength, 0.85)
+        self.assertEqual(event.metadata["price"], 150.0)
 
 
 class TestOrderEvent(unittest.TestCase):

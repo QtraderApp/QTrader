@@ -522,29 +522,29 @@ class TestEventBusIntegration(unittest.TestCase):
         flow_events = []
 
         def strategy_generates_signal():
-            """Strategy publishes signal."""
+            """Strategy publishes signal (Phase 4 spec)."""
             signal = SignalEvent(
-                signal_id="sig_123",
+                strategy_id="momentum",
                 symbol="AAPL",
-                direction="buy",
-                quantity=Decimal("150"),  # Strategy wants 150
-                signal_strength=0.85,
-                strategy_name="momentum",
+                side="BUY",
+                strength=0.85,
+                metadata={"price": 75.50},
             )
             bus.publish(signal)
             flow_events.append(("signal", signal))
 
         def risk_evaluates_signal(event: SignalEvent):
-            """Risk manager validates and creates order."""
-            # Simulate risk check: reduce quantity to 100 (risk limit)
-            approved_quantity = min(event.quantity, Decimal("100"))
+            """Risk manager validates and creates order (simulated)."""
+            # In Phase 4, RiskService would size the position based on strength
+            # For this test, simulate a fixed quantity approval
+            approved_quantity = Decimal("100")
 
             if approved_quantity > 0:
                 order = OrderEvent(
                     order_id="ord_123",
-                    signal_id=event.signal_id,
+                    signal_id=f"sig_{event.strategy_id}_{event.symbol}",
                     symbol=event.symbol,
-                    side=event.direction,
+                    side=event.side.lower(),  # type: ignore[arg-type]
                     quantity=approved_quantity,
                     order_type="market",
                 )
@@ -570,9 +570,9 @@ class TestEventBusIntegration(unittest.TestCase):
             flow_events.append(("portfolio_updated", event.fill_id))
 
         # Wire up the flow
-        bus.subscribe("signal", risk_evaluates_signal)
-        bus.subscribe("order", execution_fills_order)
-        bus.subscribe("fill", portfolio_processes_fill)
+        bus.subscribe("signal", risk_evaluates_signal)  # pyright: ignore[reportArgumentType]
+        bus.subscribe("order", execution_fills_order)  # pyright: ignore[reportArgumentType]
+        bus.subscribe("fill", portfolio_processes_fill)  # pyright: ignore[reportArgumentType]
 
         # Trigger the flow
         strategy_generates_signal()
@@ -588,11 +588,11 @@ class TestEventBusIntegration(unittest.TestCase):
         self.assertIn("fill", event_types)
         self.assertIn("portfolio_updated", event_types)
 
-        # Verify signal and order data
+        # Verify signal and order data (Phase 4: signal has strength, not quantity)
         signal_event = next(e[1] for e in flow_events if e[0] == "signal")
         order_event = next(e[1] for e in flow_events if e[0] == "order")
-        self.assertEqual(signal_event.quantity, Decimal("150"))
-        self.assertEqual(order_event.quantity, Decimal("100"))  # Risk-adjusted
+        self.assertEqual(signal_event.strength, 0.85)
+        self.assertEqual(order_event.quantity, Decimal("100"))  # Risk-determined quantity
 
 
 if __name__ == "__main__":
