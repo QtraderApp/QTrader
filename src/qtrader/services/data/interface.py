@@ -131,6 +131,28 @@ class IDataService(Protocol):
         """
         ...
 
+    def get_corporate_actions(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+    ) -> list:
+        """
+        Get corporate actions for symbol in date range.
+
+        Returns events in chronological order.
+        Empty list if data source doesn't provide corp actions.
+
+        Args:
+            symbol: Ticker symbol
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            List of CorporateActionEvent
+        """
+        ...
+
 
 class IDataAdapter(Protocol):
     """
