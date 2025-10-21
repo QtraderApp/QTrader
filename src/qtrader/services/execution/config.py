@@ -186,17 +186,27 @@ class ExecutionConfig:
         slippage: Slippage model configuration
         max_participation_rate: Max % of bar volume (0.10 = 10%)
         market_order_queue_bars: Bars to queue market orders (1 = next bar)
+        queue_bars: Max bars to queue unfilled orders before expiry (default 10)
         commission: Commission calculation settings
+
+    Queue behavior:
+        - market_order_queue_bars: Market orders wait this many bars before filling
+        - queue_bars: Any order can queue for this many bars max before expiring
+        - After queue_bars exhausted, order expires (state → EXPIRED)
+        - IOC orders: Set queue_bars=1 (fill immediately or cancel)
+        - FOK orders: Must fill completely in first evaluation or cancel
 
     Example:
         >>> config = ExecutionConfig(
         ...     slippage=SlippageConfig(model="fixed_bps", params={"bps": Decimal("5")}),
         ...     max_participation_rate=Decimal("0.10"),
-        ...     market_order_queue_bars=1
+        ...     market_order_queue_bars=1,
+        ...     queue_bars=10
         ... )
     """
 
     slippage: SlippageConfig = field(default_factory=_default_slippage_config)
     max_participation_rate: Decimal = Decimal("0.10")
     market_order_queue_bars: int = 1
+    queue_bars: int = 10
     commission: CommissionConfig = field(default_factory=_default_commission_config)

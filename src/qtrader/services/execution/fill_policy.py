@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from qtrader.models.bar import Bar
 from qtrader.services.execution.config import ExecutionConfig
-from qtrader.services.execution.models import FillDecision, Order, OrderType
+from qtrader.services.execution.models import FillDecision, Order, OrderType, TimeInForce
 from qtrader.services.execution.slippage import ISlippageCalculator, SlippageCalculatorFactory, SlippageModel
 
 
@@ -46,6 +46,7 @@ class FillPolicy:
 
         Routes to appropriate evaluation method based on order type.
         Applies volume participation limits for all order types.
+        Checks expiry conditions (queue bars, day boundary, TIF).
 
         Args:
             order: Order to evaluate
@@ -63,22 +64,47 @@ class FillPolicy:
                 should_fill=False, reason=f"Order in terminal state: {order.state}", queue_for_next_bar=False
             )
 
-        # Route to appropriate handler
+        # Check if order has exceeded queue bars limit
+        if order.bars_queued >= self.config.queue_bars:
+            return FillDecision(
+                should_fill=False,
+                reason=f"Order expired: queued {order.bars_queued}/{self.config.queue_bars} bars",
+                queue_for_next_bar=False,
+                should_expire=True,
+            )
+
+        # Check if DAY order has crossed day boundary
+        if order.time_in_force == TimeInForce.DAY and order.submitted_date is not None:
+            order_date = order.submitted_date.date()
+            bar_date = bar.trade_datetime.date()
+            if bar_date > order_date:
+                return FillDecision(
+                    should_fill=False,
+                    reason=f"DAY order expired at end of trading day ({order_date})",
+                    queue_for_next_bar=False,
+                    should_expire=True,
+                )
+
+        # Route to appropriate handler based on order type
         if order.order_type == OrderType.MARKET:
-            return self._evaluate_market(order, bar)
+            decision = self._evaluate_market(order, bar)
         elif order.order_type == OrderType.LIMIT:
-            return self._evaluate_limit(order, bar)
+            decision = self._evaluate_limit(order, bar)
         elif order.order_type == OrderType.STOP:
-            return self._evaluate_stop(order, bar)
+            decision = self._evaluate_stop(order, bar)
         elif order.order_type == OrderType.MARKET_ON_CLOSE:
-            return self._evaluate_moc(order, bar)
+            decision = self._evaluate_moc(order, bar)
         else:
             raise ValueError(f"Unsupported order type: {order.order_type}")
+
+        # Apply time-in-force logic
+        return self._apply_tif_logic(order, decision, bar)
 
     def _evaluate_market(self, order: Order, bar: Bar) -> FillDecision:
         """Evaluate market order.
 
         Market orders fill at next bar's open after queueing.
+        IOC and FOK orders skip queueing and fill immediately.
 
         Args:
             order: Market order
@@ -87,8 +113,11 @@ class FillPolicy:
         Returns:
             FillDecision
         """
-        # Market orders must be queued for N bars
-        if order.bars_queued < self.config.market_order_queue_bars:
+        # IOC and FOK orders skip queueing - must fill immediately
+        skip_queue = order.time_in_force in (TimeInForce.IOC, TimeInForce.FOK)
+
+        # Market orders must be queued for N bars (unless IOC/FOK)
+        if not skip_queue and order.bars_queued < self.config.market_order_queue_bars:
             return FillDecision(
                 should_fill=False,
                 reason=f"Market order queued ({order.bars_queued}/{self.config.market_order_queue_bars} bars)",
@@ -299,3 +328,77 @@ class FillPolicy:
 
         # Return minimum of remaining quantity and max fillable
         return min(order.remaining_quantity, max_fillable)
+
+    def _apply_tif_logic(self, order: Order, decision: FillDecision, bar: Bar) -> FillDecision:
+        """Apply time-in-force logic to fill decision.
+
+        Handles IOC (Immediate or Cancel) and FOK (Fill or Kill) orders.
+        DAY and GTC orders are handled by expiry checks in evaluate_order().
+
+        Args:
+            order: Order being evaluated
+            decision: Fill decision from order type handler
+            bar: Current bar data
+
+        Returns:
+            Modified fill decision with TIF logic applied
+
+        TIF Logic:
+            - DAY: Handled by day boundary check (expires at end of day)
+            - GTC: No special handling (persists until filled or cancelled)
+            - IOC: Fill available quantity immediately, cancel rest
+            - FOK: Fill complete quantity immediately or cancel entirely
+        """
+        # DAY and GTC: no special handling needed (handled by expiry checks)
+        if order.time_in_force in (TimeInForce.DAY, TimeInForce.GTC):
+            return decision
+
+        # IOC: Immediate or Cancel
+        # Fill whatever is available immediately, cancel the rest
+        if order.time_in_force == TimeInForce.IOC:
+            if decision.should_fill:
+                # Partial fill is OK for IOC
+                # If less than full quantity filled, mark for cancellation
+                if decision.fill_quantity < order.remaining_quantity:
+                    return FillDecision(
+                        should_fill=True,
+                        fill_price=decision.fill_price,
+                        fill_quantity=decision.fill_quantity,
+                        reason=f"{decision.reason} (IOC: partial fill, cancelling rest)",
+                        queue_for_next_bar=False,
+                        should_cancel=True,  # Cancel after this fill
+                    )
+                else:
+                    # Full fill
+                    return decision
+            else:
+                # Cannot fill immediately, cancel
+                return FillDecision(
+                    should_fill=False,
+                    reason=f"IOC order cannot fill immediately: {decision.reason}",
+                    queue_for_next_bar=False,
+                    should_cancel=True,
+                )
+
+        # FOK: Fill or Kill
+        # Must fill complete quantity immediately or cancel entirely
+        if order.time_in_force == TimeInForce.FOK:
+            if decision.should_fill and decision.fill_quantity >= order.remaining_quantity:
+                # Can fill complete quantity
+                return decision
+            else:
+                # Cannot fill complete quantity, cancel
+                reason = (
+                    f"FOK order cannot fill complete quantity ({decision.fill_quantity} < {order.remaining_quantity})"
+                    if decision.should_fill
+                    else f"FOK order cannot fill: {decision.reason}"
+                )
+                return FillDecision(
+                    should_fill=False,
+                    reason=reason,
+                    queue_for_next_bar=False,
+                    should_cancel=True,
+                )
+
+        # Should not reach here
+        return decision
