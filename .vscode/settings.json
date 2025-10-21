@@ -31,6 +31,7 @@
         "dtype",
         "duckdb",
         "elif",
+        "EXECUTIONSERVICE",
         "fetchall",
         "figsize",
         "filterwarnings",

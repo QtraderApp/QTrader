@@ -38,7 +38,7 @@ class TestEventBase(unittest.TestCase):
         """Test that events are immutable (frozen)."""
         event = Event()
         with self.assertRaises(AttributeError):
-            event.event_type = "modified"  # type: ignore
+            event.event_type = "modified"  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_event_with_custom_values(self):
         """Test event creation with custom values."""
@@ -89,7 +89,7 @@ class TestCorporateActionEvent(unittest.TestCase):
         """Test that corporate action events are immutable."""
         event = CorporateActionEvent(symbol="AAPL", action_type="split")
         with self.assertRaises(AttributeError):
-            event.symbol = "MSFT"  # type: ignore
+            event.symbol = "MSFT"  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestPriceBarEvent(unittest.TestCase):
@@ -108,7 +108,7 @@ class TestPriceBarEvent(unittest.TestCase):
         """Test that price bar events are immutable."""
         event = PriceBarEvent(symbol="AAPL")
         with self.assertRaises(AttributeError):
-            event.symbol = "MSFT"  # type: ignore
+            event.symbol = "MSFT"  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestSignalEvent(unittest.TestCase):
