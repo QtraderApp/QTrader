@@ -560,17 +560,86 @@ class PortfolioService:
         """
         Perform end-of-day mark-to-market valuation.
 
-        Week 1: Price updates only
-        Week 3: Adds fee/interest accruals
+        This is the comprehensive EOD process that:
+        1. Updates all position values with current prices
+        2. Calculates unrealized P&L
+        3. Accrues borrow fees on short positions
+        4. Accrues margin interest on negative cash
+        5. Creates ledger entries for all fees/interest
+
+        Should be called once per trading day at market close.
 
         Args:
-            timestamp: Time of mark
+            timestamp: Time of mark (typically end of day, e.g., 16:00)
+
+        Example:
+            >>> # End of day processing
+            >>> portfolio.mark_to_market(datetime(2020, 1, 2, 16, 0))
         """
-        # Week 1: Just update prices (already done via update_prices)
-        # Week 3: Will add borrow fees and margin interest accruals
+        # 1. Price updates are done via update_prices() before calling this
+
+        # 2. Accrue borrow fees on short positions
+        total_borrow_fee = Decimal("0")
+        for symbol, position in self._positions.items():
+            if position.quantity < 0 and position.current_price is not None:
+                # Short position - charge borrow fee
+                # Daily fee = abs(market_value) * annual_rate / day_count
+                short_value = abs(position.market_value)
+
+                # Get borrow rate (symbol-specific or default)
+                borrow_rate = self.config.borrow_rate_by_symbol.get(symbol, self.config.default_borrow_rate_apr)
+
+                # Calculate daily borrow fee
+                daily_fee = short_value * borrow_rate / Decimal(str(self.config.day_count_convention))
+
+                if daily_fee > 0:
+                    # Debit cash for borrow fee
+                    self._cash -= daily_fee
+                    total_borrow_fee += daily_fee
+                    self._total_borrow_fees += daily_fee
+
+                    # Create ledger entry
+                    entry = LedgerEntry(
+                        entry_id=f"{symbol}_borrow_{timestamp.isoformat()}",
+                        timestamp=timestamp,
+                        entry_type=LedgerEntryType.BORROW_FEE,
+                        symbol=symbol,
+                        quantity=position.quantity,
+                        cash_flow=-daily_fee,
+                        description=f"Borrow fee on {abs(position.quantity)} shares @ {borrow_rate * 100}% APR",
+                        metadata={"borrow_rate": str(borrow_rate), "short_value": str(short_value)},
+                    )
+                    self._ledger.add_entry(entry)
+
+        # 3. Accrue margin interest on negative cash
+        if self._cash < 0:
+            # Negative cash - charge margin interest
+            # Daily interest = abs(cash) * annual_rate / day_count
+            daily_interest = (
+                abs(self._cash) * self.config.margin_rate_apr / Decimal(str(self.config.day_count_convention))
+            )
+
+            if daily_interest > 0:
+                # Debit cash for margin interest (makes it more negative)
+                self._cash -= daily_interest
+                self._total_margin_interest += daily_interest
+
+                # Create ledger entry
+                entry = LedgerEntry(
+                    entry_id=f"margin_int_{timestamp.isoformat()}",
+                    timestamp=timestamp,
+                    entry_type=LedgerEntryType.MARGIN_INTEREST,
+                    cash_flow=-daily_interest,
+                    description=f"Margin interest on ${abs(self._cash):.2f} @ {self.config.margin_rate_apr * 100}% APR",
+                    metadata={"margin_rate": str(self.config.margin_rate_apr), "negative_cash": str(abs(self._cash))},
+                )
+                self._ledger.add_entry(entry)
+
         logger.info(
             "portfolio_service.mark_to_market",
             timestamp=timestamp.isoformat(),
+            total_borrow_fee=float(total_borrow_fee),
+            cash_after_fees=float(self._cash),
         )
 
     # ==================== Corporate Actions ====================
@@ -582,19 +651,114 @@ class PortfolioService:
         ratio: Decimal,
     ) -> None:
         """
-        Process stock split.
+        Process stock split or reverse split.
 
-        Week 3 implementation.
+        Adjusts all lots for this symbol:
+        - quantity = quantity * ratio
+        - entry_price = entry_price / ratio
+        - Total value preserved
+
+        Works for both long and short positions.
 
         Args:
             symbol: Symbol splitting
             split_date: Date of split
-            ratio: Split ratio
+            ratio: Split ratio (4.0 for 4-for-1, 0.25 for 1-for-4 reverse)
 
         Raises:
-            NotImplementedError: Week 3
+            ValueError: If ratio is zero or negative
+            ValueError: If no position exists for symbol
+
+        Example:
+            >>> # 4-for-1 split on 100 shares @ $400
+            >>> portfolio.process_split("AAPL", datetime.now(), Decimal("4.0"))
+            >>> # Result: 400 shares @ $100 (value preserved: $40,000)
         """
-        raise NotImplementedError("Week 3 implementation")
+        # Validate ratio
+        if ratio <= 0:
+            raise ValueError(f"Split ratio must be positive, got {ratio}")
+
+        # Check position exists
+        if symbol not in self._positions:
+            raise ValueError(f"No position found for symbol {symbol}")
+
+        position = self._positions[symbol]
+
+        # Adjust all lots
+        for lot in position.lots:
+            # Adjust quantity: multiply by ratio
+            new_quantity = lot.quantity * ratio
+            # Adjust entry price: divide by ratio
+            new_entry_price = lot.entry_price / ratio
+
+            # Create new lot with adjusted values
+            # Note: We need to update the lot in place, but lots are immutable
+            # So we'll rebuild the lot with adjusted values
+            adjusted_lot = Lot(
+                lot_id=lot.lot_id,
+                symbol=lot.symbol,
+                side=lot.side,
+                quantity=new_quantity,
+                entry_price=new_entry_price,
+                entry_timestamp=lot.entry_timestamp,
+                entry_fill_id=lot.entry_fill_id,
+                entry_commission=lot.entry_commission,
+                realized_pnl=lot.realized_pnl,
+            )
+
+            # Replace old lot with adjusted lot in position
+            position.lots = [
+                adjusted_lot if existing_lot.lot_id == lot.lot_id else existing_lot for existing_lot in position.lots
+            ]
+
+            # Update lot tracker
+            if symbol in self._lot_tracker:
+                tracker = self._lot_tracker[symbol]
+                if lot.side == LotSide.LONG:
+                    tracker.remove_lot(lot.lot_id, LotSide.LONG)
+                    tracker.add_lot(adjusted_lot)
+                elif lot.side == LotSide.SHORT:
+                    tracker.remove_lot(lot.lot_id, LotSide.SHORT)
+                    tracker.add_lot(adjusted_lot)
+
+        # Adjust position aggregate values
+        position.quantity = position.quantity * ratio
+        # total_cost stays the same (value preserved)
+        # avg_price = total_cost / new_quantity
+        if position.quantity != 0:
+            position.avg_price = position.total_cost / position.quantity
+        else:
+            position.avg_price = Decimal("0")
+
+        # Update market value if current price exists
+        if position.current_price is not None:
+            new_price = position.current_price / ratio
+            position.update_market_value(new_price)
+
+        position.last_updated = split_date
+
+        # Create ledger entry
+        split_type = "split" if ratio > 1 else "reverse split"
+        entry = LedgerEntry(
+            entry_id=f"{symbol}_split_{split_date.isoformat()}",
+            timestamp=split_date,
+            entry_type=LedgerEntryType.SPLIT,
+            symbol=symbol,
+            quantity=position.quantity,  # New quantity after split
+            price=position.avg_price,  # New avg price after split
+            cash_flow=Decimal("0"),  # No cash impact
+            description=f"{split_type} {ratio}:1 for {symbol}",
+            metadata={"ratio": str(ratio), "split_type": split_type},
+        )
+        self._ledger.add_entry(entry)
+
+        logger.info(
+            "portfolio_service.split_processed",
+            symbol=symbol,
+            ratio=float(ratio),
+            new_quantity=float(position.quantity),
+            new_avg_price=float(position.avg_price),
+        )
 
     def process_dividend(
         self,
@@ -605,7 +769,8 @@ class PortfolioService:
         """
         Process cash dividend.
 
-        Week 3 implementation.
+        For long positions: Cash increases (income)
+        For short positions: Cash decreases (expense)
 
         Args:
             symbol: Symbol paying dividend
@@ -613,9 +778,59 @@ class PortfolioService:
             amount_per_share: Dividend per share
 
         Raises:
-            NotImplementedError: Week 3
+            ValueError: If amount is negative
+            ValueError: If no position exists for symbol
+
+        Example:
+            >>> # Long 100 shares, $0.82 dividend
+            >>> portfolio.process_dividend("AAPL", datetime.now(), Decimal("0.82"))
+            >>> # Cash increases by $82
         """
-        raise NotImplementedError("Week 3 implementation")
+        # Validate amount
+        if amount_per_share < 0:
+            raise ValueError(f"Dividend amount cannot be negative, got {amount_per_share}")
+
+        # Check position exists
+        if symbol not in self._positions:
+            raise ValueError(f"No position found for symbol {symbol}")
+
+        position = self._positions[symbol]
+
+        # Calculate dividend cash flow
+        # Long positions receive dividends (positive cash flow)
+        # Short positions pay dividends (negative cash flow)
+        cash_flow = position.quantity * amount_per_share
+
+        # Update cash
+        self._cash += cash_flow
+
+        # Track cumulative dividends
+        if cash_flow > 0:
+            self._total_dividends_received += cash_flow
+        else:
+            self._total_dividends_paid += abs(cash_flow)
+
+        # Create ledger entry
+        entry = LedgerEntry(
+            entry_id=f"{symbol}_div_{ex_date.isoformat()}",
+            timestamp=ex_date,
+            entry_type=LedgerEntryType.DIVIDEND,
+            symbol=symbol,
+            quantity=position.quantity,
+            price=amount_per_share,
+            cash_flow=cash_flow,
+            description=f"Dividend ${amount_per_share}/share on {position.quantity} shares",
+            metadata={"amount_per_share": str(amount_per_share)},
+        )
+        self._ledger.add_entry(entry)
+
+        logger.info(
+            "portfolio_service.dividend_processed",
+            symbol=symbol,
+            amount_per_share=float(amount_per_share),
+            quantity=float(position.quantity),
+            cash_flow=float(cash_flow),
+        )
 
     # ==================== Queries ====================
 
