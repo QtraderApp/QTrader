@@ -5,11 +5,14 @@ Simulates realistic order execution for backtesting.
 
 from datetime import datetime
 
+from qtrader.config import LoggerFactory
 from qtrader.models.bar import Bar
 from qtrader.services.execution.commission import CommissionCalculator
 from qtrader.services.execution.config import ExecutionConfig
 from qtrader.services.execution.fill_policy import FillPolicy
 from qtrader.services.execution.models import Fill, Order, OrderState
+
+logger = LoggerFactory.get_logger()
 
 
 class ExecutionService:
@@ -88,13 +91,32 @@ class ExecutionService:
         """
         # Check for duplicate
         if order.order_id in self._orders:
-            raise ValueError(f"Order ID already exists: {order.order_id}")
+            error_msg = f"Order ID already exists: {order.order_id}"
+            logger.error(
+                "execution.order.duplicate",
+                order_id=order.order_id,
+                symbol=order.symbol,
+                error=error_msg,
+            )
+            raise ValueError(error_msg)
 
         # Mark as submitted
         order.submit(order.created_at)
 
         # Track order
         self._orders[order.order_id] = order
+
+        # Log submission
+        logger.debug(
+            "execution.order.submitted",
+            order_id=order.order_id,
+            symbol=order.symbol,
+            side=order.side.value,
+            quantity=str(order.quantity),
+            order_type=order.order_type.value,
+            limit_price=str(order.limit_price) if order.limit_price else None,
+            stop_price=str(order.stop_price) if order.stop_price else None,
+        )
 
         # Add to pending list for this symbol
         if order.symbol not in self._pending_orders_by_symbol:
@@ -137,7 +159,16 @@ class ExecutionService:
             order_ids = self._pending_orders_by_symbol.get(symbol, [])
 
             for order_id in list(order_ids):
-                order = self._orders[order_id]
+                order = self._orders.get(order_id)
+
+                # Defensive: handle missing order
+                if order is None:
+                    logger.error(
+                        "execution.on_bar.missing_order",
+                        order_id=order_id,
+                        symbol=symbol,
+                    )
+                    continue
 
                 # Skip if order not active
                 if not order.is_active:
@@ -151,6 +182,12 @@ class ExecutionService:
                 if decision.should_expire:
                     order.expire(bar.trade_datetime)
                     self._remove_from_pending(order)
+                    logger.info(
+                        "execution.order.expired",
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        reason=decision.reason,
+                    )
                     continue
 
                 # Queue market orders (before processing fill)
@@ -174,17 +211,41 @@ class ExecutionService:
                     )
                     fills.append(fill)
 
+                    logger.info(
+                        "execution.fill.generated",
+                        order_id=order.order_id,
+                        fill_id=fill.fill_id,
+                        symbol=fill.symbol,
+                        side=fill.side,
+                        quantity=fill.quantity,
+                        price=fill.price,
+                        commission=fill.commission,
+                    )
+
                     # Update order state
                     order.update_fill(decision.fill_quantity, decision.fill_price, bar.trade_datetime)
 
                     # Remove from pending if complete
                     if order.is_complete:
                         self._remove_from_pending(order)
+                        logger.debug(
+                            "execution.order.completed",
+                            order_id=order.order_id,
+                            symbol=order.symbol,
+                            filled_quantity=order.filled_quantity,
+                        )
 
                 # Handle cancellation AFTER fill (IOC/FOK partial fills)
                 if decision.should_cancel and not order.is_complete:
                     order.cancel(bar.trade_datetime)
                     self._remove_from_pending(order)
+                    logger.warning(
+                        "execution.order.cancelled",
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        reason=decision.reason or "policy_decision",
+                        filled_quantity=order.filled_quantity,
+                    )
 
         return fills
 
@@ -203,9 +264,19 @@ class ExecutionService:
         order = self._orders.get(order_id)
 
         if order is None:
+            logger.warning(
+                "execution.cancel.not_found",
+                order_id=order_id,
+            )
             return False
 
         if order.is_complete:
+            logger.warning(
+                "execution.cancel.already_complete",
+                order_id=order_id,
+                symbol=order.symbol,
+                state=order.state.value,
+            )
             return False
 
         # Cancel order
@@ -213,6 +284,13 @@ class ExecutionService:
 
         # Remove from pending
         self._remove_from_pending(order)
+
+        logger.info(
+            "execution.order.cancelled_manual",
+            order_id=order_id,
+            symbol=order.symbol,
+            filled_quantity=order.filled_quantity,
+        )
 
         return True
 
