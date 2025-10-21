@@ -13,13 +13,20 @@ Public API:
     - OrderSide: Buy/Sell enum
     - OrderType: Market/Limit/Stop/MOC enum
     - TimeInForce: DAY/GTC/IOC/FOK enum
+    - ExecutionConfig: Configuration for execution service
 """
 
+from qtrader.services.execution.config import ExecutionConfig
+from qtrader.services.execution.interface import IExecutionService
 from qtrader.services.execution.models import Fill, FillDecision, Order, OrderSide, OrderState, OrderType, TimeInForce
+from qtrader.services.execution.service import ExecutionService
 
 __all__ = [
+    "ExecutionConfig",
+    "ExecutionService",
     "Fill",
     "FillDecision",
+    "IExecutionService",
     "Order",
     "OrderSide",
     "OrderState",
