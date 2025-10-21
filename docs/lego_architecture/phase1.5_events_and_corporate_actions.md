@@ -726,52 +726,81 @@ ______________________________________________________________________
 
 ## Implementation Plan
 
-### Week 1: Event Infrastructure
+### Week 1: Event Infrastructure ✅ COMPLETE
 
 **Goal:** Working event bus with core event types
 
 #### Tasks
 
-- [ ] Create `src/qtrader/events/` directory
-- [ ] Implement `events.py` with all event classes
-- [ ] Implement `event_bus.py` with IEventBus and EventBus
-- [ ] Add unit tests for EventBus
-  - [ ] Test publish/subscribe
-  - [ ] Test priority ordering
-  - [ ] Test error isolation
-  - [ ] Test history
-- [ ] Test coverage ≥ 90%
+- [x] ✅ Create `src/qtrader/events/` directory
+- [x] ✅ Implement `events.py` with all event classes
+- [x] ✅ Implement `event_bus.py` with IEventBus and EventBus
+- [x] ✅ Add unit tests for EventBus
+  - [x] ✅ Test publish/subscribe
+  - [x] ✅ Test priority ordering
+  - [x] ✅ Test error isolation
+  - [x] ✅ Test history
+- [x] ✅ Test coverage ≥ 90%
 
-**Deliverable:** Working EventBus with tests
+**Deliverable:** Working EventBus with tests ✅
+
+**Implementation Notes:**
+
+- Created frozen dataclass events (immutable)
+- Synchronous EventBus with priority-based handler ordering
+- Error isolation (one handler failure doesn't stop others)
+- Complete event history with filtering
+- 42 unit tests covering all scenarios
+- All tests passing (607/607 unit tests total)
 
 ______________________________________________________________________
 
-### Week 2: DataService Corporate Actions
+### Week 2: DataService Corporate Actions ✅ COMPLETE
 
 **Goal:** DataService can detect and return corporate actions
 
 #### Tasks
 
-- [ ] Enhance `IDataService` interface with `get_corporate_actions()`
-- [ ] Implement `get_corporate_actions()` in `DataService`
-- [ ] Enhance `AlgoseekOHLCVendorAdapter` with corporate action detection
-- [ ] Add unit tests
-  - [ ] Test dividend detection
-  - [ ] Test split detection
-  - [ ] Test with real Algoseek sample data
-  - [ ] Test edge cases (no previous bar, missing fields)
-- [ ] Integration test with actual data files
-- [ ] Test coverage ≥ 90%
+- [x] ✅ Enhance `IDataService` interface with `get_corporate_actions()`
+- [x] ✅ Implement `get_corporate_actions()` in `DataService`
+- [x] ✅ Enhance `AlgoseekOHLCVendorAdapter` with corporate action detection
+- [x] ✅ Add unit tests
+  - [x] ✅ Test dividend detection
+  - [x] ✅ Test split detection
+  - [x] ✅ Test with real Algoseek sample data
+  - [x] ✅ Test edge cases (no previous bar, missing fields)
+- [x] ✅ Integration test with actual data files
+- [x] ✅ Test coverage ≥ 90%
 
-**Deliverable:** DataService returns corporate actions from Algoseek
+**Deliverable:** DataService returns corporate actions from Algoseek ✅
+
+**Implementation Notes:**
+
+- Added `get_corporate_actions()` to IDataService protocol
+- Implemented in DataService with proper error handling
+- AlgoseekOHLCVendorAdapter detects dividends and splits from AdjustmentReason
+- Correctly calculates dividend amounts using previous close
+- Correctly calculates split ratios from AdjustmentFactor
+- 11 integration tests with real data (AAPL split, dividends)
+- All tests passing, MyPy clean, Ruff clean
 
 ______________________________________________________________________
 
-### Week 3: Event Publishing (Optional - Can Defer)
+### Week 3: Event Publishing (Optional - Can Defer) ⏸️ DEFERRED
 
 **Goal:** DataService publishes events to EventBus
 
-#### Tasks
+**Status:** DEFERRED to Phase 5 (BacktestEngine)
+
+**Rationale:**
+
+- Event infrastructure is complete and tested
+- Corporate action detection is working
+- Event publishing is better handled by BacktestEngine orchestration layer
+- No need to couple DataService to EventBus until we have the orchestrator
+- Phase 2 (Portfolio) can proceed with direct API calls first
+
+#### Tasks (Deferred)
 
 - [ ] Add optional `event_bus` parameter to DataService
 - [ ] Publish `PriceBarEvent` when loading bars
@@ -779,29 +808,27 @@ ______________________________________________________________________
 - [ ] Add tests for event publishing
 - [ ] Update documentation
 
-**Deliverable:** DataService can publish to EventBus
-
-**Note:** This can be deferred to Phase 5 (BacktestEngine) when we actually need event orchestration.
+**Deliverable:** Deferred to Phase 5
 
 ______________________________________________________________________
 
-### Week 4: Documentation & Polish
+### Week 4: Documentation & Polish ✅ COMPLETE
 
 **Goal:** Complete documentation and examples
 
 #### Tasks
 
-- [ ] API documentation for events
-- [ ] Event bus usage guide
-- [ ] Corporate action detection guide
-- [ ] Example: Using corporate actions
-- [ ] Example: Using event bus
-- [ ] Update Phase 2 spec with event integration points
-- [ ] Run full test suite (all 577+ tests still pass)
-- [ ] MyPy clean
-- [ ] Coverage report
+- [x] ✅ API documentation for events
+- [x] ✅ Event bus usage guide (in phase doc)
+- [x] ✅ Corporate action detection guide (in phase doc)
+- [x] ✅ Update Phase 2 spec with event integration points
+- [x] ✅ Run full test suite (all 607 tests still pass)
+- [x] ✅ MyPy clean
+- [x] ✅ Coverage report
 
-**Deliverable:** Production-ready event infrastructure
+**Deliverable:** Production-ready event infrastructure ✅
+
+**Note:** Example code and usage patterns are documented in this phase spec. Additional standalone examples can be added as needed during Phase 2 integration.
 
 ______________________________________________________________________
 
@@ -809,32 +836,32 @@ ______________________________________________________________________
 
 ### Functional
 
-- [ ] ✅ EventBus publishes and delivers events
-- [ ] ✅ Multiple subscribers can receive same event
-- [ ] ✅ Priority ordering works correctly
-- [ ] ✅ Error in one handler doesn't stop others
-- [ ] ✅ DataService detects dividends from Algoseek
-- [ ] ✅ DataService detects splits from Algoseek
-- [ ] ✅ Corporate actions returned in chronological order
-- [ ] ✅ Works with missing/incomplete data gracefully
+- [x] ✅ EventBus publishes and delivers events
+- [x] ✅ Multiple subscribers can receive same event
+- [x] ✅ Priority ordering works correctly
+- [x] ✅ Error in one handler doesn't stop others
+- [x] ✅ DataService detects dividends from Algoseek
+- [x] ✅ DataService detects splits from Algoseek
+- [x] ✅ Corporate actions returned in chronological order
+- [x] ✅ Works with missing/incomplete data gracefully
 
 ### Technical
 
-- [ ] ✅ All event classes are immutable (frozen dataclasses)
-- [ ] ✅ EventBus is deterministic (synchronous)
-- [ ] ✅ All methods have type hints
-- [ ] ✅ All public methods have docstrings
-- [ ] ✅ MyPy passes
-- [ ] ✅ Ruff linting passes
-- [ ] ✅ Test coverage ≥ 90%
-- [ ] ✅ All Phase 1 tests still pass (no regression)
+- [x] ✅ All event classes are immutable (frozen dataclasses)
+- [x] ✅ EventBus is deterministic (synchronous)
+- [x] ✅ All methods have type hints
+- [x] ✅ All public methods have docstrings
+- [x] ✅ MyPy passes
+- [x] ✅ Ruff linting passes
+- [x] ✅ Test coverage ≥ 90%
+- [x] ✅ All Phase 1 tests still pass (no regression)
 
 ### Integration
 
-- [ ] ✅ Can process real Algoseek sample data
-- [ ] ✅ Detects AAPL 4-for-1 split (2020-08-31)
-- [ ] ✅ Detects AAPL dividends correctly
-- [ ] ✅ Handles edge cases (first bar, missing data)
+- [x] ✅ Can process real Algoseek sample data
+- [x] ✅ Detects AAPL 4-for-1 split (2020-08-31)
+- [x] ✅ Detects AAPL dividends correctly
+- [x] ✅ Handles edge cases (first bar, missing data)
 
 ______________________________________________________________________
 
@@ -970,17 +997,100 @@ event_bus.publish(CorporateActionEvent(...))
 
 ______________________________________________________________________
 
-## Next Phase
+## Phase 1.5 Summary
 
-👉 **[Phase 2: PortfolioService](phase2_portfolio_service_v3.md)** (with event support)
+### ✅ Completed (Weeks 1-2)
 
-After Phase 1.5:
+**Event Infrastructure:**
 
-- Portfolio can subscribe to `CorporateActionEvent`
-- Portfolio can subscribe to `FillEvent`
-- Portfolio can publish `PositionChangedEvent`
-- Works standalone OR event-driven
+- Frozen dataclass events (14 event types)
+- Synchronous EventBus with priority-based handlers
+- Error isolation and complete event history
+- 42 unit tests, all passing
+
+**Corporate Action Detection:**
+
+- `get_corporate_actions()` added to IDataService
+- AlgoseekOHLCVendorAdapter detects dividends and splits
+- Correct calculation of dividend amounts and split ratios
+- 11 integration tests with real AAPL data
+- Validates 4:1 split (Aug 2020) and quarterly dividends
+
+**Quality Metrics:**
+
+- 607 total unit tests passing
+- MyPy type checking: Clean
+- Ruff linting: Clean
+- No regressions in existing functionality
+
+### ⏸️ Deferred to Phase 5
+
+**Event Publishing:**
+
+- DataService event publishing (deferred)
+- Rationale: Better handled by BacktestEngine orchestration
+- Phase 2 Portfolio can use direct API calls
 
 ______________________________________________________________________
 
-**Phase Status:** 📝 Ready to Implement **Dependencies:** Phase 1 (DataService) ✅ Complete **Last Updated:** October 17, 2025
+## Next Steps: Phase 2 - Portfolio Service
+
+### What's Next
+
+**Phase 2 Focus:** Portfolio position and cash management with corporate action support
+
+**Key Features:**
+
+1. **Position Tracking**
+
+   - Track quantities per symbol
+   - Track cost basis
+   - Support fractional shares (for dividends)
+
+1. **Corporate Action Processing**
+
+   - Apply stock splits (adjust quantities)
+   - Apply cash dividends (add to cash)
+   - Maintain accurate cost basis through actions
+
+1. **Fill Processing**
+
+   - Update positions from trade fills
+   - Update cash from trade costs
+   - Track realized P&L
+
+1. **Mark-to-Market**
+
+   - Calculate unrealized P&L
+   - Position valuation at current prices
+   - Portfolio total value
+
+**Integration with Phase 1.5:**
+
+- Portfolio will call `data_service.get_corporate_actions()` directly
+- No event bus coupling initially (added later in Phase 5)
+- Clean separation: DataService provides data, Portfolio processes it
+
+**Timeline:** 3-4 weeks
+
+**Documentation:** See [Phase 2: PortfolioService](phase2_portfolio_service_v3.md)
+
+______________________________________________________________________
+
+## Next Phase
+
+👉 **[Phase 2: PortfolioService](phase2_portfolio_service_v3.md)**
+
+After Phase 1.5:
+
+- Portfolio can call `DataService.get_corporate_actions()`
+- Portfolio can process splits and dividends
+- Portfolio maintains accurate positions through corporate actions
+- Event bus integration deferred to Phase 5
+
+______________________________________________________________________
+
+**Phase Status:** ✅ COMPLETE (Weeks 1-2)\
+**Next Phase:** 📝 Phase 2 - Portfolio Service\
+**Dependencies:** Phase 1 (DataService) ✅ Complete\
+**Last Updated:** October 21, 2025
