@@ -171,7 +171,7 @@ class EventBus:
 
     Example:
         >>> # Setup
-        >>> bus = EventBus(max_history=100000)
+        >>> bus = EventBus(max_history=100_000)
         >>>
         >>> # Subscribe with priority
         >>> bus.subscribe("fill", portfolio.handle_fill, priority=100)
@@ -184,7 +184,7 @@ class EventBus:
         >>> recent_fills = bus.get_history(event_type="fill", limit=10)
     """
 
-    def __init__(self, max_history: int = 100000):
+    def __init__(self, max_history: int = 100_000):
         """
         Initialize event bus.
 
