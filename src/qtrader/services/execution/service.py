@@ -153,8 +153,8 @@ class ExecutionService:
 
                 # Generate fill if should_fill
                 if decision.should_fill:
-                    # Calculate commission
-                    commission = self.commission_calculator.calculate(decision.fill_quantity)
+                    # Calculate commission (pass price for percentage-based models)
+                    commission = self.commission_calculator.calculate(decision.fill_quantity, decision.fill_price)
 
                     # Create fill
                     fill = Fill(
