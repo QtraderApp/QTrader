@@ -664,24 +664,63 @@ ______________________________________________________________________
 
 ### Phase 6: Strategy Context Refactoring
 
+**Duration:** 2-3 weeks\
+**Goal:** Clean user-facing API wrapping services
+
 - Simplify strategy API
 - Remove old context object
 - Pure event-driven strategies
 - Strategy lifecycle management
 
-### Phase 7: Live Trading Adapter
+[📋 Phase 6 Implementation Plan](phase6_strategy_context.md)
 
-- Real-time event processing
-- Broker integration
-- Order management system
-- Risk monitoring
+### Phase 7: IndicatorService
 
-### Phase 8: Advanced Reporting
+**Duration:** 2-3 weeks\
+**Goal:** Extract technical indicators as independent service
 
-- Performance analytics service
+- Separate indicator calculations from strategies
+- Create clean indicator API
+- Support custom indicators
+- Efficient caching and updates
+
+[📋 Phase 7 Implementation Plan](phase7_indicator_service.md)
+
+### Phase 8: AnalyticsService
+
+**Duration:** 2 weeks\
+**Goal:** Performance metrics calculation
+
+- Sharpe ratio, Sortino ratio
+- Drawdown analysis
+- Win rate, profit factor
 - Risk metrics calculation
-- Trade attribution
-- Visualization/dashboards
+
+[📋 Phase 8 Implementation Plan](phase8_analytics_service.md)
+
+### Phase 9: ReportingService
+
+**Duration:** 1-2 weeks\
+**Goal:** Format and display results
+
+- Console output formatting
+- CSV/JSON export
+- Trade log generation
+- Performance reports
+
+[📋 Phase 9 Implementation Plan](phase9_reporting_service.md)
+
+### Phase 10: Configuration Management
+
+**Duration:** 1-2 weeks\
+**Goal:** Centralized, typed configuration system
+
+- Unified configuration schema
+- Validation and type checking
+- Environment-specific configs
+- Configuration versioning
+
+[📋 Phase 10 Implementation Plan](phase10_configuration.md)
 
 ______________________________________________________________________
 
