@@ -133,6 +133,7 @@ class Order:
     avg_fill_price: Decimal = field(default_factory=lambda: Decimal("0"))
     last_updated: datetime | None = None
     bars_queued: int = 0
+    submitted_date: datetime | None = None  # Date order was submitted (for DAY expiry)
 
     def __post_init__(self) -> None:
         """Validate order on creation."""
@@ -164,6 +165,178 @@ class Order:
 
         if self.filled_quantity > self.quantity:
             raise ValueError(f"Filled quantity {self.filled_quantity} exceeds order quantity {self.quantity}")
+
+    @classmethod
+    def market_order(
+        cls,
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        order_id: str | None = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        created_at: datetime | None = None,
+    ) -> "Order":
+        """Create a market order.
+
+        Args:
+            symbol: Ticker symbol
+            side: Buy or sell
+            quantity: Shares to trade
+            order_id: Optional order ID (auto-generated if None)
+            time_in_force: Time-in-force instruction
+            created_at: Creation timestamp (defaults to now)
+
+        Returns:
+            Market order instance
+
+        Example:
+            >>> order = Order.market_order(
+            ...     symbol="AAPL",
+            ...     side=OrderSide.BUY,
+            ...     quantity=Decimal("100")
+            ... )
+        """
+        return cls(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=OrderType.MARKET,
+            created_at=created_at or datetime.now(),
+            state=OrderState.PENDING,
+            time_in_force=time_in_force,
+            order_id=order_id or f"{symbol}_{datetime.now().isoformat()}",
+        )
+
+    @classmethod
+    def limit_order(
+        cls,
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        limit_price: Decimal,
+        order_id: str | None = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        created_at: datetime | None = None,
+    ) -> "Order":
+        """Create a limit order.
+
+        Args:
+            symbol: Ticker symbol
+            side: Buy or sell
+            quantity: Shares to trade
+            limit_price: Maximum buy price or minimum sell price
+            order_id: Optional order ID (auto-generated if None)
+            time_in_force: Time-in-force instruction
+            created_at: Creation timestamp (defaults to now)
+
+        Returns:
+            Limit order instance
+
+        Example:
+            >>> order = Order.limit_order(
+            ...     symbol="AAPL",
+            ...     side=OrderSide.BUY,
+            ...     quantity=Decimal("100"),
+            ...     limit_price=Decimal("150.00")
+            ... )
+        """
+        return cls(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=OrderType.LIMIT,
+            created_at=created_at or datetime.now(),
+            state=OrderState.PENDING,
+            time_in_force=time_in_force,
+            limit_price=limit_price,
+            order_id=order_id or f"{symbol}_{datetime.now().isoformat()}",
+        )
+
+    @classmethod
+    def stop_order(
+        cls,
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        stop_price: Decimal,
+        order_id: str | None = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        created_at: datetime | None = None,
+    ) -> "Order":
+        """Create a stop order.
+
+        Args:
+            symbol: Ticker symbol
+            side: Buy or sell
+            quantity: Shares to trade
+            stop_price: Trigger price
+            order_id: Optional order ID (auto-generated if None)
+            time_in_force: Time-in-force instruction
+            created_at: Creation timestamp (defaults to now)
+
+        Returns:
+            Stop order instance
+
+        Example:
+            >>> order = Order.stop_order(
+            ...     symbol="AAPL",
+            ...     side=OrderSide.SELL,
+            ...     quantity=Decimal("100"),
+            ...     stop_price=Decimal("145.00")
+            ... )
+        """
+        return cls(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=OrderType.STOP,
+            created_at=created_at or datetime.now(),
+            state=OrderState.PENDING,
+            time_in_force=time_in_force,
+            stop_price=stop_price,
+            order_id=order_id or f"{symbol}_{datetime.now().isoformat()}",
+        )
+
+    @classmethod
+    def moc_order(
+        cls,
+        symbol: str,
+        side: OrderSide,
+        quantity: Decimal,
+        order_id: str | None = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        created_at: datetime | None = None,
+    ) -> "Order":
+        """Create a market-on-close order.
+
+        Args:
+            symbol: Ticker symbol
+            side: Buy or sell
+            quantity: Shares to trade
+            order_id: Optional order ID (auto-generated if None)
+            time_in_force: Time-in-force instruction
+            created_at: Creation timestamp (defaults to now)
+
+        Returns:
+            MOC order instance
+
+        Example:
+            >>> order = Order.moc_order(
+            ...     symbol="AAPL",
+            ...     side=OrderSide.BUY,
+            ...     quantity=Decimal("100")
+            ... )
+        """
+        return cls(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=OrderType.MARKET_ON_CLOSE,
+            created_at=created_at or datetime.now(),
+            state=OrderState.PENDING,
+            time_in_force=time_in_force,
+            order_id=order_id or f"{symbol}_{datetime.now().isoformat()}",
+        )
 
     @property
     def remaining_quantity(self) -> Decimal:
@@ -304,6 +477,7 @@ class Order:
 
         self.state = OrderState.SUBMITTED
         self.last_updated = timestamp
+        self.submitted_date = timestamp  # Track submission date for DAY expiry
 
 
 @dataclass(frozen=True)
@@ -382,6 +556,8 @@ class FillDecision:
         fill_quantity: Quantity to fill (supports partial fills)
         reason: Human-readable explanation
         queue_for_next_bar: If True, re-evaluate on next bar
+        should_expire: If True, order should be expired
+        should_cancel: If True, order should be cancelled (for IOC/FOK)
 
     Example:
         >>> # Order can fill
@@ -398,6 +574,13 @@ class FillDecision:
         ...     reason="Market order queued for 1 bar",
         ...     queue_for_next_bar=True
         ... )
+
+        >>> # Order should expire
+        >>> decision = FillDecision(
+        ...     should_fill=False,
+        ...     reason="Order exceeded queue bars limit",
+        ...     should_expire=True
+        ... )
     """
 
     should_fill: bool
@@ -405,6 +588,8 @@ class FillDecision:
     fill_price: Decimal = field(default_factory=lambda: Decimal("0"))
     fill_quantity: Decimal = field(default_factory=lambda: Decimal("0"))
     queue_for_next_bar: bool = False
+    should_expire: bool = False
+    should_cancel: bool = False
 
     def __post_init__(self) -> None:
         """Validate fill decision."""
