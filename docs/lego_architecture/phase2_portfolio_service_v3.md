@@ -267,6 +267,46 @@ class PortfolioState(BaseModel):
     total_dividends_paid: Decimal
 ```
 
+#### PortfolioConfig
+
+```python
+class PortfolioConfig(BaseModel):
+    """
+    Configuration for portfolio service.
+
+    Controls initial capital, fee rates, and accounting policies.
+    """
+    # Starting capital
+    initial_cash: Decimal = Decimal("100000.00")
+
+    # Commission rates (defaults, can be overridden per fill)
+    default_commission_per_share: Decimal = Decimal("0.00")
+    default_commission_pct: Decimal = Decimal("0.00")  # As decimal (0.001 = 0.1%)
+
+    # Borrow fees for short selling (annual rates)
+    default_borrow_rate_apr: Decimal = Decimal("0.05")  # 5% annual
+    borrow_rate_by_symbol: dict[str, Decimal] = {}  # Override per symbol
+
+    # Margin interest on negative cash (annual rate)
+    margin_rate_apr: Decimal = Decimal("0.07")  # 7% annual
+
+    # Day count convention for interest calculations
+    day_count_convention: int = 360  # 360 or 365
+
+    # Lot matching methods
+    lot_method_long: str = "fifo"  # "fifo" only for Phase 2
+    lot_method_short: str = "lifo"  # "lifo" only for Phase 2
+
+    # Position history
+    keep_position_history: bool = True  # Keep positions at zero for reporting
+
+    # Ledger settings
+    max_ledger_entries: int = 0  # 0 = unlimited
+
+    class Config:
+        frozen = True  # Immutable after creation
+```
+
 ______________________________________________________________________
 
 ## Service Interface
@@ -323,28 +363,42 @@ class IPortfolioService(Protocol):
 
     def update_prices(self, prices: dict[str, Decimal]) -> None:
         """
-        Update mark-to-market prices.
+        Update mark-to-market prices (intraday).
 
-        Updates position market values and unrealized P&L.
-        Does NOT create ledger entries (use mark_to_market() for that).
+        Updates position market values and unrealized P&L without creating
+        ledger entries. Use this for intraday price updates during backtesting.
+
+        For end-of-day valuation with fee accruals, use mark_to_market() instead.
 
         Args:
             prices: Dict mapping symbol → current price
+
+        Example:
+            >>> # Intraday price update
+            >>> portfolio.update_prices({"AAPL": Decimal("150.25")})
+            >>> print(portfolio.get_unrealized_pnl())
         """
         ...
 
     def mark_to_market(self, timestamp: datetime) -> None:
         """
-        Perform end-of-day mark-to-market.
+        Perform end-of-day mark-to-market valuation.
 
-        1. Update all position values with current prices
-        2. Calculate unrealized P&L
-        3. Accrue borrow fees on shorts
-        4. Accrue margin interest on negative cash
-        5. Create ledger entries for fees/interest
+        This is the comprehensive EOD process that:
+        1. Updates all position values with current prices
+        2. Calculates unrealized P&L
+        3. Accrues borrow fees on short positions
+        4. Accrues margin interest on negative cash
+        5. Creates ledger entries for all fees/interest
+
+        Should be called once per trading day at market close.
 
         Args:
-            timestamp: Time of mark (typically end of day)
+            timestamp: Time of mark (typically end of day, e.g., 16:00)
+
+        Example:
+            >>> # End of day processing
+            >>> portfolio.mark_to_market(datetime(2020, 1, 2, 16, 0))
         """
         ...
 
@@ -504,11 +558,263 @@ class IPortfolioService(Protocol):
 
 ______________________________________________________________________
 
+## Error Handling
+
+### Input Validation
+
+All service methods validate inputs and raise `ValueError` with descriptive messages:
+
+```python
+class PortfolioService:
+    def apply_fill(self, ...):
+        # Validate inputs
+        if quantity <= 0:
+            raise ValueError(f"Quantity must be positive, got {quantity}")
+
+        if price <= 0:
+            raise ValueError(f"Price must be positive, got {price}")
+
+        if commission < 0:
+            raise ValueError(f"Commission cannot be negative, got {commission}")
+
+        # Validate sufficient position for closes
+        if self._is_closing_position(symbol, side):
+            available = self._get_available_quantity(symbol, side)
+            if quantity > available:
+                raise ValueError(
+                    f"Cannot close {quantity} shares of {symbol}, "
+                    f"only {available} available"
+                )
+```
+
+### Error Scenarios
+
+| Scenario                  | Error Type   | Message                                                                  |
+| ------------------------- | ------------ | ------------------------------------------------------------------------ |
+| Negative/zero quantity    | `ValueError` | "Quantity must be positive, got {quantity}"                              |
+| Negative/zero price       | `ValueError` | "Price must be positive, got {price}"                                    |
+| Negative commission       | `ValueError` | "Commission cannot be negative, got {commission}"                        |
+| Close more than available | `ValueError` | "Cannot close {quantity} shares of {symbol}, only {available} available" |
+| Zero split ratio          | `ValueError` | "Split ratio must be non-zero, got {ratio}"                              |
+| Negative split ratio      | `ValueError` | "Split ratio must be positive, got {ratio}"                              |
+| Negative dividend         | `ValueError` | "Dividend amount must be non-negative, got {amount}"                     |
+| Duplicate fill ID         | `ValueError` | "Fill ID {fill_id} already exists in ledger"                             |
+| Invalid lot method        | `ValueError` | "Invalid lot method: {method}. Expected 'fifo' or 'lifo'"                |
+| Symbol not found          | `None`       | Returns None from `get_position()`, not an error                         |
+
+### Missing Price Handling
+
+When a price is not available for a position:
+
+```python
+def update_prices(self, prices: dict[str, Decimal]) -> None:
+    """
+    Missing prices: Use last known price (no update).
+
+    This is NOT an error - it's normal during backtesting when
+    a symbol hasn't had recent data.
+    """
+    for symbol, position in self.positions.items():
+        if symbol in prices:
+            position.current_price = prices[symbol]
+        # else: keep last known price (no change)
+```
+
+### Invariant Violations
+
+If any invariant is violated (should never happen with correct implementation):
+
+```python
+def _validate_invariants(self) -> None:
+    """
+    Internal consistency checks (for debugging/testing).
+
+    Should NEVER raise in production if implementation is correct.
+    """
+    # Total equity = Cash + Sum(position values)
+    calculated_equity = self.cash + sum(p.market_value for p in self.positions.values())
+    assert abs(calculated_equity - self.equity) < Decimal("0.01"), "Equity mismatch"
+
+    # Position quantity = Sum(lot quantities)
+    for symbol, position in self.positions.items():
+        lot_total = sum(lot.quantity for lot in position.lots)
+        assert position.quantity == lot_total, f"Position/lot mismatch for {symbol}"
+```
+
+______________________________________________________________________
+
+## Event Integration (Phase 5 Deferral)
+
+### Current Approach (Phase 2)
+
+**Portfolio operates in DIRECT API mode:**
+
+```python
+# Backtest engine calls Portfolio directly
+portfolio.apply_fill(fill_id, timestamp, symbol, side, quantity, price)
+portfolio.update_prices(prices)
+portfolio.mark_to_market(timestamp)
+```
+
+**No event publishing in Phase 2:**
+
+- Portfolio does NOT publish `PositionChangedEvent`
+- Portfolio does NOT publish `CashChangedEvent`
+- Portfolio does NOT subscribe to `FillEvent`
+
+### Future Event-Driven Mode (Phase 5)
+
+**In Phase 5, BacktestEngine will orchestrate via events:**
+
+```python
+# BacktestEngine publishes events
+event_bus.publish(FillEvent(fill=fill))
+
+# Portfolio subscribes
+def handle_fill_event(event: FillEvent):
+    portfolio.apply_fill(...)
+    event_bus.publish(PositionChangedEvent(...))  # Portfolio publishes state changes
+
+event_bus.subscribe("fill", portfolio.handle_fill_event)
+```
+
+**Why defer to Phase 5?**
+
+1. **Simplicity**: Portfolio is complex enough without event handling
+1. **Testing**: Easier to test with direct API calls
+1. **Flexibility**: Can test Portfolio standalone before integration
+1. **Architecture**: BacktestEngine is the natural orchestrator
+1. **No Coupling**: Portfolio doesn't depend on EventBus
+
+**Phase 2 Deliverable**: Portfolio with clean direct API that can later be wrapped with event handlers.
+
+______________________________________________________________________
+
+## Position History Storage
+
+### Mechanism
+
+**Positions dictionary contains ALL symbols ever traded:**
+
+```python
+class PortfolioService:
+    def __init__(self, config: PortfolioConfig):
+        # All positions, including flat (zero quantity)
+        self._positions: dict[str, Position] = {}
+
+    def _update_position(self, symbol: str, ...):
+        """Update position, keeping it even if quantity becomes zero."""
+        if symbol not in self._positions:
+            # Create new position
+            self._positions[symbol] = Position(symbol=symbol, ...)
+        else:
+            # Update existing position
+            position = self._positions[symbol]
+            # ... update position fields ...
+
+        # Keep position in dict even if flat (quantity = 0)
+        # This preserves history for reporting
+```
+
+### Behavior
+
+**With `keep_position_history=True` (default):**
+
+- Positions remain in `_positions` dict even when flat
+- `get_positions()` returns all symbols including flat
+- `get_position(symbol)` returns position even if flat
+- Useful for reporting: "What symbols did we trade?"
+
+**With `keep_position_history=False`:**
+
+- Flat positions removed from `_positions` dict
+- `get_positions()` returns only active positions
+- `get_position(symbol)` returns None if flat
+- Useful for active monitoring: "What do we own now?"
+
+### Storage Size
+
+**Not a concern for backtesting:**
+
+- Typical strategy: 10-100 symbols
+- Position object: ~1KB
+- Total: 10-100 KB (negligible)
+
+**For production (future):**
+
+- Consider archiving flat positions to database
+- Keep only active positions in memory
+- Defer to Phase 6+ (production deployment)
+
+______________________________________________________________________
+
 ## Implementation Plan
 
-### Week 1: Core Service + Ledger
+### Week 1: Core Service + Ledger ⚠️ WITH LOT ACCOUNTING START
 
-**Goal:** Working service with basic fill processing and ledger
+**Goal:** Working service with basic fill processing, ledger, AND lot tracker foundation
+
+#### Tasks
+
+1. **Create Service Structure**
+
+   - [ ] Create `src/qtrader/services/portfolio/` directory
+   - [ ] Create `__init__.py`
+   - [ ] Create `interface.py` with `IPortfolioService` protocol
+   - [ ] Create `models.py` with Lot, Position, LedgerEntry, PortfolioState, PortfolioConfig
+   - [ ] Create `service.py` with `PortfolioService` class skeleton
+
+1. **Implement Ledger**
+
+   - [ ] Create `ledger.py` with `Ledger` class
+   - [ ] Support adding entries
+   - [ ] Support querying entries (by time, type, symbol)
+   - [ ] Ensure chronological ordering
+
+1. **⚠️ START Lot Tracker (Parallel to Week 2)**
+
+   - [ ] Create `lot_tracker.py` with `LotTracker` class skeleton
+   - [ ] Design FIFO queue data structure for longs
+   - [ ] Design LIFO stack data structure for shorts
+   - [ ] Unit tests for data structures
+
+1. **Basic Fill Processing**
+
+   - [ ] Implement `apply_fill()` for opening long positions
+   - [ ] Implement `apply_fill()` for opening short positions
+   - [ ] Create lots on position open
+   - [ ] Update cash balance
+   - [ ] Record fills in ledger
+
+1. **Basic Queries**
+
+   - [ ] Implement `get_position()`
+   - [ ] Implement `get_positions()`
+   - [ ] Implement `get_cash()`
+   - [ ] Implement `get_equity()`
+
+1. **Input Validation & Error Handling**
+
+   - [ ] Add validation for all public methods
+   - [ ] Implement all ValueError scenarios from Error Handling section
+
+1. **Testing**
+
+   - [ ] Unit tests for ledger
+   - [ ] Unit tests for simple fills (open positions)
+   - [ ] Unit tests for queries
+   - [ ] Unit tests for error handling
+   - [ ] Achieve 80%+ coverage
+
+**Deliverable:** Can open long/short positions, track cash, query state, AND have lot tracker foundation ready
+
+**⚠️ Critical:** Start lot tracker work this week to avoid Week 2 crunch
+
+______________________________________________________________________
+
+### Week 2: Lot Accounting + P&L
+
+**Goal:** FIFO/LIFO lot matching and accurate P&L calculation
 
 #### Tasks
 
@@ -1029,6 +1335,101 @@ def test_split_preserves_value(symbol, ratio):
 
 ______________________________________________________________________
 
+## Phase 2 Review Summary (October 21, 2025)
+
+### ✅ Specification Status: READY TO IMPLEMENT
+
+**Completeness: 95%** - All major sections defined with implementation details
+
+### Updates Made
+
+1. **✅ Added PortfolioConfig Model** - Complete Pydantic configuration with all settings
+1. **✅ Added Error Handling Section** - All ValueError scenarios documented
+1. **✅ Clarified Price Update Policy** - Distinction between intraday vs EOD clear
+1. **✅ Event Integration Decision** - Explicitly deferred to Phase 5 with rationale
+1. **✅ Position History Storage** - Mechanism and behavior fully specified
+1. **✅ Week 1 Adjustment** - Added lot tracker start to avoid Week 2 crunch
+
+### Key Design Decisions
+
+**Accounting:**
+
+- FIFO for long positions (close oldest lots first)
+- LIFO for short positions (close newest lots first)
+- Commissions tracked separately (not in cost basis)
+- Decimal precision for all monetary values
+
+**Corporate Actions:**
+
+- Stock splits preserve total position value
+- Dividends: longs receive cash, shorts pay cash
+- Borrow fees accrue daily on short positions
+- Margin interest accrues daily on negative cash
+
+**Architecture:**
+
+- Direct API mode (no event publishing in Phase 2)
+- Complete audit trail via ledger
+- Deterministic replay capability
+- Position history preserved by default
+
+### Risk Mitigation
+
+**Week 2 Complexity:**
+
+- **Risk**: Lot accounting is most complex component
+- **Mitigation**: Start lot tracker foundation in Week 1
+- **Validation**: Daily progress checks, incremental testing
+
+**Timeline:**
+
+- Week 1: Core + Ledger + Lot foundation (80% feasible)
+- Week 2: Complete lot accounting + P&L (requires early start)
+- Week 3: Corporate actions + Fees (straightforward)
+- Week 4: Polish + Documentation (standard)
+- **Total: 4 weeks - ACHIEVABLE with proactive lot accounting start**
+
+### Dependencies Satisfied
+
+- ✅ Phase 1: DataService complete
+- ✅ Phase 1.5: Events + Corporate Actions complete
+- ✅ No blockers
+
+### Success Criteria
+
+**Functional (14 items):**
+
+- Process buy/sell fills with FIFO/LIFO
+- Handle position transitions (long↔short)
+- Calculate realized/unrealized P&L accurately
+- Process splits and dividends correctly
+- Accrue fees and interest
+- Maintain complete ledger
+
+**Technical (9 items):**
+
+- Implements IPortfolioService protocol
+- Type hints on all methods
+- MyPy clean, Ruff clean
+- 90%+ test coverage
+- Mock implementation available
+
+**Invariants (8 items):**
+
+- Equity = Cash + Position Values
+- Realized P&L = Sum(closed lots) - Fees
+- Split preserves position value
+- Cannot close more than available
+
+### Next Steps
+
+1. **Review this updated spec** (you are here)
+1. **Proceed to Week 1 implementation** if approved
+1. **Create service structure and models**
+1. **Begin lot tracker foundation in parallel**
+
+______________________________________________________________________
+
 ## Next Phase
 
 👉 **[Phase 3: ExecutionService](phase3_execution_service.md)**
@@ -1126,4 +1527,6 @@ print(f"Leverage: {state.leverage}")
 
 ______________________________________________________________________
 
-**Phase Status:** 📝 Ready to Implement **Dependencies:** None (can start immediately) **Last Updated:** October 16, 2025
+**Phase Status:** 📝 Ready to Implement\
+**Dependencies:** Phase 1 ✅, Phase 1.5 ✅\
+**Last Updated:** October 21, 2025 (Review complete)
