@@ -147,11 +147,17 @@ class ExecutionService:
                 # Evaluate order against bar
                 decision = self.fill_policy.evaluate_order(order, bar)
 
-                # Queue market orders
+                # Handle expiry
+                if decision.should_expire:
+                    order.expire(bar.trade_datetime)
+                    self._remove_from_pending(order)
+                    continue
+
+                # Queue market orders (before processing fill)
                 if decision.queue_for_next_bar:
                     order.bars_queued += 1
 
-                # Generate fill if should_fill
+                # Generate fill if should_fill (BEFORE cancellation)
                 if decision.should_fill:
                     # Calculate commission (pass price for percentage-based models)
                     commission = self.commission_calculator.calculate(decision.fill_quantity, decision.fill_price)
@@ -174,6 +180,11 @@ class ExecutionService:
                     # Remove from pending if complete
                     if order.is_complete:
                         self._remove_from_pending(order)
+
+                # Handle cancellation AFTER fill (IOC/FOK partial fills)
+                if decision.should_cancel and not order.is_complete:
+                    order.cancel(bar.trade_datetime)
+                    self._remove_from_pending(order)
 
         return fills
 
