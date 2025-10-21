@@ -6,9 +6,17 @@ from decimal import Decimal
 import pytest
 
 from qtrader.models.bar import Bar
-from qtrader.services.execution.config import ExecutionConfig
+from qtrader.services.execution.config import ExecutionConfig, SlippageConfig
 from qtrader.services.execution.fill_policy import FillPolicy
 from qtrader.services.execution.models import Order, OrderSide, OrderType
+
+
+def make_config(market_order_queue_bars: int = 1, slippage_bps: Decimal = Decimal("5")) -> ExecutionConfig:
+    """Helper to create ExecutionConfig with fixed BPS slippage."""
+    return ExecutionConfig(
+        market_order_queue_bars=market_order_queue_bars,
+        slippage=SlippageConfig(model="fixed_bps", params={"bps": slippage_bps}),
+    )
 
 
 class TestFillPolicyMarket:
@@ -37,7 +45,7 @@ class TestFillPolicyMarket:
 
     def test_market_order_fills_after_queue(self) -> None:
         """Test market order fills after queueing."""
-        config = ExecutionConfig(market_order_queue_bars=1, slippage_bps=Decimal("5"))
+        config = make_config(market_order_queue_bars=1, slippage_bps=Decimal("5"))
         policy = FillPolicy(config)
 
         order = Order(
@@ -92,7 +100,7 @@ class TestFillPolicyMarket:
 
     def test_market_order_sell_slippage(self) -> None:
         """Test market sell order gets negative slippage."""
-        config = ExecutionConfig(market_order_queue_bars=1, slippage_bps=Decimal("5"))
+        config = make_config(market_order_queue_bars=1, slippage_bps=Decimal("5"))
         policy = FillPolicy(config)
 
         order = Order(
@@ -295,7 +303,7 @@ class TestFillPolicyStop:
 
     def test_buy_stop_triggered_fills_with_slippage(self) -> None:
         """Test buy stop fills at max(stop, close) + slippage when triggered."""
-        config = ExecutionConfig(slippage_bps=Decimal("5"))
+        config = make_config(slippage_bps=Decimal("5"))
         policy = FillPolicy(config)
 
         order = Order(
@@ -352,7 +360,7 @@ class TestFillPolicyStop:
 
     def test_sell_stop_triggered_fills_with_slippage(self) -> None:
         """Test sell stop fills at min(stop, close) - slippage when triggered."""
-        config = ExecutionConfig(slippage_bps=Decimal("5"))
+        config = make_config(slippage_bps=Decimal("5"))
         policy = FillPolicy(config)
 
         order = Order(
@@ -386,7 +394,7 @@ class TestFillPolicyMOC:
 
     def test_moc_fills_at_close_with_slippage(self) -> None:
         """Test MOC fills at close + slippage."""
-        config = ExecutionConfig(slippage_bps=Decimal("5"))
+        config = make_config(slippage_bps=Decimal("5"))
         policy = FillPolicy(config)
 
         order = Order(
@@ -408,7 +416,7 @@ class TestFillPolicyMOC:
 
     def test_moc_sell_with_slippage(self) -> None:
         """Test MOC sell with negative slippage."""
-        config = ExecutionConfig(slippage_bps=Decimal("5"))
+        config = make_config(slippage_bps=Decimal("5"))
         policy = FillPolicy(config)
 
         order = Order(

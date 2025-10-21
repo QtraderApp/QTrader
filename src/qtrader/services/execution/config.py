@@ -122,24 +122,81 @@ def _default_commission_config() -> CommissionConfig:
 
 
 @dataclass
+class SlippageConfig:
+    """Slippage model configuration.
+
+    Attributes:
+        model: Slippage model type (fixed_bps, volume_based, spread_based, time_of_day)
+        params: Model-specific parameters
+
+    Examples:
+        Fixed BPS (default):
+        >>> config = SlippageConfig(
+        ...     model="fixed_bps",
+        ...     params={"bps": Decimal("5")}
+        ... )
+
+        Volume-based:
+        >>> config = SlippageConfig(
+        ...     model="volume_based",
+        ...     params={"base_bps": Decimal("5"), "impact_factor": Decimal("10")}
+        ... )
+
+        Spread-based:
+        >>> config = SlippageConfig(
+        ...     model="spread_based",
+        ...     params={"fallback_bps": Decimal("5"), "spread_fraction": Decimal("0.5")}
+        ... )
+
+        Time-of-day:
+        >>> config = SlippageConfig(
+        ...     model="time_of_day",
+        ...     params={
+        ...         "base_bps": Decimal("5"),
+        ...         "open_multiplier": Decimal("2.0"),
+        ...         "close_multiplier": Decimal("1.5")
+        ...     }
+        ... )
+    """
+
+    model: str = "fixed_bps"
+    params: dict[str, Decimal | int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate slippage configuration."""
+        valid_models = ["fixed_bps", "volume_based", "spread_based", "time_of_day"]
+        if self.model not in valid_models:
+            raise ValueError(f"Invalid slippage model: {self.model}. Must be one of {valid_models}")
+
+
+def _default_slippage_config() -> SlippageConfig:
+    """Create default slippage configuration.
+
+    Returns:
+        SlippageConfig with fixed 5 BPS model
+    """
+    return SlippageConfig(model="fixed_bps", params={"bps": Decimal("5")})
+
+
+@dataclass
 class ExecutionConfig:
     """Configuration for execution service.
 
     Attributes:
-        slippage_bps: Slippage in basis points (5 = 0.05%)
+        slippage: Slippage model configuration
         max_participation_rate: Max % of bar volume (0.10 = 10%)
         market_order_queue_bars: Bars to queue market orders (1 = next bar)
         commission: Commission calculation settings
 
     Example:
         >>> config = ExecutionConfig(
-        ...     slippage_bps=Decimal("5"),
+        ...     slippage=SlippageConfig(model="fixed_bps", params={"bps": Decimal("5")}),
         ...     max_participation_rate=Decimal("0.10"),
         ...     market_order_queue_bars=1
         ... )
     """
 
-    slippage_bps: Decimal = Decimal("5")
+    slippage: SlippageConfig = field(default_factory=_default_slippage_config)
     max_participation_rate: Decimal = Decimal("0.10")
     market_order_queue_bars: int = 1
     commission: CommissionConfig = field(default_factory=_default_commission_config)

@@ -6,9 +6,17 @@ from decimal import Decimal
 import pytest
 
 from qtrader.models.bar import Bar
-from qtrader.services.execution.config import CommissionConfig, ExecutionConfig
+from qtrader.services.execution.config import CommissionConfig, ExecutionConfig, SlippageConfig
 from qtrader.services.execution.models import Order, OrderSide, OrderState, OrderType
 from qtrader.services.execution.service import ExecutionService
+
+
+def make_config(market_order_queue_bars: int = 1, slippage_bps: Decimal = Decimal("5")) -> ExecutionConfig:
+    """Helper to create ExecutionConfig with fixed BPS slippage."""
+    return ExecutionConfig(
+        market_order_queue_bars=market_order_queue_bars,
+        slippage=SlippageConfig(model="fixed_bps", params={"bps": slippage_bps}),
+    )
 
 
 class TestExecutionServiceBasics:
@@ -190,7 +198,7 @@ class TestExecutionServiceFills:
 
     def test_market_order_fills_after_queue(self) -> None:
         """Test market order fills after queueing."""
-        config = ExecutionConfig(market_order_queue_bars=1, slippage_bps=Decimal("5"))
+        config = make_config(market_order_queue_bars=1, slippage_bps=Decimal("5"))
         service = ExecutionService(config)
 
         order = Order(
@@ -258,7 +266,7 @@ class TestExecutionServiceFills:
 
     def test_stop_order_triggers_and_fills(self) -> None:
         """Test stop order triggers and fills."""
-        config = ExecutionConfig(slippage_bps=Decimal("5"))
+        config = make_config(slippage_bps=Decimal("5"))
         service = ExecutionService(config)
 
         order = Order(
@@ -294,7 +302,7 @@ class TestExecutionServiceFills:
 
     def test_moc_order_fills_at_close(self) -> None:
         """Test MOC order fills at close."""
-        config = ExecutionConfig(slippage_bps=Decimal("5"))
+        config = make_config(slippage_bps=Decimal("5"))
         service = ExecutionService(config)
 
         order = Order(

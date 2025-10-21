@@ -8,6 +8,7 @@ from decimal import Decimal
 from qtrader.models.bar import Bar
 from qtrader.services.execution.config import ExecutionConfig
 from qtrader.services.execution.models import FillDecision, Order, OrderType
+from qtrader.services.execution.slippage import ISlippageCalculator, SlippageCalculatorFactory, SlippageModel
 
 
 class FillPolicy:
@@ -24,6 +25,7 @@ class FillPolicy:
 
     Attributes:
         config: Execution configuration with slippage, participation limits
+        slippage_calculator: Calculator for slippage adjustments
     """
 
     def __init__(self, config: ExecutionConfig) -> None:
@@ -33,6 +35,11 @@ class FillPolicy:
             config: Execution configuration
         """
         self.config = config
+
+        # Create slippage calculator from config
+        self.slippage_calculator: ISlippageCalculator = SlippageCalculatorFactory.create(
+            SlippageModel(config.slippage.model), **config.slippage.params
+        )
 
     def evaluate_order(self, order: Order, bar: Bar) -> FillDecision:
         """Evaluate order against bar data.
@@ -88,9 +95,6 @@ class FillPolicy:
                 queue_for_next_bar=True,
             )
 
-        # Fill at bar open with slippage
-        fill_price = self._apply_slippage(Decimal(str(bar.open)), order.side.value)
-
         # Calculate fillable quantity based on volume participation
         fill_quantity = self._calculate_fillable_quantity(order, bar.volume)
 
@@ -99,6 +103,10 @@ class FillPolicy:
             return FillDecision(
                 should_fill=False, reason="Market order cannot fill (zero volume bar)", queue_for_next_bar=True
             )
+
+        # Fill at bar open with slippage
+        base_price = Decimal(str(bar.open))
+        fill_price = self._apply_slippage(order, bar, fill_quantity, base_price)
 
         return FillDecision(
             should_fill=True,
@@ -187,7 +195,7 @@ class FillPolicy:
         bar_high = Decimal(str(bar.high))
         bar_close = Decimal(str(bar.close))
 
-        # Check if stop triggered
+        # Check if stop triggered and calculate base price
         if order.side.value == "buy":
             if bar_high < order.stop_price:
                 return FillDecision(
@@ -195,7 +203,6 @@ class FillPolicy:
                 )
             # Fill at max(stop, close) + slippage
             base_price = max(order.stop_price, bar_close)
-            fill_price = self._apply_slippage(base_price, "buy")
         else:  # sell
             if bar_low > order.stop_price:
                 return FillDecision(
@@ -203,7 +210,6 @@ class FillPolicy:
                 )
             # Fill at min(stop, close) - slippage
             base_price = min(order.stop_price, bar_close)
-            fill_price = self._apply_slippage(base_price, "sell")
 
         # Calculate fillable quantity
         fill_quantity = self._calculate_fillable_quantity(order, bar.volume)
@@ -215,6 +221,9 @@ class FillPolicy:
                 reason=f"{order.side.value.capitalize()} stop triggered but cannot fill (zero volume)",
                 queue_for_next_bar=True,
             )
+
+        # Apply slippage to base price
+        fill_price = self._apply_slippage(order, bar, fill_quantity, base_price)
 
         return FillDecision(
             should_fill=True,
@@ -236,10 +245,6 @@ class FillPolicy:
         Returns:
             FillDecision
         """
-        # Fill at close with slippage
-        base_price = Decimal(str(bar.close))
-        fill_price = self._apply_slippage(base_price, order.side.value)
-
         # Calculate fillable quantity
         fill_quantity = self._calculate_fillable_quantity(order, bar.volume)
 
@@ -249,6 +254,10 @@ class FillPolicy:
                 should_fill=False, reason="MOC order cannot fill (zero volume bar)", queue_for_next_bar=True
             )
 
+        # Fill at close with slippage
+        base_price = Decimal(str(bar.close))
+        fill_price = self._apply_slippage(order, bar, fill_quantity, base_price)
+
         return FillDecision(
             should_fill=True,
             fill_price=fill_price,
@@ -257,25 +266,19 @@ class FillPolicy:
             queue_for_next_bar=(fill_quantity < order.remaining_quantity),
         )
 
-    def _apply_slippage(self, price: Decimal, side: str) -> Decimal:
-        """Apply slippage to price.
-
-        Buy: Pay MORE (price * (1 + bps/10000))
-        Sell: Receive LESS (price * (1 - bps/10000))
+    def _apply_slippage(self, order: Order, bar: Bar, fill_quantity: Decimal, price: Decimal) -> Decimal:
+        """Apply slippage to price using configured slippage calculator.
 
         Args:
+            order: Order being filled
+            bar: Current bar data
+            fill_quantity: Quantity being filled
             price: Base price
-            side: "buy" or "sell"
 
         Returns:
             Price with slippage applied
         """
-        multiplier = Decimal("1") + (self.config.slippage_bps / Decimal("10000"))
-
-        if side == "buy":
-            return price * multiplier
-        else:  # sell
-            return price * (Decimal("2") - multiplier)
+        return self.slippage_calculator.calculate(order, bar, fill_quantity, price)
 
     def _calculate_fillable_quantity(self, order: Order, bar_volume: int) -> Decimal:
         """Calculate how much can fill this bar based on volume participation.
