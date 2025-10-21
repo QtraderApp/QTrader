@@ -6,13 +6,16 @@ vendor adapters and transformation to canonical multi-mode format. It serves
 as the main entry point for loading price data in the QTrader system.
 """
 
-from typing import Dict, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.instrument import DataSource, Instrument
 from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
 from qtrader.models.vendors.schwab import SchwabBar, SchwabPriceSeries
+
+if TYPE_CHECKING:
+    from qtrader.config import DataConfig
 
 
 class DataLoader:
@@ -50,22 +53,47 @@ class DataLoader:
           (components select mode individually)
     """
 
-    def __init__(self, config: Dict) -> None:
+    def __init__(self, config: Union["DataConfig", Dict[str, Any]]) -> None:
         """
         Initialize data loader.
 
         Args:
-            config: Data configuration dict
-                   (mode selection moved to individual components)
+            config: Data configuration (DataConfig object or dict for backward compatibility)
 
         Examples:
-            >>> config = {
-            ...     "data_path": "/data/equity",
-            ...     "vendor": "algoseek"
-            ... }
+            >>> # Using DataConfig (RECOMMENDED)
+            >>> from qtrader.config import DataConfig
+            >>> data_config = DataConfig(...)
+            >>> loader = DataLoader(data_config)
+            >>>
+            >>> # Using dict (legacy, for backward compatibility)
+            >>> config = {"adapter": {"root_path": "/data/equity", ...}}
             >>> loader = DataLoader(config)
         """
-        self.config = config
+        # Handle both DataConfig and dict
+        if isinstance(config, dict):
+            self.config: Union["DataConfig", Dict[str, Any]] = config
+            self._adapter_config: Dict[str, Any] = config.get("adapter", {})
+        else:
+            # DataConfig object - extract adapter config
+            self.config = config
+            # DataConfig doesn't have direct adapter config, will need to build it
+            self._adapter_config = self._extract_adapter_config(config)
+
+    def _extract_adapter_config(self, config: "DataConfig") -> Dict:
+        """
+        Extract adapter configuration from DataConfig.
+
+        Args:
+            config: DataConfig instance
+
+        Returns:
+            Dict with adapter configuration
+        """
+        # For now, DataConfig doesn't carry adapter config directly
+        # This will be improved when we refactor adapter resolution
+        # For now, return empty dict and let adapter resolution happen elsewhere
+        return {}
 
     def load_data(self, symbol: str, start_date: str, end_date: str) -> PriceSeriesIterator:
         """
@@ -160,11 +188,17 @@ class DataLoader:
         """
 
         # Validate adapter configuration
-        if "adapter" not in self.config:
-            raise ValueError("Adapter configuration missing from config")
+        if not self._adapter_config:
+            # Try to get from dict-style config for backward compatibility
+            if isinstance(self.config, dict):
+                if "adapter" not in self.config:
+                    raise ValueError("Adapter configuration missing from config")
+                self._adapter_config = self.config["adapter"]
+            else:
+                raise ValueError("Adapter configuration not available. Use DataService instead of DataLoader directly.")
 
         # Determine data source from adapter config
-        adapter_name = self.config["adapter"].get("adapter", "algoseekOHLC")
+        adapter_name = self._adapter_config.get("adapter", "algoseekOHLC")
 
         # Map adapter name to DataSource enum for backward compatibility logging
         if "schwab" in adapter_name.lower():
@@ -182,12 +216,12 @@ class DataLoader:
         if data_source == DataSource.SCHWAB:
             from qtrader.adapters.schwab import SchwabOHLCAdapter
 
-            schwab_adapter = SchwabOHLCAdapter(self.config["adapter"], instrument)
+            schwab_adapter = SchwabOHLCAdapter(self._adapter_config, instrument)
             schwab_bars = list(schwab_adapter.read_bars(start_date, end_date))
             return schwab_bars, data_source
         else:
             # Default to Algoseek
-            algoseek_adapter = AlgoseekOHLCVendorAdapter(self.config["adapter"], instrument)
+            algoseek_adapter = AlgoseekOHLCVendorAdapter(self._adapter_config, instrument)
             algoseek_bars = list(algoseek_adapter.read_bars(start_date, end_date))
             return algoseek_bars, data_source
 

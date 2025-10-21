@@ -216,9 +216,12 @@ class TestDataServiceErrorHandling:
         # Arrange
         service = DataService(data_config)
 
-        # Act & Assert - Should raise NotImplementedError regardless of param
-        with pytest.raises(NotImplementedError):
-            service.list_available_symbols(data_source="schwab")
+        # Act - data_source param currently unused (reserved for future)
+        symbols = service.list_available_symbols(data_source="schwab")
+
+        # Assert - Should return list of symbols
+        assert isinstance(symbols, list)
+        assert len(symbols) > 0
 
 
 class TestDataServiceConfigurationVariants:

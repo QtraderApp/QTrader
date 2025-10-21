@@ -332,16 +332,22 @@ class TestGetInstrument:
 class TestListAvailableSymbols:
     """Test list_available_symbols method."""
 
-    def test_list_available_symbols_not_implemented(
+    def test_list_available_symbols_success(
         self,
         data_config: DataConfig,
         mock_resolver: MagicMock,
     ) -> None:
-        """Test list_available_symbols raises NotImplementedError."""
+        """Test list_available_symbols returns list of symbols from symbol_map."""
         service = DataService(data_config, mock_resolver)
 
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            service.list_available_symbols()
+        # Should succeed - reads from data/equity_security_master_sample.csv
+        symbols = service.list_available_symbols()
+
+        assert isinstance(symbols, list)
+        assert len(symbols) > 0
+        assert all(isinstance(s, str) for s in symbols)
+        # Check it's sorted
+        assert symbols == sorted(symbols)
 
 
 class TestPrivateMethods:

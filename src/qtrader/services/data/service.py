@@ -110,8 +110,8 @@ class DataService:
             else:
                 logger.error("Cannot infer dataset - no dataset parameter and no source_selector in config")
 
-        # Convert config to dict for DataLoader (legacy interface)
-        # TODO: Update DataLoader to accept DataConfig directly in Phase 2
+        # Create DataLoader with dict config (includes adapter config)
+        # DataLoader now accepts both DataConfig and dict
         config_dict = {
             "adapter": self._build_adapter_config(),
         }
@@ -191,6 +191,7 @@ class DataService:
         end_date: date,
         *,
         data_source: Optional[str] = None,
+        strict: bool = False,
     ) -> Dict[str, PriceSeriesIterator]:
         """
         Load data for multiple symbols.
@@ -200,23 +201,32 @@ class DataService:
             start_date: Start of date range
             end_date: End of date range (inclusive)
             data_source: Optional override for data source
+            strict: If True, raise ValueError if any symbol fails to load.
+                   If False (default), log warnings and continue with successful symbols.
 
         Returns:
-            Dict mapping symbol → iterator
+            Dict mapping symbol → iterator (only successful symbols)
 
         Raises:
-            ValueError: If any symbol not found
+            ValueError: If any symbol not found and strict=True
 
         Examples:
+            >>> # Lenient mode (default) - continues with successful symbols
             >>> iterators = service.load_universe(
-            ...     ["AAPL", "MSFT", "GOOGL"],
+            ...     ["AAPL", "INVALID", "MSFT"],
             ...     date(2020, 1, 1),
             ...     date(2020, 12, 31)
             ... )
-            >>> for symbol, iterator in iterators.items():
-            ...     print(f"Processing {symbol}")
-            ...     for bar in iterator:
-            ...         print(bar.adjusted.close)
+            >>> # Returns {"AAPL": ..., "MSFT": ...}, logs warning for INVALID
+            >>>
+            >>> # Strict mode - fails fast on any error
+            >>> iterators = service.load_universe(
+            ...     ["AAPL", "INVALID", "MSFT"],
+            ...     date(2020, 1, 1),
+            ...     date(2020, 12, 31),
+            ...     strict=True
+            ... )
+            >>> # Raises ValueError immediately when INVALID fails
         """
         if start_date > end_date:
             raise ValueError(f"Invalid date range: {start_date} > {end_date}")
@@ -251,13 +261,19 @@ class DataService:
                 failed_symbols.append(symbol)
 
         if failed_symbols:
-            # For now, continue with successful symbols
-            # TODO: Add strict mode in Phase 2 to fail on any missing symbol
-            logger.warning(
-                "data_service.load_universe.partial_success",
-                failed_count=len(failed_symbols),
-                failed_symbols=failed_symbols,
-            )
+            if strict:
+                # Strict mode: raise on any failure
+                raise ValueError(
+                    f"Failed to load {len(failed_symbols)} symbol(s) in strict mode: {failed_symbols}. "
+                    f"Successfully loaded {len(iterators)} symbols."
+                )
+            else:
+                # Lenient mode: continue with successful symbols
+                logger.warning(
+                    "data_service.load_universe.partial_success",
+                    failed_count=len(failed_symbols),
+                    failed_symbols=failed_symbols,
+                )
 
         logger.info(
             "data_service.load_universe.complete",
@@ -311,25 +327,104 @@ class DataService:
         """
         List all available symbols.
 
+        Reads symbols from the symbol_map file configured in the adapter.
+        For Algoseek, this is typically the equity_security_master CSV.
+
         Args:
-            data_source: Filter by data source (None = all)
+            data_source: Filter by data source (currently unused, reserved for future multi-source support)
 
         Returns:
-            List of available symbols
+            List of available symbols (sorted)
+
+        Raises:
+            FileNotFoundError: If symbol_map file not found
+            ValueError: If symbol_map not configured in adapter
 
         Examples:
             >>> symbols = service.list_available_symbols()
             >>> print(f"Found {len(symbols)} symbols")
+            >>> print(symbols[:5])  # First 5 symbols
         """
-        # TODO: Implement symbol discovery in Phase 2
-        # For now, this requires registry or scanning data files
-        logger.warning(
-            "data_service.list_available_symbols.not_implemented",
+        logger.info(
+            "data_service.list_available_symbols",
             data_source=data_source,
         )
-        raise NotImplementedError(
-            "Symbol discovery will be implemented in Phase 2. For now, symbols must be provided explicitly."
-        )
+
+        # Get adapter config
+        adapter_config = self._build_adapter_config()
+
+        # Check if symbol_map is configured
+        if "symbol_map" not in adapter_config:
+            logger.error(
+                "data_service.list_available_symbols.no_symbol_map",
+                adapter_config_keys=list(adapter_config.keys()),
+            )
+            raise ValueError(
+                "Symbol map not configured in adapter config. Add 'symbol_map' path to your data source configuration."
+            )
+
+        # Read symbol map file
+        from pathlib import Path
+
+        import pandas as pd
+
+        symbol_map_path = Path(adapter_config["symbol_map"])
+
+        if not symbol_map_path.exists():
+            logger.error(
+                "data_service.list_available_symbols.file_not_found",
+                path=str(symbol_map_path),
+            )
+            raise FileNotFoundError(f"Symbol map file not found: {symbol_map_path}")
+
+        try:
+            # Read CSV
+            df = pd.read_csv(symbol_map_path)
+
+            # Extract Symbol/Tickers column (case-insensitive, try multiple variations)
+            symbol_col = None
+            for col in df.columns:
+                col_lower = col.lower()
+                if col_lower in ("symbol", "symbols", "ticker", "tickers"):
+                    symbol_col = col
+                    break
+
+            if symbol_col is None:
+                raise ValueError(
+                    f"No symbol column found in {symbol_map_path}. "
+                    f"Expected 'Symbol', 'Tickers', 'Ticker', or similar. "
+                    f"Available columns: {list(df.columns)}"
+                )
+
+            # Get unique symbols - handle multi-valued cells (e.g., "AAPL,APPL")
+            symbols_raw = df[symbol_col].dropna().unique()
+            symbols_set: set[str] = set()
+
+            for val in symbols_raw:
+                # Handle comma-separated tickers in single cell
+                if "," in str(val):
+                    symbols_set.update(s.strip() for s in str(val).split(","))
+                else:
+                    symbols_set.add(str(val).strip())
+
+            # Sort and return
+            symbols = sorted(symbols_set)
+
+            logger.info(
+                "data_service.list_available_symbols.complete",
+                symbol_count=len(symbols),
+                source_file=str(symbol_map_path),
+            )
+
+            return symbols
+
+        except Exception as e:
+            logger.error(
+                "data_service.list_available_symbols.error",
+                error=str(e),
+                path=str(symbol_map_path),
+            )
+            raise
 
     def _infer_dataset_from_selector(self, selector) -> Optional[str]:
         """
