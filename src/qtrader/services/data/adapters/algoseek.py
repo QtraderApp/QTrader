@@ -101,7 +101,8 @@ class AlgoseekOHLCVendorAdapter:
         # Build data path
         self.data_path = self._build_data_path()
 
-        logger.info(
+        # DEBUG: Adapter initialization details
+        logger.debug(
             "algoseek_ohlc_vendor_adapter.initialized",
             symbol=instrument.symbol,
             secid=self.secid,
@@ -138,7 +139,8 @@ class AlgoseekOHLCVendorAdapter:
         if missing_cols:
             raise ValueError(f"Symbol map missing columns: {missing_cols}")
 
-        logger.info("algoseek_ohlc_vendor_adapter.symbol_map_loaded", count=len(df))
+        # DEBUG: Symbol map loading
+        logger.debug("algoseek_ohlc_vendor_adapter.symbol_map_loaded", count=len(df))
         return df
 
     def _get_secid(self, symbol: str) -> int:
@@ -230,7 +232,8 @@ class AlgoseekOHLCVendorAdapter:
             )
             raise FileNotFoundError(f"No parquet files found in {data_dir}")
 
-        logger.info(
+        # DEBUG: Reading bars details
+        logger.debug(
             "algoseek_ohlc_vendor_adapter.reading_bars",
             symbol=self.instrument.symbol,
             start_date=start_date,
@@ -282,7 +285,8 @@ class AlgoseekOHLCVendorAdapter:
                     # Skip invalid bars but continue processing
                     continue
 
-            logger.info(
+            # DEBUG: Bars loaded details
+            logger.debug(
                 "algoseek_ohlc_vendor_adapter.bars_loaded",
                 symbol=self.instrument.symbol,
                 count=bar_count,

@@ -200,7 +200,8 @@ class EventBus:
         self._event_history: list[Event] = []
         self._max_history = max_history
 
-        logger.info(
+        # DEBUG: Internal initialization
+        logger.debug(
             "event_bus.initialized",
             max_history=max_history,
         )
@@ -276,7 +277,8 @@ class EventBus:
         """
         self._subscribers[event_type].append((priority, handler))
 
-        logger.info(
+        # DEBUG: Subscription details (internal plumbing)
+        logger.debug(
             "event_bus.subscribed",
             event_type=event_type,
             handler=handler.__name__,
@@ -308,7 +310,8 @@ class EventBus:
         removed_count = original_count - len(self._subscribers[event_type])
 
         if removed_count > 0:
-            logger.info(
+            # DEBUG: Unsubscription details
+            logger.debug(
                 "event_bus.unsubscribed",
                 event_type=event_type,
                 handler=handler.__name__,
@@ -361,7 +364,8 @@ class EventBus:
         Does not affect subscriptions.
         """
         self._event_history.clear()
-        logger.info("event_bus.history_cleared")
+        # DEBUG: History management
+        logger.debug("event_bus.history_cleared")
 
     def get_subscriber_count(self, event_type: str) -> int:
         """

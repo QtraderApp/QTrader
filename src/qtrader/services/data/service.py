@@ -131,7 +131,8 @@ class DataService:
         # Cache for instrument objects
         self._instrument_cache: Dict[str, Instrument] = {}
 
-        logger.info(
+        # DEBUG: Internal initialization details
+        logger.debug(
             "data_service.initialized",
             mode=config.mode,
             source=config.source_selector.to_tag(),
@@ -276,7 +277,8 @@ class DataService:
         if start_date > end_date:
             raise ValueError(f"Invalid date range: {start_date} > {end_date}")
 
-        logger.info(
+        # DEBUG: Per-symbol loading details
+        logger.debug(
             "data_service.load_symbol",
             symbol=symbol,
             start_date=start_date.isoformat(),
@@ -291,7 +293,7 @@ class DataService:
             end_date.isoformat(),
         )
 
-        logger.info(
+        logger.debug(
             "data_service.load_symbol.complete",
             symbol=symbol,
         )
@@ -345,7 +347,8 @@ class DataService:
         if start_date > end_date:
             raise ValueError(f"Invalid date range: {start_date} > {end_date}")
 
-        logger.info(
+        # DEBUG: Universe loading details
+        logger.debug(
             "data_service.load_universe",
             symbol_count=len(symbols),
             start_date=start_date.isoformat(),
@@ -389,6 +392,7 @@ class DataService:
                     failed_symbols=failed_symbols,
                 )
 
+        # INFO: High-level summary for users
         logger.info(
             "data_service.load_universe.complete",
             success_count=len(iterators),
@@ -536,7 +540,8 @@ class DataService:
                 "or use load_universe() for non-event mode."
             )
 
-        logger.info(
+        # DEBUG: Streaming details
+        logger.debug(
             "data_service.stream_universe",
             symbol_count=len(symbols),
             start_date=start_date.isoformat(),
@@ -580,6 +585,7 @@ class DataService:
                 self._event_bus.publish(event)
                 total_bars += 1
 
+        # INFO: High-level streaming summary for users
         logger.info(
             "data_service.stream_universe.complete",
             symbol_count=len(active_iterators),
