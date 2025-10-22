@@ -171,27 +171,34 @@ output:
 # Logging Configuration
 # ============================================================
 logging:
-  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  # Minimum log level filter (console output)
+  # INFO = User-friendly (summaries, signals, orders)
+  # DEBUG = Verbose developer mode (all internal operations)
+  # WARNING = Issues only
   level: "INFO"
 
-  # Log to file in addition to console
-  log_to_file: false
-  log_dir: "logs"
-  log_file_pattern: "qtrader_{timestamp}.log"
+  # Output format
+  format: "console" # Options: console, json
 
-  # Structured logging (structlog)
-  structlog:
-    format: "console" # console, json, logfmt
-    include_timestamps: true
-    colorize: true
+  # Timestamp format for console output
+  timestamp_format: "compact" # Options: iso, compact, time, short
 
-  # Service-specific log levels (optional overrides)
-  services:
-    data: "INFO"
-    portfolio: "INFO"
-    execution: "INFO"
-    risk: "INFO"
-    strategy: "INFO"
+  # Enable logging to file
+  enable_file: true
+
+  # Log file path (null = use default: logs/qtrader.log)
+  file_path: null
+
+  # Minimum log level for file output (typically WARNING or higher)
+  file_level: "WARNING"
+
+  # File rotation settings
+  file_rotation: true
+  max_file_size_mb: 10
+  backup_count: 3
+
+  # Console output width (0 = no limit)
+  console_width: 0
 
 # ============================================================
 # Reporting Configuration
@@ -221,23 +228,6 @@ reporting:
     csv: true
     html: false # Future
     pdf: false # Future
-
-# ============================================================
-# Development & Debug
-# ============================================================
-development:
-  # Debug mode (more verbose logging, checks)
-  debug_mode: false
-
-  # Performance profiling
-  profile: false
-
-  # Strict validation (raise on warnings)
-  strict_validation: true
-
-  # Save debug snapshots every N bars
-  save_debug_snapshots: false
-  debug_snapshot_interval: 100
 
 # ============================================================
 # User Preferences

@@ -31,7 +31,7 @@ import os
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import yaml
 
@@ -214,35 +214,38 @@ class OutputConfig:
 
 
 @dataclass
-class StructlogConfig:
-    """Structlog configuration."""
-
-    format: str = "console"
-    include_timestamps: bool = True
-    colorize: bool = True
-
-
-@dataclass
-class LoggingServicesConfig:
-    """Service-specific logging levels."""
-
-    data: str = "INFO"
-    portfolio: str = "INFO"
-    execution: str = "INFO"
-    risk: str = "INFO"
-    strategy: str = "INFO"
-
-
-@dataclass
 class LoggingConfig:
-    """Logging configuration."""
+    """Logging configuration (maps to log_system.LoggingConfig)."""
 
-    level: str = "INFO"
-    log_to_file: bool = False
-    log_dir: str = "logs"
-    log_file_pattern: str = "qtrader_{timestamp}.log"
-    structlog: StructlogConfig = field(default_factory=StructlogConfig)
-    services: LoggingServicesConfig = field(default_factory=LoggingServicesConfig)
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    format: Literal["console", "json"] = "console"
+    timestamp_format: Literal["iso", "compact", "time", "short"] = "compact"
+    enable_file: bool = True
+    file_path: str | None = None
+    file_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "WARNING"
+    file_rotation: bool = True
+    max_file_size_mb: int = 10
+    backup_count: int = 3
+    console_width: int = 0
+
+    def to_logger_config(self):
+        """Convert to log_system.LoggingConfig for LoggerFactory."""
+        from pathlib import Path
+
+        from qtrader.system.log_system import LoggingConfig as LogSystemConfig
+
+        return LogSystemConfig(
+            level=self.level,
+            format=self.format,
+            timestamp_format=self.timestamp_format,
+            enable_file=self.enable_file,
+            file_path=Path(self.file_path) if self.file_path else None,
+            file_level=self.file_level,
+            file_rotation=self.file_rotation,
+            max_file_size_mb=self.max_file_size_mb,
+            backup_count=self.backup_count,
+            console_width=self.console_width,
+        )
 
 
 @dataclass
@@ -532,25 +535,17 @@ class SystemConfig:
 
         # Logging
         logging_dict = config_dict.get("logging", {})
-        structlog_dict = logging_dict.get("structlog", {})
-        services_dict = logging_dict.get("services", {})
         logging = LoggingConfig(
             level=logging_dict.get("level", "INFO"),
-            log_to_file=logging_dict.get("log_to_file", False),
-            log_dir=logging_dict.get("log_dir", "logs"),
-            log_file_pattern=logging_dict.get("log_file_pattern", "qtrader_{timestamp}.log"),
-            structlog=StructlogConfig(
-                format=structlog_dict.get("format", "console"),
-                include_timestamps=structlog_dict.get("include_timestamps", True),
-                colorize=structlog_dict.get("colorize", True),
-            ),
-            services=LoggingServicesConfig(
-                data=services_dict.get("data", "INFO"),
-                portfolio=services_dict.get("portfolio", "INFO"),
-                execution=services_dict.get("execution", "INFO"),
-                risk=services_dict.get("risk", "INFO"),
-                strategy=services_dict.get("strategy", "INFO"),
-            ),
+            format=logging_dict.get("format", "console"),
+            timestamp_format=logging_dict.get("timestamp_format", "compact"),
+            enable_file=logging_dict.get("enable_file", True),
+            file_path=logging_dict.get("file_path"),
+            file_level=logging_dict.get("file_level", "WARNING"),
+            file_rotation=logging_dict.get("file_rotation", True),
+            max_file_size_mb=logging_dict.get("max_file_size_mb", 10),
+            backup_count=logging_dict.get("backup_count", 3),
+            console_width=logging_dict.get("console_width", 0),
         )
 
         # Reporting
