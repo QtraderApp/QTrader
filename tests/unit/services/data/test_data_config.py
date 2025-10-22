@@ -2,8 +2,8 @@
 
 import pytest
 
-from qtrader.services.data.data_config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig, ValidationConfig
-from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
+from qtrader.services.data.config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig, ValidationConfig
+from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 
 
 def test_validation_config_defaults():

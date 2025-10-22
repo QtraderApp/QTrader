@@ -13,7 +13,7 @@ from qtrader.events.event_bus import IEventBus
 from qtrader.events.events import PriceBarEvent
 from qtrader.models.instrument import Instrument
 from qtrader.services.data.adapters.resolver import DataSourceResolver
-from qtrader.services.data.data_config import DataConfig
+from qtrader.services.data.config import DataConfig
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 from qtrader.services.data.loaders.loader import DataLoader
 
@@ -175,9 +175,9 @@ class DataService:
             This method creates a service-level DataConfig internally by inferring
             the proper source_selector and mode from the dataset name.
         """
-        from qtrader.services.data.data_config import BarSchemaConfig
-        from qtrader.services.data.data_config import DataConfig as ServiceDataConfig
-        from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
+        from qtrader.services.data.config import BarSchemaConfig
+        from qtrader.services.data.config import DataConfig as ServiceDataConfig
+        from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 
         source = config_dict.get("source", "schwab")
 

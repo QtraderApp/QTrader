@@ -4,11 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.services.data.data_source_validator import (
-    DataSourceValidationError,
-    DataSourceValidator,
-    validate_data_sources,
-)
+from qtrader.services.data.source_validator import DataSourceValidationError, DataSourceValidator, validate_data_sources
 
 
 @pytest.fixture

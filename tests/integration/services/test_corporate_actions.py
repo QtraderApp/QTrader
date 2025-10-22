@@ -9,9 +9,9 @@ from decimal import Decimal
 import pytest
 
 from qtrader.events.events import CorporateActionEvent
-from qtrader.services.data.data_config import BarSchemaConfig, DataConfig
-from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
+from qtrader.services.data.config import BarSchemaConfig, DataConfig
 from qtrader.services.data.service import DataService
+from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 
 
 @pytest.fixture

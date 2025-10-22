@@ -16,8 +16,8 @@ from qtrader.cli.ui import (
 from qtrader.cli.ui.formatters import add_bar_data, add_cache_info_row, add_update_result_row
 from qtrader.services import DataService
 from qtrader.services.data.adapters.resolver import DataSourceResolver
-from qtrader.services.data.data_config import BarSchemaConfig, DataConfig
-from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
+from qtrader.services.data.config import BarSchemaConfig, DataConfig
+from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 from qtrader.services.data.update_service import UpdateService
 
 

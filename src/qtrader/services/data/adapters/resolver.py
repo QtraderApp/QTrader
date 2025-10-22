@@ -14,7 +14,7 @@ import structlog
 import yaml
 
 from qtrader.models.instrument import Instrument
-from qtrader.services.data.data_source_selector import DataSourceSelector
+from qtrader.services.data.source_selector import DataSourceSelector
 
 logger = structlog.get_logger()
 

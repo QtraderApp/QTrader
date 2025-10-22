@@ -15,8 +15,8 @@ The service:
 from datetime import date
 
 from qtrader.services import DataService
-from qtrader.services.data.data_config import BarSchemaConfig, DataConfig
-from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
+from qtrader.services.data.config import BarSchemaConfig, DataConfig
+from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 
 
 def main() -> None:

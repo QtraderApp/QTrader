@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from qtrader.services import DataService
-from qtrader.services.data.data_config import BarSchemaConfig, DataConfig
-from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
+from qtrader.services.data.config import BarSchemaConfig, DataConfig
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
+from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 
 
 @pytest.fixture
