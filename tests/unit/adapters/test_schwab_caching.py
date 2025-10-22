@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from qtrader.models.instrument import Instrument
-from qtrader.models.vendors.schwab import SchwabBar
+from qtrader.services.data.adapters.models.schwab import SchwabBar
 from qtrader.services.data.adapters.schwab import MetadataManager, SchwabOHLCAdapter
 
 

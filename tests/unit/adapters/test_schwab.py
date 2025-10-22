@@ -16,7 +16,7 @@ import pytest
 import requests
 
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
-from qtrader.models.vendors.schwab import SchwabBar
+from qtrader.services.data.adapters.models.schwab import SchwabBar
 from qtrader.services.data.adapters.schwab import RateLimiter, SchwabOHLCAdapter
 
 

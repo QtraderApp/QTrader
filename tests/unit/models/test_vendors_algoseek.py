@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
+from qtrader.services.data.adapters.models.algoseek import AlgoseekBar, AlgoseekPriceSeries
 
 
 class TestAlgoseekBar:

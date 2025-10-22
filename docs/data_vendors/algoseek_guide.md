@@ -298,7 +298,7 @@ print(f"Unadjusted Close: ${bar.Close:.2f}")  # Raw price from exchange
 Adjusted for splits only (dividends NOT reinvested) - **transformation performed by QTrader**:
 
 ```python
-from qtrader.models.vendors.algoseek import AlgoseekPriceSeries
+from qtrader.services.data.adapters.models.algoseek import AlgoseekPriceSeries
 
 # QTrader transforms unadjusted data to split-adjusted
 series = AlgoseekPriceSeries(symbol="AAPL", bars=bars)
@@ -448,7 +448,7 @@ for event in events:
 ### Example 3: Multi-Mode Price Comparison
 
 ```python
-from qtrader.models.vendors.algoseek import AlgoseekPriceSeries
+from qtrader.services.data.adapters.models.algoseek import AlgoseekPriceSeries
 
 # Load raw unadjusted bars from adapter
 bars = list(adapter.read_bars("2020-01-01", "2020-12-31"))

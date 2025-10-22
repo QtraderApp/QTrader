@@ -9,9 +9,9 @@ as the main entry point for loading price data in the QTrader system.
 from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 from qtrader.models.instrument import DataSource, Instrument
-from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
-from qtrader.models.vendors.schwab import SchwabBar, SchwabPriceSeries
 from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
+from qtrader.services.data.adapters.models.algoseek import AlgoseekBar, AlgoseekPriceSeries
+from qtrader.services.data.adapters.models.schwab import SchwabBar, SchwabPriceSeries
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 
 if TYPE_CHECKING:

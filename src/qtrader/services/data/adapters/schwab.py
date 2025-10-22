@@ -28,8 +28,8 @@ import requests
 
 from qtrader.config import LoggerFactory
 from qtrader.models.instrument import Instrument
-from qtrader.models.vendors.schwab import SchwabBar
 from qtrader.services.data.adapters.auth.schwab_oauth import SchwabOAuthManager
+from qtrader.services.data.adapters.models.schwab import SchwabBar
 
 logger = LoggerFactory.get_logger()
 

@@ -4,7 +4,7 @@ import datetime
 
 import pytest
 
-from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
+from qtrader.services.data.adapters.models.algoseek import AlgoseekBar, AlgoseekPriceSeries
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 from qtrader.services.data.loaders.loader import DataLoader
 

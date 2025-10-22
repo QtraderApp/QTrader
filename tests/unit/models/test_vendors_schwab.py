@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from qtrader.models.vendors.schwab import SchwabBar, SchwabPriceSeries
+from qtrader.services.data.adapters.models.schwab import SchwabBar, SchwabPriceSeries
 
 
 class TestSchwabBar:

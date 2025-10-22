@@ -22,7 +22,7 @@ import pandas as pd
 
 from qtrader.config import LoggerFactory
 from qtrader.models.instrument import Instrument
-from qtrader.models.vendors.algoseek import AlgoseekBar
+from qtrader.services.data.adapters.models.algoseek import AlgoseekBar
 
 logger = LoggerFactory.get_logger()
 
