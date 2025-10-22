@@ -136,6 +136,8 @@ class IDataService(Protocol):
         symbol: str,
         start_date: date,
         end_date: date,
+        *,
+        publish_events: bool = True,
     ) -> list:
         """
         Get corporate actions for symbol in date range.
@@ -147,9 +149,63 @@ class IDataService(Protocol):
             symbol: Ticker symbol
             start_date: Start date (inclusive)
             end_date: End date (inclusive)
+            publish_events: If True and EventBus configured, publishes CorporateActionEvent
 
         Returns:
             List of CorporateActionEvent
+        """
+        ...
+
+    def stream_bars(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        *,
+        is_warmup: bool = False,
+    ) -> None:
+        """
+        Load bars and publish PriceBarEvent for each bar (event-driven mode).
+
+        Requires EventBus to be configured during initialization.
+
+        Args:
+            symbol: Ticker symbol (e.g., 'AAPL')
+            start_date: Start of date range
+            end_date: End of date range (inclusive)
+            is_warmup: If True, publishes bars with is_warmup=True flag
+
+        Raises:
+            ValueError: If EventBus not configured
+            ValueError: If symbol not found or invalid date range
+        """
+        ...
+
+    def stream_universe(
+        self,
+        symbols: List[str],
+        start_date: date,
+        end_date: date,
+        *,
+        is_warmup: bool = False,
+        strict: bool = False,
+    ) -> None:
+        """
+        Load bars for multiple symbols and publish PriceBarEvent for each bar.
+
+        Synchronizes iterators to publish all bars for a given timestamp together
+        before moving to next timestamp.
+
+        Args:
+            symbols: List of ticker symbols
+            start_date: Start of date range
+            end_date: End of date range (inclusive)
+            is_warmup: If True, all bars published with is_warmup=True
+            strict: If True, raise ValueError if any symbol fails to load
+
+        Raises:
+            ValueError: If EventBus not configured
+            ValueError: If any symbol not found and strict=True
         """
         ...
 

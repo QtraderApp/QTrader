@@ -68,6 +68,64 @@ class RiskService:
             },
         )
 
+        # Subscribe to events
+        self._event_bus.subscribe("signal", self.on_signal)  # type: ignore[arg-type]
+        self._event_bus.subscribe("risk_evaluation_trigger", self.on_risk_evaluation_trigger)  # type: ignore[arg-type]
+
+    @classmethod
+    def from_config(cls, config_dict: dict[str, Any], event_bus: EventBus) -> "RiskService":
+        """
+        Factory method to create RiskService from configuration dictionary.
+
+        Args:
+            config_dict: Risk configuration section from backtest config
+            event_bus: Event bus for service communication
+
+        Returns:
+            Configured RiskService instance
+
+        Example:
+            >>> config_dict = {...}  # Risk config from BacktestConfig
+            >>> service = RiskService.from_config(config_dict, event_bus)
+        """
+        from qtrader.services.risk.models import ConcentrationLimit, LeverageLimit, SizingConfig, StrategyBudget
+
+        # Convert BacktestConfig format to Phase 4 RiskConfig format
+        budgets = [
+            StrategyBudget(
+                strategy_id=b["strategy_id"],
+                capital_weight=b["capital_weight"],
+            )
+            for b in config_dict["budgets"]
+        ]
+
+        sizing = {
+            strategy_id: SizingConfig(
+                model="fixed_fraction",
+                fraction=cfg["fraction"],
+            )
+            for strategy_id, cfg in config_dict["sizing"].items()
+        }
+
+        concentration = ConcentrationLimit(max_position_pct=config_dict["concentration"]["max_position_pct"])
+
+        leverage = LeverageLimit(
+            max_gross=config_dict["leverage"]["max_gross"],
+            max_net=config_dict["leverage"]["max_net"],
+        )
+
+        cash_buffer_pct = config_dict.get("cash_buffer_pct", 0.02)
+
+        config = RiskConfig(
+            budgets=budgets,
+            sizing=sizing,
+            concentration=concentration,
+            leverage=leverage,
+            cash_buffer_pct=cash_buffer_pct,
+        )
+
+        return cls(config=config, event_bus=event_bus)
+
     def on_signal(self, event: SignalEvent) -> None:
         """
         Handle incoming trading signal.

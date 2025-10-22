@@ -4,13 +4,17 @@ Simulates realistic order execution for backtesting.
 """
 
 from datetime import datetime
+from decimal import Decimal
+from typing import Any, Optional
 
 from qtrader.config import LoggerFactory
+from qtrader.events.event_bus import EventBus
+from qtrader.events.events import FillEvent, OrderApprovedEvent, PriceBarEvent
 from qtrader.models.bar import Bar
 from qtrader.services.execution.commission import CommissionCalculator
 from qtrader.services.execution.config import ExecutionConfig
 from qtrader.services.execution.fill_policy import FillPolicy
-from qtrader.services.execution.models import Fill, Order, OrderState
+from qtrader.services.execution.models import Fill, Order, OrderSide, OrderState, OrderType
 
 logger = LoggerFactory.get_logger()
 
@@ -51,19 +55,26 @@ class ExecutionService:
         ...     portfolio.apply_fill(**fill.__dict__)
     """
 
-    def __init__(self, config: ExecutionConfig) -> None:
+    def __init__(self, config: ExecutionConfig, event_bus: Optional[EventBus] = None) -> None:
         """Initialize execution service.
 
         Args:
             config: Execution configuration
+            event_bus: Optional event bus for Phase 5 event-driven mode
         """
         self.config = config
         self.fill_policy = FillPolicy(config)
         self.commission_calculator = CommissionCalculator(config.commission)
+        self._event_bus = event_bus
 
         # Order tracking
         self._orders: dict[str, Order] = {}
         self._pending_orders_by_symbol: dict[str, list[str]] = {}
+
+        # Subscribe to events if event bus provided
+        if self._event_bus:
+            self._event_bus.subscribe("price_bar", self.on_bar_event)  # type: ignore[arg-type]
+            self._event_bus.subscribe("order_approved", self.on_order_approved)  # type: ignore[arg-type]
 
     def submit_order(self, order: Order) -> str:
         """Submit a new order for execution.
@@ -359,3 +370,95 @@ class ExecutionService:
             # Clean up empty lists
             if not order_ids:
                 del self._pending_orders_by_symbol[order.symbol]
+
+    # ==================== Phase 5: Event Handlers ====================
+
+    def on_bar_event(self, event: PriceBarEvent) -> None:
+        """
+        Handle price bar event - attempt to fill pending orders for this symbol.
+
+        Args:
+            event: Price bar event with symbol and bar data
+        """
+        if event.bar is None:
+            return
+
+        # Process bar for this symbol's pending orders
+        fills = self.on_bar(event.bar)
+
+        # Publish fill events
+        if self._event_bus:
+            for fill in fills:
+                fill_event = FillEvent(
+                    fill_id=fill.fill_id,
+                    order_id=fill.order_id,
+                    timestamp=fill.timestamp,
+                    symbol=fill.symbol,
+                    side=fill.side,
+                    quantity=fill.quantity,
+                    price=fill.price,
+                    commission=fill.commission,
+                )
+                self._event_bus.publish(fill_event)
+
+                logger.debug(
+                    "execution.fill_event_published",
+                    fill_id=fill.fill_id,
+                    symbol=fill.symbol,
+                    side=fill.side,
+                    quantity=str(fill.quantity),
+                )
+
+    def on_order_approved(self, event: OrderApprovedEvent) -> None:
+        """
+        Handle order approved event - create and submit order.
+
+        Args:
+            event: Order approved event from RiskService
+        """
+        # Create order from approved event
+        order = Order(
+            symbol=event.symbol,
+            side=OrderSide.BUY if event.side == "BUY" else OrderSide.SELL,
+            quantity=Decimal(str(event.quantity)),
+            order_type=OrderType.MARKET,  # For Phase 5, always use market orders
+            created_at=event.ts,
+        )
+
+        # Submit order
+        try:
+            order_id = self.submit_order(order)
+            logger.debug(
+                "execution.order_from_approved",
+                order_id=order_id,
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                side=event.side,
+                quantity=event.quantity,
+            )
+        except ValueError as e:
+            logger.error(
+                "execution.order_submission_failed",
+                strategy_id=event.strategy_id,
+                symbol=event.symbol,
+                error=str(e),
+            )
+
+    @classmethod
+    def from_config(cls, config_dict: dict[str, Any], event_bus: EventBus) -> "ExecutionService":
+        """
+        Factory method to create service from configuration.
+
+        Args:
+            config_dict: Execution configuration dictionary
+            event_bus: Event bus for communication
+
+        Returns:
+            Configured ExecutionService instance
+        """
+        # For Phase 5, we use a simplified ExecutionConfig
+        # Fill policy is specified in backtest config, but ExecutionConfig
+        # uses other parameters. We'll create a default config.
+        execution_config = ExecutionConfig()
+
+        return cls(config=execution_config, event_bus=event_bus)
