@@ -8,7 +8,7 @@
 # - Backtest config (this file) = WHAT to test
 
 # Backtest time period
-start_date: 2020-01-01
+start_date: 2019-01-01
 end_date: 2023-12-31
 
 # Capital and warmup
@@ -23,10 +23,6 @@ replay_speed: 0.0
 # Universe (symbols to trade)
 universe:
   - AAPL
-  - MSFT
-  - GOOGL
-  - AMZN
-  - META
 
 # Data configuration
 data:
@@ -34,18 +30,12 @@ data:
 
 # Strategies to run
 strategies:
-  - path: examples/strategies/momentum.py
-    strategy_id: momentum_20
+  - path: ./buy_and_hold.py
+    strategy_id: buy_and_hold
     config:
-      lookback: 20
-      threshold: 0.05
+      universe: ["AAPL"]
 
-  - path: examples/strategies/mean_reversion.py
-    strategy_id: mean_reversion_10
-    config:
-      lookback: 10
-      entry_std: 2.0
-      exit_std: 0.5
+
 # Notes:
 # - Execution config (commission, slippage) comes from system.yaml
 # - Risk config (limits, sizing) comes from system.yaml
