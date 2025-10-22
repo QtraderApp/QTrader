@@ -159,7 +159,6 @@ class TestRiskConfig:
         config = SystemConfig.load()
 
         assert config.risk.concentration.max_position_pct == 0.10
-        assert config.risk.concentration.max_sector_pct == 0.30
 
     def test_risk_leverage_config(self):
         """Test risk leverage limits."""
@@ -167,15 +166,6 @@ class TestRiskConfig:
 
         assert config.risk.leverage.max_gross == 1.0
         assert config.risk.leverage.max_net == 1.0
-
-    def test_risk_checks_config(self):
-        """Test risk checks configuration."""
-        config = SystemConfig.load()
-
-        assert config.risk.checks.position_size is True
-        assert config.risk.checks.leverage is True
-        assert config.risk.checks.concentration is True
-        assert config.risk.checks.cash_buffer is True
 
 
 class TestStrategyConfig:

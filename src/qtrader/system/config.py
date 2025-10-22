@@ -130,7 +130,6 @@ class ConcentrationConfig:
     """Concentration limit configuration."""
 
     max_position_pct: float = 0.10
-    max_sector_pct: float = 0.30
 
 
 @dataclass
@@ -142,16 +141,6 @@ class LeverageConfig:
 
 
 @dataclass
-class RiskChecksConfig:
-    """Risk checks to perform."""
-
-    position_size: bool = True
-    leverage: bool = True
-    concentration: bool = True
-    cash_buffer: bool = True
-
-
-@dataclass
 class RiskConfig:
     """Risk service configuration."""
 
@@ -160,7 +149,6 @@ class RiskConfig:
     sizing: dict[str, SizingConfigData] = field(default_factory=dict)
     concentration: ConcentrationConfig = field(default_factory=ConcentrationConfig)
     leverage: LeverageConfig = field(default_factory=LeverageConfig)
-    checks: RiskChecksConfig = field(default_factory=RiskChecksConfig)
 
 
 @dataclass
@@ -478,24 +466,16 @@ class SystemConfig:
         }
         concentration_dict = risk_dict.get("concentration", {})
         leverage_dict = risk_dict.get("leverage", {})
-        checks_dict = risk_dict.get("checks", {})
         risk = RiskConfig(
             cash_buffer_pct=risk_dict.get("cash_buffer_pct", 0.02),
             budgets=budgets,
             sizing=sizing,
             concentration=ConcentrationConfig(
                 max_position_pct=concentration_dict.get("max_position_pct", 0.10),
-                max_sector_pct=concentration_dict.get("max_sector_pct", 0.30),
             ),
             leverage=LeverageConfig(
                 max_gross=leverage_dict.get("max_gross", 1.0),
                 max_net=leverage_dict.get("max_net", 1.0),
-            ),
-            checks=RiskChecksConfig(
-                position_size=checks_dict.get("position_size", True),
-                leverage=checks_dict.get("leverage", True),
-                concentration=checks_dict.get("concentration", True),
-                cash_buffer=checks_dict.get("cash_buffer", True),
             ),
         )
 

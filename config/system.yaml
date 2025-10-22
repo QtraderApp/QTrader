@@ -92,7 +92,7 @@ execution:
 # ============================================================
 risk:
   # Cash buffer to maintain (as fraction of equity)
-  cash_buffer_pct: 0.02 # Keep 2% cash buffer
+  cash_buffer_pct: 0.02 # Reserve 2% cash for safety
 
   # Default strategy budgets (can be overridden per backtest)
   # These define how capital is allocated across strategies
@@ -109,19 +109,11 @@ risk:
   # Concentration limits
   concentration:
     max_position_pct: 0.10 # Max 10% of equity in single position
-    max_sector_pct: 0.30 # Max 30% in single sector (future)
 
   # Leverage limits
   leverage:
     max_gross: 1.0 # Maximum gross leverage (1.0 = fully invested)
     max_net: 1.0 # Maximum net leverage
-
-  # Risk checks to perform
-  checks:
-    position_size: true
-    leverage: true
-    concentration: true
-    cash_buffer: true
 
 # ============================================================
 # Strategy Service Configuration
