@@ -6,7 +6,7 @@ vendor adapters and transformation to canonical multi-mode format. It serves
 as the main entry point for loading price data in the QTrader system.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union, cast
 
 from qtrader.models.instrument import DataSource, Instrument
 from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
@@ -15,7 +15,7 @@ from qtrader.services.data.adapters.models.schwab import SchwabBar, SchwabPriceS
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 
 if TYPE_CHECKING:
-    from qtrader.services.data.data_config import DataConfig
+    from qtrader.services.data.config import DataConfig
 
 
 class DataLoader:
@@ -137,11 +137,13 @@ class DataLoader:
         raw_bars, data_source = self._load_from_adapter(symbol, start_date, end_date)
 
         # Step 2: Build vendor-specific series
+        vendor_series: Union[SchwabPriceSeries, AlgoseekPriceSeries]
         if data_source == DataSource.SCHWAB:
-            vendor_series = SchwabPriceSeries(symbol=symbol, bars=raw_bars)  # type: ignore
+            # Type narrowing: when data_source is SCHWAB, raw_bars must be List[SchwabBar]
+            vendor_series = SchwabPriceSeries(symbol=symbol, bars=cast(List[SchwabBar], raw_bars))
         else:
-            # Default to Algoseek
-            vendor_series = AlgoseekPriceSeries(symbol=symbol, bars=raw_bars)  # type: ignore
+            # Default to Algoseek: when data_source is not SCHWAB, raw_bars must be List[AlgoseekBar]
+            vendor_series = AlgoseekPriceSeries(symbol=symbol, bars=cast(List[AlgoseekBar], raw_bars))
 
         # Step 3: Transform to canonical (all 3 modes)
         canonical_series_dict = vendor_series.to_canonical_series()
