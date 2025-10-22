@@ -112,6 +112,44 @@ class TestBacktestConfig:
                 strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
             )
 
+    def test_replay_speed_default(self):
+        """Test replay_speed defaults to 0.0 (full speed)."""
+        config = BacktestConfig(
+            start_date=datetime(2020, 1, 1),
+            end_date=datetime(2020, 12, 31),
+            initial_capital=Decimal("1000000"),
+            universe=["AAPL"],
+            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+            strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
+        )
+        assert config.replay_speed == 0.0
+
+    def test_replay_speed_custom(self):
+        """Test custom replay_speed."""
+        config = BacktestConfig(
+            start_date=datetime(2020, 1, 1),
+            end_date=datetime(2020, 12, 31),
+            initial_capital=Decimal("1000000"),
+            universe=["AAPL"],
+            replay_speed=1.0,
+            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+            strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
+        )
+        assert config.replay_speed == 1.0
+
+    def test_replay_speed_negative(self):
+        """Test negative replay_speed is rejected."""
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            BacktestConfig(
+                start_date=datetime(2020, 1, 1),
+                end_date=datetime(2020, 12, 31),
+                initial_capital=Decimal("1000000"),
+                universe=["AAPL"],
+                replay_speed=-1.0,
+                data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+                strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
+            )
+
 
 class TestLoadBacktestConfig:
     """Tests for load_backtest_config function."""

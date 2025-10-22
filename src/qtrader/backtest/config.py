@@ -56,6 +56,7 @@ class BacktestConfig(BaseModel):
         initial_capital: 100000
         universe: [AAPL, MSFT, GOOGL]
         warmup_bars: 20
+        replay_speed: 0.0  # Full speed (default). Use 1.0 for 1 sec/bar visualization
 
         data:
           dataset: schwab-us-equity-1d-adjusted
@@ -74,6 +75,12 @@ class BacktestConfig(BaseModel):
     initial_capital: Decimal = Field(..., description="Starting capital")
     warmup_bars: int = Field(default=0, description="Number of warmup bars")
     universe: list[str] = Field(..., description="List of symbols to trade")
+    replay_speed: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Replay speed in seconds per bar (0.0 = full speed, 1.0 = 1 sec/bar). "
+        "Only applies to historical backtests for visualization/debugging.",
+    )
 
     # Data and strategies
     data: DataConfig = Field(..., description="Dataset selection")
