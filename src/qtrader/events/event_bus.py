@@ -17,8 +17,8 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Callable, Protocol
 
-from qtrader.config.logging_config import LoggerFactory
 from qtrader.events.events import Event
+from qtrader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
 

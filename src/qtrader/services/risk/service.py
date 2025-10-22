@@ -14,13 +14,13 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from qtrader.config.logging_config import LoggerFactory
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import OrderApprovedEvent, OrderRejectedEvent, RiskEvaluationTriggerEvent, SignalEvent
 from qtrader.services.risk.allocator import allocate_capital
 from qtrader.services.risk.limits import check_all_limits
 from qtrader.services.risk.models import OrderBase, PortfolioState, RiskConfig, Signal
 from qtrader.services.risk.sizer import FixedFractionSizer
+from qtrader.system import LoggerFactory
 
 
 class RiskService:

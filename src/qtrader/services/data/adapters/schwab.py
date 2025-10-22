@@ -26,10 +26,10 @@ from typing import Iterator, Optional
 import pandas as pd
 import requests
 
-from qtrader.config import LoggerFactory
 from qtrader.contracts.data import Instrument
 from qtrader.services.data.adapters.auth.schwab_oauth import SchwabOAuthManager
 from qtrader.services.data.adapters.models.schwab import SchwabBar
+from qtrader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
 

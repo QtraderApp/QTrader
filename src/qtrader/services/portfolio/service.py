@@ -12,7 +12,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from qtrader.config import LoggerFactory
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import FillEvent, PortfolioStateEvent, PriceBarEvent, ValuationTriggerEvent
 from qtrader.services.portfolio.lot_tracker import LotTracker
@@ -26,6 +25,7 @@ from qtrader.services.portfolio.models import (
     PortfolioState,
     Position,
 )
+from qtrader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
 

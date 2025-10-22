@@ -7,7 +7,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from qtrader.config import LoggerFactory
 from qtrader.contracts.data import Bar
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import FillEvent, OrderApprovedEvent, PriceBarEvent
@@ -15,6 +14,7 @@ from qtrader.services.execution.commission import CommissionCalculator
 from qtrader.services.execution.config import ExecutionConfig
 from qtrader.services.execution.fill_policy import FillPolicy
 from qtrader.services.execution.models import Fill, Order, OrderSide, OrderState, OrderType
+from qtrader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
 
