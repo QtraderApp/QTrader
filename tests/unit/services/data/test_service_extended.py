@@ -444,8 +444,8 @@ class TestDataServiceLogging:
                 # Act
                 service.load_symbol("AAPL", date(2020, 1, 1), date(2020, 12, 31))
 
-                # Assert
-                assert mock_logger.info.called
+                # Assert - Now logs at DEBUG level for per-symbol operations
+                assert mock_logger.debug.called
 
     def test_load_universe_logs_failures(self, data_config: DataConfig):
         """Test load_universe logs symbol failures."""

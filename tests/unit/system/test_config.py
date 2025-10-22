@@ -233,24 +233,23 @@ class TestLoggingConfig:
         config = SystemConfig.load()
 
         assert config.logging.level == "INFO"
-        assert config.logging.log_to_file is False
-        assert config.logging.log_dir == "logs"
+        assert config.logging.format == "console"
+        assert config.logging.timestamp_format == "compact"
+        assert config.logging.enable_file is True
+        assert config.logging.file_level == "WARNING"
+        assert config.logging.file_rotation is True
+        assert config.logging.max_file_size_mb == 10
+        assert config.logging.backup_count == 3
 
-    def test_logging_structlog_config(self):
-        """Test structlog configuration."""
+    def test_logging_config_to_logger_config(self):
+        """Test conversion to log_system.LoggingConfig."""
         config = SystemConfig.load()
+        logger_config = config.logging.to_logger_config()
 
-        assert config.logging.structlog.format == "console"
-        assert config.logging.structlog.include_timestamps is True
-        assert config.logging.structlog.colorize is True
-
-    def test_logging_services_config(self):
-        """Test service-specific logging levels."""
-        config = SystemConfig.load()
-
-        assert config.logging.services.data == "INFO"
-        assert config.logging.services.portfolio == "INFO"
-        assert config.logging.services.execution == "INFO"
+        assert logger_config.level == config.logging.level
+        assert logger_config.format == config.logging.format
+        assert logger_config.timestamp_format == config.logging.timestamp_format
+        assert logger_config.enable_file == config.logging.enable_file
 
 
 class TestReportingConfig:

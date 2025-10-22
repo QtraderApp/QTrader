@@ -29,7 +29,9 @@ def test_default_configuration():
     config = LoggerFactory.get_config()
     assert config.level == "INFO"
     assert config.format == "console"
-    assert config.enable_file is False
+    # Default is now enable_file=True with WARNING level
+    assert config.enable_file is True
+    assert config.file_level == "WARNING"
 
 
 def test_explicit_configuration():
@@ -98,15 +100,18 @@ def test_file_logging_configuration(tmp_path):
 
 
 def test_file_logging_requires_path():
-    """Test that enabling file logging without path raises error."""
+    """Test that enabling file logging without path uses default."""
     config = LoggingConfig(
         level="INFO",
         enable_file=True,
         file_path=None,
     )
 
-    with pytest.raises(ValueError, match="file_path must be provided"):
-        LoggerFactory.configure(config)
+    # Now uses default path instead of raising error
+    LoggerFactory.configure(config)
+    result_config = LoggerFactory.get_config()
+    assert result_config.file_path is not None
+    assert str(result_config.file_path) == "logs/qtrader.log"
 
 
 def test_file_logging_creates_directory(tmp_path):
@@ -148,7 +153,9 @@ def test_rotating_file_handler(tmp_path):
     handlers = [h for h in root_logger.handlers if isinstance(h, RotatingFileHandler)]
 
     assert len(handlers) > 0
-    handler = handlers[0]
+    # Find the handler for our specific log file
+    handler = next((h for h in handlers if str(log_file) in str(h.baseFilename)), None)
+    assert handler is not None
     assert handler.maxBytes == 1 * 1024 * 1024
     assert handler.backupCount == 3
 
