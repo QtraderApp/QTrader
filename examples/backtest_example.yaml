@@ -1,0 +1,48 @@
+# Example Backtest Configuration
+#
+# This file contains ONLY run parameters for a specific backtest.
+# Service configurations (execution, risk, portfolio, data) come from config/system.yaml
+#
+# Philosophy: "The system is one, the backtest varies"
+# - System config (system.yaml) = HOW the framework operates
+# - Backtest config (this file) = WHAT to test
+
+# Backtest time period
+start_date: 2020-01-01
+end_date: 2023-12-31
+
+# Capital and warmup
+initial_capital: 100000
+warmup_bars: 20 # Number of bars to warm up indicators
+
+# Universe (symbols to trade)
+universe:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - AMZN
+  - META
+
+# Data configuration
+data:
+  dataset: schwab-us-equity-1d-adjusted # Dataset name from data_sources.yaml
+
+# Strategies to run
+strategies:
+  - path: examples/strategies/momentum.py
+    strategy_id: momentum_20
+    config:
+      lookback: 20
+      threshold: 0.05
+
+  - path: examples/strategies/mean_reversion.py
+    strategy_id: mean_reversion_10
+    config:
+      lookback: 10
+      entry_std: 2.0
+      exit_std: 0.5
+# Notes:
+# - Execution config (commission, slippage) comes from system.yaml
+# - Risk config (limits, sizing) comes from system.yaml
+# - Portfolio config (lot tracking) comes from system.yaml
+# - This keeps backtests comparable - same system, different parameters
