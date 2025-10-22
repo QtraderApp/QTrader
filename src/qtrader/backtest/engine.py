@@ -5,6 +5,7 @@ Pure event-driven orchestrator that coordinates all services via EventBus.
 No business logic, no direct service calls, just event publishing.
 """
 
+import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 
@@ -385,6 +386,11 @@ class BacktestEngine:
                         # All bars for previous timestamp published, trigger valuation and risk
                         self._event_bus.publish(ValuationTriggerEvent(ts=self._current_timestamp))
                         self._event_bus.publish(RiskEvaluationTriggerEvent(ts=self._current_timestamp))
+
+                        # Apply replay speed delay if configured (for visualization/debugging)
+                        if self.config.replay_speed > 0:
+                            time.sleep(self.config.replay_speed)
+
                     self._current_timestamp = new_ts
                     self._bar_count += 1
 
