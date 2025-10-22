@@ -1,0 +1,251 @@
+# QTrader System Configuration
+# ================================================================================
+# THE SYSTEM - Consolidated configuration for all services and the engine
+#
+# This file defines HOW QTrader operates - the trading system infrastructure.
+# All backtests will use these settings for fair comparison.
+#
+# Philosophy: "In real life, the system is one"
+# - ONE execution system with ONE commission model
+# - ONE data source configuration
+# - ONE risk management framework
+# - ONE portfolio accounting method
+#
+# What varies per backtest: dates, universe, capital, strategies (see backtest YAMLs)
+# What's fixed (here): commission, slippage, data sources, risk limits
+# ================================================================================
+
+# ============================================================
+# Data Service Configuration
+# ============================================================
+data:
+  # Data source configuration file (maps logical sources to adapters)
+  sources_config: "config/data_sources.yaml"
+
+  # Default adjustment mode for price series
+  # Options: unadjusted, adjusted, total_return
+  default_mode: "adjusted"
+
+  # Market timezone
+  default_timezone: "America/New_York"
+
+  # Price decimal precision
+  price_decimals: 4
+
+  # Validate data integrity on load
+  validate_on_load: true
+
+  # Cache configuration (future)
+  cache:
+    enabled: false
+    cache_dir: ".cache/qtrader"
+    max_size_mb: 1000
+
+# ============================================================
+# Portfolio Service Configuration
+# ============================================================
+portfolio:
+  # Initial capital (can be overridden per backtest)
+  initial_capital: 100000.00
+
+  # Lot tracking method for long positions
+  # Options: fifo (first in first out), lifo (last in first out)
+  lot_method_long: "fifo"
+
+  # Lot tracking method for short positions
+  # Options: fifo, lifo (currently only lifo supported)
+  lot_method_short: "lifo"
+
+  # Maximum ledger entries to track
+  max_ledger_entries: 10000
+
+
+# ============================================================
+# Execution Service Configuration
+# ============================================================
+execution:
+  # Fill policy for order execution
+  fill_policy: "conservative" # Options: conservative, aggressive, realistic
+
+  # Slippage for different order types (basis points)
+  slippage:
+    market_order_bps: 5 # Market orders
+    limit_order_bps: 0 # Limit orders (only fill if price touched)
+    stop_order_bps: 5 # Stop orders
+    moc_slip_bps: 5 # Market-on-close orders
+    mode: "conservative" # conservative, aggressive, realistic
+
+  # Commission calculation
+  commission:
+    model: "per_share"
+    per_share: 0.0005
+    minimum: 1.00
+    maximum: null
+
+  # Order queue management
+  queue_bars: 3 # Maximum bars to keep unfilled orders in queue
+
+  # Volume constraints
+  max_volume_participation: 0.10 # Max 10% of bar volume per fill
+
+# ============================================================
+# Risk Service Configuration
+# ============================================================
+risk:
+  # Cash buffer to maintain (as fraction of equity)
+  cash_buffer_pct: 0.02 # Keep 2% cash buffer
+
+  # Default strategy budgets (can be overridden per backtest)
+  # These define how capital is allocated across strategies
+  budgets:
+    - strategy_id: "default"
+      capital_weight: 1.0 # 100% of capital available
+
+  # Default position sizing per strategy
+  sizing:
+    default:
+      model: "fixed_fraction"
+      fraction: 0.20 # 20% of allocated capital per position
+
+  # Concentration limits
+  concentration:
+    max_position_pct: 0.10 # Max 10% of equity in single position
+    max_sector_pct: 0.30 # Max 30% in single sector (future)
+
+  # Leverage limits
+  leverage:
+    max_gross: 1.0 # Maximum gross leverage (1.0 = fully invested)
+    max_net: 1.0 # Maximum net leverage
+
+  # Risk checks to perform
+  checks:
+    position_size: true
+    leverage: true
+    concentration: true
+    cash_buffer: true
+
+# ============================================================
+# Strategy Service Configuration
+# ============================================================
+strategy:
+  # Strategy loading and validation
+  validate_on_load: true
+
+  # Allow multiple strategies to run concurrently
+  allow_concurrent: true
+
+  # Strategy warmup behavior
+  warmup:
+    skip_signals: true # Don't generate signals during warmup
+
+# ============================================================
+# Output & Results Configuration
+# ============================================================
+output:
+  # Default results directory
+  default_results_dir: "output/backtests"
+
+  # Create timestamped subdirectories
+  use_timestamps: true
+  timestamp_format: "%Y%m%d_%H%M%S"
+
+  # Organize by date (creates YYYY-MM-DD subdirs)
+  organize_by_date: false
+
+  # Files to generate
+  generate_files:
+    metadata: true # metadata.json
+    trades: true # trades.csv
+    fills: true # fills.csv
+    portfolio: true # portfolio.csv
+    positions: true # positions.csv
+    equity_curve: true # equity_curve.csv
+    metrics: true # metrics.json
+
+  # File formats
+  formats:
+    json: true
+    csv: true
+    parquet: false # Future: efficient binary format
+
+# ============================================================
+# Logging Configuration
+# ============================================================
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Log to file in addition to console
+  log_to_file: false
+  log_dir: "logs"
+  log_file_pattern: "qtrader_{timestamp}.log"
+
+  # Structured logging (structlog)
+  structlog:
+    format: "console" # console, json, logfmt
+    include_timestamps: true
+    colorize: true
+
+  # Service-specific log levels (optional overrides)
+  services:
+    data: "INFO"
+    portfolio: "INFO"
+    execution: "INFO"
+    risk: "INFO"
+    strategy: "INFO"
+
+# ============================================================
+# Reporting Configuration
+# ============================================================
+reporting:
+  # Metrics to calculate
+  metrics:
+    - "total_return"
+    - "sharpe_ratio"
+    - "max_drawdown"
+    - "win_rate"
+    - "profit_factor"
+    - "avg_trade_duration"
+    - "calmar_ratio"
+    - "sortino_ratio"
+    - "num_trades"
+    - "avg_win"
+    - "avg_loss"
+
+  # Report formatting
+  decimal_places: 4
+  include_trade_details: true
+
+  # Report generation
+  formats:
+    json: true
+    csv: true
+    html: false # Future
+    pdf: false # Future
+
+# ============================================================
+# Development & Debug
+# ============================================================
+development:
+  # Debug mode (more verbose logging, checks)
+  debug_mode: false
+
+  # Performance profiling
+  profile: false
+
+  # Strict validation (raise on warnings)
+  strict_validation: true
+
+  # Save debug snapshots every N bars
+  save_debug_snapshots: false
+  debug_snapshot_interval: 100
+
+# ============================================================
+# User Preferences
+# ============================================================
+preferences:
+  # Display formats
+  date_format: "%Y-%m-%d"
+  currency_symbol: "$"
+  thousands_separator: ","
+  decimal_separator: "."

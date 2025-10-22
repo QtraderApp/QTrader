@@ -393,14 +393,16 @@ class FillEvent(Event):
         symbol: Ticker symbol
         side: Buy or sell
         quantity: Shares filled
-        price: Fill price per share
-        commission: Commission paid
+        price: Fill price per share (including slippage)
+        commission: Commission paid (calculated by ExecutionService from system config)
+        slippage_bps: Slippage applied in basis points (for audit trail)
         timestamp: When fill occurred
         metadata: Additional fill details
 
     Note:
-        Full Fill model will be defined in Phase 3 (ExecutionService).
-        For now, we use a simplified structure.
+        Commission and slippage are calculated by ExecutionService based on
+        system configuration. Portfolio records these values but does not
+        recalculate them.
     """
 
     event_type: str = "fill"
@@ -411,6 +413,7 @@ class FillEvent(Event):
     quantity: Decimal = Decimal("0")
     price: Decimal = Decimal("0")
     commission: Decimal = Decimal("0")
+    slippage_bps: int = 0  # Basis points of slippage applied
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

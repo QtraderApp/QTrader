@@ -494,8 +494,14 @@ class Fill:
         symbol: Ticker symbol
         side: Buy or sell (as string for Portfolio compatibility)
         quantity: Shares filled (positive)
-        price: Execution price per share
-        commission: Total commission charged
+        price: Execution price per share (includes slippage)
+        commission: Total commission charged (calculated by ExecutionService)
+        slippage_bps: Slippage applied in basis points (for audit trail)
+
+    Note:
+        Commission and slippage are calculated by ExecutionService based on
+        system configuration. Portfolio records these values but does not
+        recalculate them.
 
     Example:
         >>> fill = Fill(
@@ -505,7 +511,8 @@ class Fill:
         ...     side="buy",
         ...     quantity=Decimal("100"),
         ...     price=Decimal("150.00"),
-        ...     commission=Decimal("1.00")
+        ...     commission=Decimal("1.00"),
+        ...     slippage_bps=5
         ... )
     """
 
@@ -516,6 +523,7 @@ class Fill:
     quantity: Decimal
     price: Decimal
     commission: Decimal = Decimal("0")
+    slippage_bps: int = 0  # Basis points of slippage applied
     fill_id: str = field(default_factory=lambda: str(uuid4()))
 
     def __post_init__(self) -> None:
@@ -554,6 +562,7 @@ class FillDecision:
         should_fill: Whether order should fill
         fill_price: Price to fill at (if should_fill=True)
         fill_quantity: Quantity to fill (supports partial fills)
+        slippage_bps: Slippage applied in basis points (for audit trail)
         reason: Human-readable explanation
         queue_for_next_bar: If True, re-evaluate on next bar
         should_expire: If True, order should be expired
@@ -565,6 +574,7 @@ class FillDecision:
         ...     should_fill=True,
         ...     fill_price=Decimal("150.00"),
         ...     fill_quantity=Decimal("100"),
+        ...     slippage_bps=5,
         ...     reason="Market order at next bar open"
         ... )
 
@@ -587,6 +597,7 @@ class FillDecision:
     reason: str
     fill_price: Decimal = field(default_factory=lambda: Decimal("0"))
     fill_quantity: Decimal = field(default_factory=lambda: Decimal("0"))
+    slippage_bps: int = 0  # Basis points of slippage applied
     queue_for_next_bar: bool = False
     should_expire: bool = False
     should_cancel: bool = False

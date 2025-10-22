@@ -41,30 +41,23 @@ class TestDataConfig:
 
 
 class TestPortfolioConfig:
-    """Tests for PortfolioConfig."""
+    """Tests for PortfolioConfig.
+
+    Note: Commission and slippage have been moved to ExecutionConfig.
+    Portfolio only tracks positions and records fees from FillEvents.
+    """
 
     def test_valid_config(self):
-        """Test valid portfolio config."""
+        """Test valid configuration."""
         config = PortfolioConfig(
             initial_capital=Decimal("1000000"),
-            commission_model="fixed",
-            commission_rate=0.001,
-            slippage_model="fixed",
-            slippage_bps=5.0,
         )
         assert config.initial_capital == Decimal("1000000")
-        assert config.commission_rate == 0.001
 
     def test_defaults(self):
         """Test default values."""
         config = PortfolioConfig(initial_capital=Decimal("1000000"))
-        assert config.commission_model == "fixed"
-        assert config.slippage_model == "fixed"
-
-    def test_invalid_commission_model(self):
-        """Test invalid commission model."""
-        with pytest.raises(ValueError, match="commission_model must be one of"):
-            PortfolioConfig(initial_capital=Decimal("1000000"), commission_model="invalid")
+        assert config.initial_capital == Decimal("1000000")
 
 
 class TestRiskBudgetConfig:

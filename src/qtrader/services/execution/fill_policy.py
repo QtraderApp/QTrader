@@ -137,10 +137,16 @@ class FillPolicy:
         base_price = Decimal(str(bar.open))
         fill_price = self._apply_slippage(order, bar, fill_quantity, base_price)
 
+        # Get slippage BPS from config (for market orders, use market_order_bps if available)
+        slippage_bps = 0
+        if hasattr(self.config.slippage, "params") and "bps" in self.config.slippage.params:
+            slippage_bps = int(self.config.slippage.params["bps"])
+
         return FillDecision(
             should_fill=True,
             fill_price=fill_price,
             fill_quantity=fill_quantity,
+            slippage_bps=slippage_bps,
             reason="Market order filled at next bar open",
             queue_for_next_bar=(fill_quantity < order.remaining_quantity),
         )
@@ -194,10 +200,14 @@ class FillPolicy:
                 queue_for_next_bar=True,
             )
 
+        # Limit orders typically have 0 slippage as they only fill at limit price or better
+        slippage_bps = 0
+
         return FillDecision(
             should_fill=True,
             fill_price=fill_price,
             fill_quantity=fill_quantity,
+            slippage_bps=slippage_bps,
             reason=f"{order.side.value.capitalize()} limit touched and filled",
             queue_for_next_bar=(fill_quantity < order.remaining_quantity),
         )
@@ -254,10 +264,16 @@ class FillPolicy:
         # Apply slippage to base price
         fill_price = self._apply_slippage(order, bar, fill_quantity, base_price)
 
+        # Get slippage BPS from config (for stop orders)
+        slippage_bps = 0
+        if hasattr(self.config.slippage, "params") and "bps" in self.config.slippage.params:
+            slippage_bps = int(self.config.slippage.params["bps"])
+
         return FillDecision(
             should_fill=True,
             fill_price=fill_price,
             fill_quantity=fill_quantity,
+            slippage_bps=slippage_bps,
             reason=f"{order.side.value.capitalize()} stop triggered and filled",
             queue_for_next_bar=(fill_quantity < order.remaining_quantity),
         )
@@ -287,10 +303,16 @@ class FillPolicy:
         base_price = Decimal(str(bar.close))
         fill_price = self._apply_slippage(order, bar, fill_quantity, base_price)
 
+        # Get slippage BPS from config (for MOC orders)
+        slippage_bps = 0
+        if hasattr(self.config.slippage, "params") and "bps" in self.config.slippage.params:
+            slippage_bps = int(self.config.slippage.params["bps"])
+
         return FillDecision(
             should_fill=True,
             fill_price=fill_price,
             fill_quantity=fill_quantity,
+            slippage_bps=slippage_bps,
             reason="MOC order filled at close",
             queue_for_next_bar=(fill_quantity < order.remaining_quantity),
         )

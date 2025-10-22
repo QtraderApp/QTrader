@@ -219,6 +219,7 @@ class ExecutionService:
                         quantity=decision.fill_quantity,
                         price=decision.fill_price,
                         commission=commission,
+                        slippage_bps=decision.slippage_bps,
                     )
                     fills.append(fill)
 
@@ -398,6 +399,7 @@ class ExecutionService:
                     quantity=fill.quantity,
                     price=fill.price,
                     commission=fill.commission,
+                    slippage_bps=fill.slippage_bps,
                 )
                 self._event_bus.publish(fill_event)
 

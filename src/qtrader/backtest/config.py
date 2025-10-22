@@ -38,28 +38,6 @@ class PortfolioConfig(BaseModel):
     """Portfolio service configuration."""
 
     initial_capital: Decimal = Field(..., description="Starting capital")
-    commission_model: str = Field(default="fixed", description="Commission model type")
-    commission_rate: float = Field(default=0.001, description="Commission rate")
-    slippage_model: str = Field(default="fixed", description="Slippage model type")
-    slippage_bps: float = Field(default=5.0, description="Slippage in basis points")
-
-    @field_validator("commission_model")
-    @classmethod
-    def validate_commission_model(cls, v: str) -> str:
-        """Validate commission model."""
-        allowed = ["fixed", "tiered", "zero"]
-        if v not in allowed:
-            raise ValueError(f"commission_model must be one of {allowed}, got {v}")
-        return v
-
-    @field_validator("slippage_model")
-    @classmethod
-    def validate_slippage_model(cls, v: str) -> str:
-        """Validate slippage model."""
-        allowed = ["fixed", "volume", "none"]
-        if v not in allowed:
-            raise ValueError(f"slippage_model must be one of {allowed}, got {v}")
-        return v
 
 
 class RiskBudgetConfig(BaseModel):
