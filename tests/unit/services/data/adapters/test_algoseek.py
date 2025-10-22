@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+from qtrader.contracts.data import Instrument
 from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.services.data.adapters.models.algoseek import AlgoseekBar
 
@@ -35,7 +35,7 @@ class TestAlgoseekOHLCVendorAdapterInitialization:
             "symbol_map": str(symbol_map_path),
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
 
         adapter = AlgoseekOHLCVendorAdapter(config, instrument)
 
@@ -47,7 +47,7 @@ class TestAlgoseekOHLCVendorAdapterInitialization:
         """Test creating adapter with missing configuration keys."""
         config = {"root_path": str(tmp_path)}  # Missing path_template and symbol_map
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
 
         with pytest.raises(ValueError, match="Missing required config keys"):
             AlgoseekOHLCVendorAdapter(config, instrument)
@@ -60,7 +60,7 @@ class TestAlgoseekOHLCVendorAdapterInitialization:
             "symbol_map": str(tmp_path / "nonexistent.csv"),
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
 
         with pytest.raises(FileNotFoundError, match="Symbol map not found"):
             AlgoseekOHLCVendorAdapter(config, instrument)
@@ -80,7 +80,7 @@ class TestAlgoseekOHLCVendorAdapterInitialization:
             "symbol_map": str(symbol_map_path),
         }
 
-        instrument = Instrument("MSFT", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="MSFT")
 
         with pytest.raises(ValueError, match="Symbol not found in symbol map"):
             AlgoseekOHLCVendorAdapter(config, instrument)
@@ -138,7 +138,7 @@ class TestAlgoseekOHLCVendorAdapterReadBars:
             "symbol_map": str(symbol_map_path),
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
         adapter = AlgoseekOHLCVendorAdapter(config, instrument)
 
         return adapter
@@ -215,7 +215,7 @@ class TestAlgoseekOHLCVendorAdapterReadBars:
             "symbol_map": str(symbol_map_path),
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
         adapter = AlgoseekOHLCVendorAdapter(config, instrument)
 
         with pytest.raises(FileNotFoundError, match="Data source not found"):
@@ -237,7 +237,7 @@ class TestAlgoseekOHLCVendorAdapterReadBars:
             "symbol_map": str(symbol_map_path),
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
         adapter = AlgoseekOHLCVendorAdapter(config, instrument)
 
         with pytest.raises(FileNotFoundError, match="No parquet files found"):
@@ -285,7 +285,7 @@ class TestAlgoseekOHLCVendorAdapterDateRange:
             "symbol_map": str(symbol_map_path),
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
         adapter = AlgoseekOHLCVendorAdapter(config, instrument)
 
         min_date, max_date = adapter.get_available_date_range()
@@ -306,7 +306,7 @@ class TestAlgoseekOHLCVendorAdapterDateRange:
             "symbol_map": str(symbol_map_path),
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
         adapter = AlgoseekOHLCVendorAdapter(config, instrument)
 
         min_date, max_date = adapter.get_available_date_range()
@@ -357,7 +357,7 @@ class TestAlgoseekOHLCVendorAdapterIntegration:
             "symbol_map": str(symbol_map_path),
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
+        instrument = Instrument(symbol="AAPL")
         adapter = AlgoseekOHLCVendorAdapter(config, instrument)
 
         # Read all bars

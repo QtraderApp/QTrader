@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.models.bar import Bar, PriceSeries
+from qtrader.contracts.data import Bar, PriceSeries
 
 
 class TestBar:

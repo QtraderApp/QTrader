@@ -13,7 +13,7 @@ from typing import Any, Dict
 import structlog
 import yaml
 
-from qtrader.models.instrument import Instrument
+from qtrader.contracts.data import Instrument
 from qtrader.services.data.source_selector import DataSourceSelector
 
 logger = structlog.get_logger()

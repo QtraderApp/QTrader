@@ -8,7 +8,7 @@ as the main entry point for loading price data in the QTrader system.
 
 from typing import TYPE_CHECKING, Any, Dict, List, Union, cast
 
-from qtrader.models.instrument import DataSource, Instrument
+from qtrader.contracts.data import DataSource, Instrument
 from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.services.data.adapters.models.algoseek import AlgoseekBar, AlgoseekPriceSeries
 from qtrader.services.data.adapters.models.schwab import SchwabBar, SchwabPriceSeries

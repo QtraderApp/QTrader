@@ -12,9 +12,9 @@ import pytest
 
 from qtrader.backtest.config import BacktestConfig
 from qtrader.backtest.engine import BacktestEngine, BacktestResult
+from qtrader.contracts.data import Bar
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import PriceBarEvent, RiskEvaluationTriggerEvent, ValuationTriggerEvent
-from qtrader.models.bar import Bar
 
 
 @pytest.fixture

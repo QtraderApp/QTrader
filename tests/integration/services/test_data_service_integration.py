@@ -9,8 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.models.instrument import Instrument
-from qtrader.models.multi_bar import MultiBar
+from qtrader.contracts.data import Instrument, MultiBar
 from qtrader.services import DataService
 from qtrader.services.data.config import BarSchemaConfig, DataConfig
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator

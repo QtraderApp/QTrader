@@ -4,8 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from qtrader.models.bar import Bar, PriceSeries
-from qtrader.models.multi_bar import MultiBar
+from qtrader.contracts.data import Bar, MultiBar, PriceSeries
 from qtrader.services.data.loaders.bar_merger import BarMerger
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 

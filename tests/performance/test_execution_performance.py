@@ -16,7 +16,7 @@ from datetime import datetime
 from decimal import Decimal
 from statistics import mean, stdev
 
-from qtrader.models.bar import Bar
+from qtrader.contracts.data import Bar
 from qtrader.services.execution.config import ExecutionConfig
 from qtrader.services.execution.models import Order, OrderSide, OrderType
 from qtrader.services.execution.service import ExecutionService

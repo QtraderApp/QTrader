@@ -8,7 +8,7 @@ chronological order across all symbols.
 from typing import Dict, Optional
 
 from qtrader.config import LoggerFactory
-from qtrader.models.multi_bar import MultiBar
+from qtrader.contracts.data import MultiBar
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 
 logger = LoggerFactory.get_logger()

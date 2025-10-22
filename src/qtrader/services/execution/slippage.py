@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 from enum import Enum
 
-from qtrader.models.bar import Bar
+from qtrader.contracts.data import Bar
 from qtrader.services.execution.models import Order, OrderSide
 
 

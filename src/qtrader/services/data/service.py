@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
+from qtrader.contracts.data import Instrument
 from qtrader.events.event_bus import IEventBus
 from qtrader.events.events import PriceBarEvent
-from qtrader.models.instrument import Instrument
 from qtrader.services.data.adapters.resolver import DataSourceResolver
 from qtrader.services.data.config import DataConfig
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator

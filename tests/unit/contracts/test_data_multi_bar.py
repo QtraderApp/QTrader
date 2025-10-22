@@ -5,8 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.models.bar import Bar
-from qtrader.models.multi_bar import MultiBar
+from qtrader.contracts.data import Bar, MultiBar
 
 
 class TestMultiBarCreation:

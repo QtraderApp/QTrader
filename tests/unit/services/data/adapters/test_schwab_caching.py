@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from qtrader.models.instrument import Instrument
+from qtrader.contracts.data import Instrument
 from qtrader.services.data.adapters.models.schwab import SchwabBar
 from qtrader.services.data.adapters.schwab import MetadataManager, SchwabOHLCAdapter
 
@@ -181,7 +181,7 @@ class TestSchwabAdapterCaching:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         assert adapter.cache_root == tmp_path
@@ -196,7 +196,7 @@ class TestSchwabAdapterCaching:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         assert adapter.cache_root is None
@@ -211,7 +211,7 @@ class TestSchwabAdapterCaching:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars = adapter._read_from_cache("2020-01-01", "2020-12-31")
@@ -227,7 +227,7 @@ class TestSchwabAdapterCaching:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Create sample bars
@@ -276,7 +276,7 @@ class TestSchwabAdapterCaching:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Write bars to cache
@@ -352,7 +352,7 @@ class TestSchwabAdapterCaching:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Read bars (should use API)
@@ -378,7 +378,7 @@ class TestSchwabAdapterCaching:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Pre-populate cache
@@ -430,7 +430,7 @@ class TestSchwabAdapterCaching:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Write empty list
@@ -504,7 +504,7 @@ class TestGapDetection:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         metadata = {"date_range": {"start": "2020-06-01", "end": "2020-12-31"}}
@@ -524,7 +524,7 @@ class TestGapDetection:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         metadata = {"date_range": {"start": "2020-01-01", "end": "2020-06-30"}}
@@ -544,7 +544,7 @@ class TestGapDetection:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         metadata = {"date_range": {"start": "2020-06-01", "end": "2020-06-30"}}
@@ -565,7 +565,7 @@ class TestGapDetection:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         metadata = {"date_range": {"start": "2020-01-01", "end": "2020-12-31"}}
@@ -588,7 +588,7 @@ class TestMergeBars:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Create bars with same timestamp
@@ -636,7 +636,7 @@ class TestMergeBars:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Create bars in random order
@@ -684,7 +684,7 @@ class TestMergeBars:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bar1 = SchwabBar(
@@ -720,7 +720,7 @@ class TestIncrementalUpdate:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars_added, start_date, end_date = adapter.update_to_latest()
@@ -738,7 +738,7 @@ class TestIncrementalUpdate:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars_added, start_date, end_date = adapter.update_to_latest()
@@ -756,7 +756,7 @@ class TestIncrementalUpdate:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Write metadata with today's date as end
@@ -781,7 +781,7 @@ class TestIncrementalUpdate:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Write metadata with old end date
@@ -832,7 +832,7 @@ class TestIncrementalUpdate:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Write some initial cached data
@@ -866,7 +866,7 @@ class TestIncrementalUpdate:
             "enable_incremental_update": False,
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars_added, start_date, end_date = adapter.update_to_latest()
@@ -912,7 +912,7 @@ class TestSmartCachingStrategy:
             "cache_strategy": "disabled",
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars = list(adapter.read_bars("2020-01-01", "2020-12-31"))
@@ -954,7 +954,7 @@ class TestSmartCachingStrategy:
             "force_refresh": True,
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Pre-populate cache
@@ -1012,7 +1012,7 @@ class TestSmartCachingStrategy:
             "cache_strategy": "simple",
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # First read - cache miss, should fetch from API and cache full range
@@ -1067,7 +1067,7 @@ class TestSmartCachingStrategy:
             "cache_strategy": "smart",
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Pre-populate cache with 2020 data
@@ -1125,7 +1125,7 @@ class TestSmartCachingStrategy:
             "cache_strategy": "unknown_strategy",
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Pre-populate cache with data for 2020-01-02 only
@@ -1163,7 +1163,7 @@ class TestReadAllFromCache:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars = adapter._read_all_from_cache()
@@ -1179,7 +1179,7 @@ class TestReadAllFromCache:
             "cache_root": str(tmp_path),
         }
 
-        instrument = Instrument("AAPL")
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         # Write data to cache

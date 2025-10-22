@@ -10,9 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from qtrader.models.bar import Bar, PriceSeries
-from qtrader.models.instrument import Instrument
-from qtrader.models.multi_bar import MultiBar
+from qtrader.contracts.data import Bar, Instrument, MultiBar, PriceSeries
 from qtrader.services import DataService
 from qtrader.services.data.config import BarSchemaConfig, DataConfig
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator

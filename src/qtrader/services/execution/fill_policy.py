@@ -5,7 +5,7 @@ Implements conservative fill logic based on bar data and order types.
 
 from decimal import Decimal
 
-from qtrader.models.bar import Bar
+from qtrader.contracts.data import Bar
 from qtrader.services.execution.config import ExecutionConfig
 from qtrader.services.execution.models import FillDecision, Order, OrderType, TimeInForce
 from qtrader.services.execution.slippage import ISlippageCalculator, SlippageCalculatorFactory, SlippageModel

@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+from qtrader.contracts.data import Instrument
 from qtrader.services.data.adapters.models.schwab import SchwabBar
 from qtrader.services.data.adapters.schwab import RateLimiter, SchwabOHLCAdapter
 
@@ -95,7 +95,7 @@ class TestSchwabOHLCAdapterInitialization:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
 
         adapter = SchwabOHLCAdapter(config, instrument)
 
@@ -109,7 +109,7 @@ class TestSchwabOHLCAdapterInitialization:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
 
         with pytest.raises(ValueError, match="Missing required config keys"):
             SchwabOHLCAdapter(config, instrument)
@@ -120,7 +120,7 @@ class TestSchwabOHLCAdapterInitialization:
             "client_id": "test_client_id",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
 
         with pytest.raises(ValueError, match="Missing required config keys"):
             SchwabOHLCAdapter(config, instrument)
@@ -136,7 +136,7 @@ class TestSchwabOHLCAdapterInitialization:
             "requests_per_second": 5.0,
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
 
         adapter = SchwabOHLCAdapter(config, instrument)
 
@@ -160,7 +160,7 @@ class TestSchwabOHLCAdapterAPICall:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         headers = adapter._get_auth_headers()
@@ -188,7 +188,7 @@ class TestSchwabOHLCAdapterAPICall:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         result = adapter._call_api("/test", {"symbol": "AAPL"})
@@ -225,7 +225,7 @@ class TestSchwabOHLCAdapterAPICall:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         result = adapter._call_api("/test", {"symbol": "AAPL"}, max_retries=3)
@@ -253,7 +253,7 @@ class TestSchwabOHLCAdapterAPICall:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         with pytest.raises(requests.HTTPError):
@@ -307,7 +307,7 @@ class TestSchwabOHLCAdapterReadBars:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars = list(adapter.read_bars("2021-01-01", "2021-01-02"))
@@ -341,7 +341,7 @@ class TestSchwabOHLCAdapterReadBars:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars = list(adapter.read_bars("2021-01-01", "2021-01-02"))
@@ -393,7 +393,7 @@ class TestSchwabOHLCAdapterReadBars:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars = list(adapter.read_bars("2021-01-01", "2021-01-03"))
@@ -435,7 +435,7 @@ class TestSchwabOHLCAdapterReadBars:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         bars = list(adapter.read_bars("2021-01-01", "2021-01-01", frequency_type="minute", frequency=5))
@@ -487,7 +487,7 @@ class TestSchwabOHLCAdapterDateRange:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         min_date, max_date = adapter.get_available_date_range()
@@ -515,7 +515,7 @@ class TestSchwabOHLCAdapterDateRange:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         min_date, max_date = adapter.get_available_date_range()
@@ -540,7 +540,7 @@ class TestSchwabOHLCAdapterDateRange:
             "client_secret": "test_client_secret",
         }
 
-        instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.SCHWAB)
+        instrument = Instrument(symbol="AAPL")
         adapter = SchwabOHLCAdapter(config, instrument)
 
         min_date, max_date = adapter.get_available_date_range()

@@ -8,8 +8,7 @@ The iterator supports peek-ahead functionality for strategy warmup.
 
 from typing import Dict, Iterator, Optional
 
-from qtrader.models.bar import PriceSeries
-from qtrader.models.multi_bar import MultiBar
+from qtrader.contracts.data import MultiBar, PriceSeries
 
 
 class PriceSeriesIterator:

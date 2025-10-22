@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import uuid4
 
-from qtrader.models.bar import Bar
+from qtrader.contracts.data import Bar
 
 
 @dataclass(frozen=True)

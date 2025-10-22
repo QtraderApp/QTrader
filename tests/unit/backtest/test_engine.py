@@ -142,8 +142,8 @@ class TestWarmupPhase:
         """Should support is_warmup field in PriceBarEvent."""
         from datetime import datetime
 
+        from qtrader.contracts.data import Bar
         from qtrader.events.events import PriceBarEvent
-        from qtrader.models.bar import Bar
 
         bar = Bar(
             trade_datetime=datetime(2024, 1, 2, 16, 0),

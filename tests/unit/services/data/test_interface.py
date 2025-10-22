@@ -9,8 +9,7 @@ from datetime import date
 from typing import Dict, List
 from unittest.mock import MagicMock
 
-from qtrader.models.bar import PriceSeries
-from qtrader.models.instrument import Instrument
+from qtrader.contracts.data import Instrument, PriceSeries
 from qtrader.services.data.interface import IDataAdapter, IDataService
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 

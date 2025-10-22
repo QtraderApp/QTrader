@@ -21,7 +21,7 @@ import duckdb
 import pandas as pd
 
 from qtrader.config import LoggerFactory
-from qtrader.models.instrument import Instrument
+from qtrader.contracts.data import Instrument
 from qtrader.services.data.adapters.models.algoseek import AlgoseekBar
 
 logger = LoggerFactory.get_logger()

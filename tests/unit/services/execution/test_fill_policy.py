@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.models.bar import Bar
+from qtrader.contracts.data import Bar
 from qtrader.services.execution.config import ExecutionConfig, SlippageConfig
 from qtrader.services.execution.fill_policy import FillPolicy
 from qtrader.services.execution.models import Order, OrderSide, OrderType

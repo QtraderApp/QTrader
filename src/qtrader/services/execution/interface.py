@@ -6,7 +6,7 @@ Enables dependency injection and makes the service independently testable.
 
 from typing import Protocol
 
-from qtrader.models.bar import Bar
+from qtrader.contracts.data import Bar
 from qtrader.services.execution.models import Fill, Order
 
 
