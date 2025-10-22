@@ -1,0 +1,23 @@
+# Data Service Example Configuration
+#
+# This is a minimal configuration to demonstrate DataService usage.
+# It only contains the data service configuration.
+#
+# For production backtests, use config/system.yaml which has ALL services.
+
+data:
+  # Data source configuration file
+  sources_config: "config/data_sources.yaml"
+
+  # Adjustment mode
+  # Options: unadjusted, adjusted, total_return
+  default_mode: "unadjusted"
+
+  # Market timezone
+  default_timezone: "America/New_York"
+
+  # Price decimal precision
+  price_decimals: 4
+
+  # Validate data integrity on load
+  validate_on_load: true
