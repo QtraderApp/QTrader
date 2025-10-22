@@ -1,277 +1,188 @@
-# QTrader Configuration
+# QTrader Configuration Architecture
 
-This directory contains system-level configuration files for QTrader. These are infrastructure settings that apply to the entire framework, **NOT** strategy-specific parameters.
+This directory contains **system-level configuration** for the QTrader framework. These settings define **HOW the trading system operates**, not **WHAT to backtest**.
+
+______________________________________________________________________
+
+## Configuration Philosophy
+
+QTrader has a clean separation between **framework configuration** and **backtest run configuration**:
+
+### 1. System Configuration (This directory)
+
+**What it is**: Framework-level settings that define how QTrader operates
+
+**File**: `config/system.yaml`
+
+**Stability**: Stable across backtests (the "trading system")
+
+**Contains**:
+
+- **ALL service configurations**: Execution, Risk, Portfolio, Data
+- Commission models and slippage simulation
+- Risk limits and position sizing defaults
+- Portfolio accounting methods (lot tracking: FIFO/LIFO)
+- Data infrastructure (sources, caching, timezone)
+- Output and logging configuration
+- Development/debug settings
+
+**Philosophy**: *"In real life, the system is one"*
+
+You don't change your broker's commission structure between backtests. The system config represents the infrastructure that all backtests run on.
+
+### 2. Backtest Run Configuration (External YAML)
+
+**What it is**: Per-run parameters for individual backtests
+
+**File**: External YAML file (e.g., `my_backtest.yaml`)
+
+**Location**: Outside the codebase (passed to backtest engine)
+
+**Contains ONLY**:
+
+- Start/end dates
+- Universe (symbols to trade)
+- Initial capital
+- Warmup bars
+- Dataset selection
+- Strategy configurations (which strategies, their parameters)
+
+**Philosophy**: *"The experiment"*
+
+Each backtest varies these parameters while running on the same system infrastructure.
+
+### 3. Data Sources Configuration
+
+**What it is**: Data adapter infrastructure mapping
+
+**File**: `config/data_sources.yaml`
+
+**Purpose**: Maps logical data sources to physical adapters
+
+**Why separate**: Security (API keys), reusability (shared across projects)
+
+______________________________________________________________________
 
 ## Configuration Files
 
-### `qtrader.yaml` - Main System Configuration ⚙️
+### `system.yaml` - System Configuration
 
-The primary configuration file for QTrader system settings.
+The **authoritative** configuration for how QTrader operates.
 
-**Key Sections:**
+**When to edit**:
 
-- **output**: Control where and how backtest results are saved
-- **logging**: Configure logging levels and formats
-- **execution**: Default commission and slippage models
-- **data**: Data loading and caching settings (references `data_sources.yaml`)
-- **risk**: Default risk management policies
-- **backtest**: Default backtest parameters
-- **reporting**: Metrics and report generation settings
+- ✅ You changed brokers (different commission structure)
+- ✅ You want more aggressive slippage assumptions
+- ✅ You need debug-level logging
+- ❌ You want to test a different date range (use backtest config)
+- ❌ You want to try different strategies (use backtest config)
 
-**Example Customization:**
+**Access in code**:
 
-```yaml
-# Change default results directory
-output:
-  default_results_dir: "my_results"
-  organize_by_date: true  # Creates my_results/2025-10-06/strategy_timestamp/
+```python
+from qtrader.system import get_system_config
 
-# Increase logging verbosity
-logging:
-  level: "DEBUG"
-  log_to_file: true
-
-# Change commission model
-execution:
-  commission:
-    model: "fixed"
-    fixed_amount: 5.00
+config = get_system_config()
+print(f"Commission: ${config.execution.commission.per_share} per share")
+print(f"Max position: {config.risk.concentration.max_position_pct * 100}%")
 ```
 
-### `data_sources.yaml` - Data Adapter Configuration 📊
+**For logging**:
 
-Maps logical data sources to physical data adapters and their settings.
+```python
+from qtrader.system import LoggerFactory, LoggingConfig
 
-**Why separate from `qtrader.yaml`?**
+# Configure at startup
+LoggerFactory.configure(LoggingConfig(level="DEBUG"))
 
-1. **Security**: Often contains sensitive credentials (API keys, DB passwords)
-1. **Reusability**: Can be shared across multiple projects via `~/.qtrader/data_sources.yaml`
-1. **Modularity**: Different tools may need only data config or only system config
-1. **Size**: Can grow large with many data sources without cluttering main config
-
-**Example:**
-
-```yaml
-data_sources:
-  algoseek:
-    adapter: algoseek_parquet
-    root_path: "data/us-equity-daily-ohlc"
-    mode: standard_adjusted
-
-  csv_file:
-    adapter: csv_adapter
-    root_path: "data/csv"
-
-  # Sensitive credentials
-  database:
-    adapter: postgres_adapter
-    connection_string: "${DATABASE_URL}"  # From environment variable
+# Use throughout code
+logger = LoggerFactory.get_logger()
+logger.info("trading.order_placed", symbol="AAPL", quantity=100)
 ```
 
-**Security Best Practice:**
+**Services load from system.yaml**:
 
-```bash
-# Add to .gitignore if it contains secrets
-echo "config/data_sources.yaml" >> .gitignore
+```python
+# BacktestEngine.from_config() loads system config
+system_config = get_system_config()
 
-# Use user config for sensitive data
-cp config/data_sources.yaml ~/.qtrader/data_sources.yaml
-# Edit ~/.qtrader/data_sources.yaml with your credentials
+# Services use system config
+execution_service = ExecutionService.from_config(system_config.execution)
+risk_service = RiskService.from_config(system_config.risk)
+portfolio_service = PortfolioService.from_config(system_config.portfolio)
 ```
+
+### `data_sources.yaml` - Data Adapter Configuration
+
+Maps logical data sources (used in strategies) to physical data adapters.
+
+**Why separate from `system.yaml`?**
+
+1. **Security**: Contains API keys and credentials
+1. **Reusability**: Can be shared via `~/.qtrader/data_sources.yaml`
+1. **Modularity**: Data config changes independently of system config
+
+______________________________________________________________________
 
 ## Configuration Precedence
 
 Settings are loaded with the following priority (highest to lowest):
 
-1. **CLI flags** - Direct command-line arguments (e.g., `--out results/`)
-1. **Environment variables** - Use `${VAR_NAME}` syntax in YAML
-1. **Project config** - `./config/qtrader.yaml` (this directory)
-1. **User config** - `~/.qtrader/config.yaml` (your home directory)
-1. **Built-in defaults** - Hardcoded defaults in the codebase
+1. **CLI flags** - Direct command-line arguments
+1. **Environment variables** - `${VAR_NAME}` syntax in YAML
+1. **Project config** - `./config/system.yaml` (this directory)
+1. **User config** - `~/.qtrader/system.yaml` (your home directory)
+1. **Built-in defaults** - Hardcoded in `src/qtrader/system/config.py`
 
-## Usage
+______________________________________________________________________
 
-### In Python Code
+## Design Principles
 
-```python
-from qtrader.config.system_config import get_config
+### System Config = "The Trading System"
 
-# Load configuration
-config = get_config()
+- **One system**: All backtests run on the same infrastructure
+- **All services**: Execution, Risk, Portfolio, Data all configured here
+- **Fair comparison**: Same commission/slippage across tests
+- **Realistic simulation**: Matches your actual trading setup
+- **Stable**: Changes rarely (only when system changes)
 
-# Access settings
-print(f"Results directory: {config.output.default_results_dir}")
-print(f"Commission model: {config.execution.commission.model}")
+### Backtest Config = "The Experiment"
 
-# Use in your code
-output_dir = Path(config.output.default_results_dir)
-```
+- **Run parameters only**: Dates, universe, capital, strategies
+- **No service configs**: Services pull from system.yaml
+- **Flexible**: Different parameters per test
+- **Versioned**: Track config alongside research notebooks
+- **Composable**: Mix and match strategies, datasets
 
-### Via CLI
+### Data Sources Config = "Infrastructure Mapping"
 
-The CLI automatically loads configuration:
+- **Reusable**: Same config across projects
+- **Secure**: Keep credentials separate
+- **Flexible**: Swap data providers without changing code
 
-```bash
-# Uses configured default_results_dir
-python -m qtrader.cli backtest --strategy my_strategy.py
+______________________________________________________________________
 
-# Override with CLI flag (takes precedence)
-python -m qtrader.cli backtest --strategy my_strategy.py --out custom_dir/
-```
+## Important Notes
 
-## Environment Variable Substitution
+### What Goes Where?
 
-Use `${VAR_NAME}` to reference environment variables:
+| Setting                  | System Config (`system.yaml`) | Backtest Config (external YAML) |
+| ------------------------ | ----------------------------- | ------------------------------- |
+| Commission model         | ✅                            | ❌                              |
+| Slippage model           | ✅                            | ❌                              |
+| Risk limits              | ✅                            | ❌                              |
+| Position sizing defaults | ✅                            | ❌                              |
+| Lot tracking method      | ✅                            | ❌                              |
+| Output directory         | ✅                            | ❌                              |
+| Start/end dates          | ❌                            | ✅                              |
+| Universe (symbols)       | ❌                            | ✅                              |
+| Initial capital          | ❌                            | ✅                              |
+| Warmup bars              | ❌                            | ✅                              |
+| Dataset selection        | ❌                            | ✅                              |
+| Strategy selection       | ❌                            | ✅                              |
+| Strategy parameters      | ❌                            | ✅                              |
 
-```yaml
-data_sources:
-  database:
-    adapter: postgres_adapter
-    connection_string: "${DATABASE_URL}"
+**Rule of Thumb**:
 
-integration:
-  webhooks:
-    on_complete_url: "${WEBHOOK_URL}"
-```
-
-Then set in your shell:
-
-```bash
-export DATABASE_URL="postgresql://user:pass@localhost/qtrader"
-export WEBHOOK_URL="https://hooks.example.com/backtest-complete"
-```
-
-## User-Specific Configuration
-
-Create `~/.qtrader/config.yaml` for personal settings that apply across all projects:
-
-```bash
-mkdir -p ~/.qtrader
-cat > ~/.qtrader/config.yaml << EOF
-output:
-  default_results_dir: "/home/javier/trading_results"
-  organize_by_date: true
-
-logging:
-  level: "DEBUG"
-  log_to_file: true
-
-execution:
-  commission:
-    per_share: 0.001  # Higher commission for conservative estimates
-EOF
-```
-
-These settings will be used for all QTrader projects unless overridden by project-specific config.
-
-## Important: Strategy vs. System Configuration
-
-### ✅ System Configuration (config/qtrader.yaml)
-
-Framework-level settings that apply to all backtests:
-
-- Output directory structure
-- Logging configuration
-- Default commission models
-- Data source mappings
-- Risk management defaults
-- Report formatting
-
-### ✅ Strategy Configuration (in .py files)
-
-Strategy-specific parameters that define the trading logic:
-
-```python
-# In examples/sma_crossover_strategy.py
-config = {
-    "fast_period": 10,
-    "slow_period": 30,
-}
-
-backtest_config = {
-    "instruments": [...],
-    "initial_cash": 100000.0,
-    "position_size": 0.20,
-}
-```
-
-**Rule of Thumb:**
-
-- If it affects **how the framework runs**, it goes in `config/qtrader.yaml`
-- If it affects **what the strategy does**, it stays in the strategy `.py` file
-
-## Common Configurations
-
-### Save Results to a Custom Directory
-
-```yaml
-# config/qtrader.yaml
-output:
-  default_results_dir: "results"
-  organize_by_date: true
-```
-
-Results will be saved to: `results/2025-10-06/strategy_name_timestamp/`
-
-### Enable Debug Logging
-
-```yaml
-# config/qtrader.yaml
-logging:
-  level: "DEBUG"
-  log_to_file: true
-  log_dir: "logs"
-
-development:
-  debug_mode: true
-  save_debug_snapshots: true
-```
-
-### Custom Commission Model
-
-```yaml
-# config/qtrader.yaml
-execution:
-  commission:
-    model: "tiered"
-    tiers:
-      - max_shares: 1000
-        per_share: 0.001
-      - max_shares: 10000
-        per_share: 0.0005
-      - per_share: 0.0003
-    minimum: 1.00
-```
-
-### Aggressive Slippage for Conservative Testing
-
-```yaml
-# config/qtrader.yaml
-execution:
-  slippage:
-    market_order_bps: 10  # 10 basis points
-    stop_order_bps: 15    # 15 basis points
-    mode: "aggressive"
-```
-
-## Validation
-
-Check your configuration is valid:
-
-```python
-from qtrader.config.system_config import get_config
-
-try:
-    config = get_config()
-    print("✓ Configuration loaded successfully")
-    print(f"  Results dir: {config.output.default_results_dir}")
-    print(f"  Log level: {config.logging.level}")
-except Exception as e:
-    print(f"✗ Configuration error: {e}")
-```
-
-## See Also
-
-- [CLI Usage Guide](../docs/CLI_QUICKSTART.md)
-- [Architecture Documentation](../docs/architecture.md)
-- [Data Sources Documentation](../docs/dataset_specs/)
+- **System config** (`system.yaml`): ALL service configurations - how the framework operates
+- **Backtest config** (external): ONLY run parameters - what to test

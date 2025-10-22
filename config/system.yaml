@@ -59,7 +59,6 @@ portfolio:
   # Maximum ledger entries to track
   max_ledger_entries: 10000
 
-
 # ============================================================
 # Execution Service Configuration
 # ============================================================
