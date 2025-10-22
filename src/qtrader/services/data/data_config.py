@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from qtrader.config.data_source_selector import DataSourceSelector
+from qtrader.services.data.data_source_selector import DataSourceSelector
 
 
 class ValidationConfig(BaseModel):

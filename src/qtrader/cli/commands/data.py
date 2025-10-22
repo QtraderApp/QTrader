@@ -7,7 +7,6 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from qtrader.adapters.resolver import DataSourceResolver
 from qtrader.cli.ui import (
     create_bar_table,
     create_cache_info_table,
@@ -15,8 +14,10 @@ from qtrader.cli.ui import (
     create_update_summary_table,
 )
 from qtrader.cli.ui.formatters import add_bar_data, add_cache_info_row, add_update_result_row
-from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.services import DataService
+from qtrader.services.data.adapters.resolver import DataSourceResolver
+from qtrader.services.data.data_config import BarSchemaConfig, DataConfig
+from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
 from qtrader.services.data.update_service import UpdateService
 
 

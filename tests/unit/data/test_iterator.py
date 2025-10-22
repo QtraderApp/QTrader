@@ -4,9 +4,9 @@ from datetime import datetime
 
 import pytest
 
-from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.bar import Bar, PriceSeries
 from qtrader.models.multi_bar import MultiBar
+from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def sample_canonical_series_dict():
     # Create 3 bars for each mode
     unadj_bars = [
         Bar(
-            trade_datetime="2020-01-01T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-01T00:00:00"),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -23,7 +23,7 @@ def sample_canonical_series_dict():
             volume=1000000,
         ),
         Bar(
-            trade_datetime="2020-01-02T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-02T00:00:00"),
             open=104.0,
             high=108.0,
             low=103.0,
@@ -31,7 +31,7 @@ def sample_canonical_series_dict():
             volume=1100000,
         ),
         Bar(
-            trade_datetime="2020-01-03T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-03T00:00:00"),
             open=107.0,
             high=110.0,
             low=106.0,
@@ -42,7 +42,7 @@ def sample_canonical_series_dict():
 
     adj_bars = [
         Bar(
-            trade_datetime="2020-01-01T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-01T00:00:00"),
             open=25.0,
             high=26.25,
             low=24.75,
@@ -50,7 +50,7 @@ def sample_canonical_series_dict():
             volume=1000000,
         ),
         Bar(
-            trade_datetime="2020-01-02T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-02T00:00:00"),
             open=26.0,
             high=27.0,
             low=25.75,
@@ -58,7 +58,7 @@ def sample_canonical_series_dict():
             volume=1100000,
         ),
         Bar(
-            trade_datetime="2020-01-03T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-03T00:00:00"),
             open=26.75,
             high=27.5,
             low=26.5,
@@ -69,7 +69,7 @@ def sample_canonical_series_dict():
 
     tr_bars = [
         Bar(
-            trade_datetime="2020-01-01T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-01T00:00:00"),
             open=25.5,
             high=26.75,
             low=25.25,
@@ -77,7 +77,7 @@ def sample_canonical_series_dict():
             volume=1000000,
         ),
         Bar(
-            trade_datetime="2020-01-02T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-02T00:00:00"),
             open=26.5,
             high=27.5,
             low=26.25,
@@ -85,7 +85,7 @@ def sample_canonical_series_dict():
             volume=1100000,
         ),
         Bar(
-            trade_datetime="2020-01-03T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-03T00:00:00"),
             open=27.25,
             high=28.0,
             low=27.0,
@@ -130,7 +130,7 @@ class TestPriceSeriesIteratorCreation:
         """Test creating iterator with mismatched lengths raises error."""
         # Arrange: Different lengths
         bar1 = Bar(
-            trade_datetime="2020-01-01T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-01T00:00:00"),
             open=100.0,
             high=105.0,
             low=99.0,
@@ -138,7 +138,7 @@ class TestPriceSeriesIteratorCreation:
             volume=1000,
         )
         bar2 = Bar(
-            trade_datetime="2020-01-02T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-02T00:00:00"),
             open=104.0,
             high=108.0,
             low=103.0,
@@ -160,7 +160,7 @@ class TestPriceSeriesIteratorCreation:
         """Test creating iterator with mismatched symbols raises error."""
         # Arrange: Different symbols
         bar = Bar(
-            trade_datetime="2020-01-01T00:00:00",
+            trade_datetime=datetime.fromisoformat("2020-01-01T00:00:00"),
             open=100.0,
             high=105.0,
             low=99.0,

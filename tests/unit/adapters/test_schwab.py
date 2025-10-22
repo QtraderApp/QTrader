@@ -15,9 +15,9 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from qtrader.adapters.schwab import RateLimiter, SchwabOHLCAdapter
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
 from qtrader.models.vendors.schwab import SchwabBar
+from qtrader.services.data.adapters.schwab import RateLimiter, SchwabOHLCAdapter
 
 
 class TestRateLimiter:
@@ -87,7 +87,7 @@ class TestRateLimiter:
 class TestSchwabOHLCAdapterInitialization:
     """Test adapter initialization and configuration."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_create_adapter_with_valid_config(self, mock_oauth_manager):
         """Test creating adapter with valid configuration."""
         config = {
@@ -125,7 +125,7 @@ class TestSchwabOHLCAdapterInitialization:
         with pytest.raises(ValueError, match="Missing required config keys"):
             SchwabOHLCAdapter(config, instrument)
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_create_adapter_with_optional_config(self, mock_oauth_manager):
         """Test creating adapter with optional configuration."""
         config = {
@@ -147,7 +147,7 @@ class TestSchwabOHLCAdapterInitialization:
 class TestSchwabOHLCAdapterAPICall:
     """Test API call methods."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_get_auth_headers(self, mock_oauth_manager):
         """Test getting authorization headers."""
         # Mock OAuth manager
@@ -168,7 +168,7 @@ class TestSchwabOHLCAdapterAPICall:
         assert headers["Authorization"] == "Bearer test_token_12345"
         assert headers["Accept"] == "application/json"
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_call_api_success(self, mock_get, mock_oauth_manager):
         """Test successful API call."""
@@ -196,7 +196,7 @@ class TestSchwabOHLCAdapterAPICall:
         assert result == {"candles": [], "symbol": "AAPL"}
         assert mock_get.called
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_call_api_retries_on_server_error(self, mock_get, mock_oauth_manager):
         """Test API call retries on server error."""
@@ -233,7 +233,7 @@ class TestSchwabOHLCAdapterAPICall:
         assert result == {"candles": []}
         assert mock_get.call_count == 3
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_call_api_no_retry_on_client_error(self, mock_get, mock_oauth_manager):
         """Test API call doesn't retry on client error (4xx)."""
@@ -266,7 +266,7 @@ class TestSchwabOHLCAdapterAPICall:
 class TestSchwabOHLCAdapterReadBars:
     """Test reading bars from Schwab API."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_success(self, mock_get, mock_oauth_manager):
         """Test successfully reading bars from API."""
@@ -317,7 +317,7 @@ class TestSchwabOHLCAdapterReadBars:
         assert bars[0].close == 132.05
         assert bars[1].close == 133.50
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_empty_response(self, mock_get, mock_oauth_manager):
         """Test reading bars when API returns empty candles."""
@@ -348,7 +348,7 @@ class TestSchwabOHLCAdapterReadBars:
 
         assert len(bars) == 0
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_skips_invalid_candles(self, mock_get, mock_oauth_manager):
         """Test reading bars skips invalid candles but continues."""
@@ -403,7 +403,7 @@ class TestSchwabOHLCAdapterReadBars:
         assert bars[0].close == 132.05
         assert bars[1].close == 134.50
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_with_minute_frequency(self, mock_get, mock_oauth_manager):
         """Test reading bars with minute frequency."""
@@ -447,7 +447,7 @@ class TestSchwabOHLCAdapterReadBars:
 class TestSchwabOHLCAdapterDateRange:
     """Test getting available date range."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_get_available_date_range_success(self, mock_get, mock_oauth_manager):
         """Test getting available date range."""
@@ -495,7 +495,7 @@ class TestSchwabOHLCAdapterDateRange:
         assert min_date == "2020-01-01"
         assert max_date == "2021-01-01"
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_get_available_date_range_empty(self, mock_get, mock_oauth_manager):
         """Test getting date range when no data available."""
@@ -523,7 +523,7 @@ class TestSchwabOHLCAdapterDateRange:
         assert min_date is None
         assert max_date is None
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_get_available_date_range_api_error(self, mock_get, mock_oauth_manager):
         """Test getting date range when API fails."""

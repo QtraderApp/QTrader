@@ -17,7 +17,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from qtrader.auth.schwab_oauth import SchwabOAuthManager
+from qtrader.services.data.adapters.auth.schwab_oauth import SchwabOAuthManager
 
 
 class TestSchwabOAuthManagerInitialization:
@@ -403,8 +403,8 @@ class TestSchwabOAuthManagerGetAccessToken:
 
         assert token == "cached_token_789"
 
-    @patch("qtrader.auth.schwab_oauth.SchwabOAuthManager._get_code_manual")
-    @patch("qtrader.auth.schwab_oauth.SchwabOAuthManager._exchange_code_for_token")
+    @patch("qtrader.services.data.adapters.auth.schwab_oauth.SchwabOAuthManager._get_code_manual")
+    @patch("qtrader.services.data.adapters.auth.schwab_oauth.SchwabOAuthManager._exchange_code_for_token")
     def test_get_access_token_manual_mode_new_auth(self, mock_exchange, mock_get_code, tmp_path):
         """Test getting access token in manual mode (no cache)."""
         # Mock manual code entry

@@ -6,7 +6,7 @@ different price series types (unadjusted, capital-adjusted, total-return).
 
 from decimal import Decimal
 
-from qtrader.adapters.adjustments import (
+from qtrader.services.data.adapters.adjustments import (
     compute_capital_adjusted_price,
     compute_unadjusted_price,
     compute_unadjusted_volume,

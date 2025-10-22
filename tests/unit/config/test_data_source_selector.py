@@ -1,6 +1,6 @@
 """Tests for data source selector."""
 
-from qtrader.config.data_source_selector import AssetClass, DataSourceSelector, DataType
+from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector, DataType
 
 
 class TestAssetClass:

@@ -4,10 +4,10 @@ from datetime import datetime
 
 import pytest
 
-from qtrader.data.bar_merger import BarMerger
-from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.bar import Bar, PriceSeries
 from qtrader.models.multi_bar import MultiBar
+from qtrader.services.data.loaders.bar_merger import BarMerger
+from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 
 
 @pytest.fixture

@@ -25,9 +25,9 @@ Output:
     - Demonstrates how different components access different modes
 """
 
-from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
-from qtrader.data import DataLoader
 from qtrader.models.instrument import DataSource, Instrument, InstrumentType
+from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
+from qtrader.services.data.loaders.loader import DataLoader
 
 
 def main():

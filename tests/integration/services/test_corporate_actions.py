@@ -8,8 +8,9 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.config import AssetClass, BarSchemaConfig, DataConfig, DataSourceSelector
 from qtrader.events.events import CorporateActionEvent
+from qtrader.services.data.data_config import BarSchemaConfig, DataConfig
+from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
 from qtrader.services.data.service import DataService
 
 

@@ -1,21 +1,14 @@
-"""Configuration modules for QTrader."""
+"""Configuration modules for QTrader.
 
-from qtrader.config.data_config import AdjustmentSchemaConfig, BarSchemaConfig, DataConfig, ValidationConfig
-from qtrader.config.data_source_selector import AssetClass, DataSourceSelector, DataType
-from qtrader.config.data_source_validator import DataSourceValidationError, DataSourceValidator, validate_data_sources
+System-wide configuration only. Service-specific config lives with services.
+For example, DataConfig is now in services.data.data_config.
+"""
+
 from qtrader.config.logging_config import LoggerFactory, LoggingConfig
+from qtrader.config.system_config import SystemConfig
 
 __all__ = [
-    "DataConfig",
-    "ValidationConfig",
-    "BarSchemaConfig",
-    "AdjustmentSchemaConfig",
     "LoggerFactory",
     "LoggingConfig",
-    "AssetClass",
-    "DataSourceSelector",
-    "DataType",
-    "DataSourceValidator",
-    "DataSourceValidationError",
-    "validate_data_sources",
+    "SystemConfig",
 ]

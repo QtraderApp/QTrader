@@ -13,8 +13,8 @@ from typing import Any, Dict
 import structlog
 import yaml
 
-from qtrader.config.data_source_selector import DataSourceSelector
 from qtrader.models.instrument import Instrument
+from qtrader.services.data.data_source_selector import DataSourceSelector
 
 logger = structlog.get_logger()
 
@@ -184,8 +184,8 @@ class DataSourceResolver:
 
         # Map adapter names to classes
         adapter_map = {
-            "algoseekOHLC": "qtrader.adapters.algoseek.AlgoseekOHLCVendorAdapter",
-            "schwabOHLC": "qtrader.adapters.schwab.SchwabOHLCAdapter",
+            "algoseekOHLC": "qtrader.services.data.adapters.algoseek.AlgoseekOHLCVendorAdapter",
+            "schwabOHLC": "qtrader.services.data.adapters.schwab.SchwabOHLCAdapter",
             # Add more adapters as needed
         }
 

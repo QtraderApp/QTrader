@@ -8,9 +8,9 @@ testable through mocking.
 from datetime import date
 from typing import Dict, List, Optional, Protocol
 
-from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.bar import PriceSeries
 from qtrader.models.instrument import Instrument
+from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 
 
 class IDataService(Protocol):

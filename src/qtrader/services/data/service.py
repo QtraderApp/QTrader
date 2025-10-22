@@ -9,13 +9,13 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
-from qtrader.adapters.resolver import DataSourceResolver
-from qtrader.config import DataConfig
-from qtrader.data.iterator import PriceSeriesIterator
-from qtrader.data.loader import DataLoader
 from qtrader.events.event_bus import IEventBus
 from qtrader.events.events import PriceBarEvent
 from qtrader.models.instrument import Instrument
+from qtrader.services.data.adapters.resolver import DataSourceResolver
+from qtrader.services.data.data_config import DataConfig
+from qtrader.services.data.loaders.iterator import PriceSeriesIterator
+from qtrader.services.data.loaders.loader import DataLoader
 
 logger = structlog.get_logger()
 
@@ -175,9 +175,9 @@ class DataService:
             This method creates a service-level DataConfig internally by inferring
             the proper source_selector and mode from the dataset name.
         """
-        from qtrader.config import AssetClass, BarSchemaConfig
-        from qtrader.config import DataConfig as ServiceDataConfig
-        from qtrader.config import DataSourceSelector
+        from qtrader.services.data.data_config import BarSchemaConfig
+        from qtrader.services.data.data_config import DataConfig as ServiceDataConfig
+        from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector
 
         source = config_dict.get("source", "schwab")
 
@@ -888,7 +888,7 @@ class DataService:
         adapter_config = self._build_adapter_config()
 
         # Import adapter dynamically (AlgoseekOHLCVendorAdapter)
-        from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
+        from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
 
         adapter = AlgoseekOHLCVendorAdapter(adapter_config, instrument)
 

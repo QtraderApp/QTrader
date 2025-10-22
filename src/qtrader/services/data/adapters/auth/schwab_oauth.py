@@ -27,8 +27,8 @@ from threading import Thread
 
 import requests
 
-from qtrader.auth.ssl_generator import ensure_ssl_certificates
 from qtrader.config import LoggerFactory
+from qtrader.services.data.adapters.auth.ssl_generator import ensure_ssl_certificates
 
 logger = LoggerFactory.get_logger()
 

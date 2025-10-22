@@ -7,7 +7,7 @@ import pytest
 from cryptography import x509
 from cryptography.x509.oid import ExtensionOID, NameOID
 
-from qtrader.auth.ssl_generator import ensure_ssl_certificates, generate_self_signed_cert
+from qtrader.services.data.adapters.auth.ssl_generator import ensure_ssl_certificates, generate_self_signed_cert
 
 
 class TestGenerateSelfSignedCert:

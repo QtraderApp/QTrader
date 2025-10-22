@@ -15,9 +15,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from qtrader.adapters.schwab import MetadataManager, SchwabOHLCAdapter
 from qtrader.models.instrument import Instrument
 from qtrader.models.vendors.schwab import SchwabBar
+from qtrader.services.data.adapters.schwab import MetadataManager, SchwabOHLCAdapter
 
 
 class TestMetadataManager:
@@ -172,7 +172,7 @@ class TestMetadataManager:
 class TestSchwabAdapterCaching:
     """Test Schwab adapter caching functionality."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_adapter_with_cache_enabled(self, mock_oauth_manager, tmp_path):
         """Test adapter initialization with caching enabled."""
         config = {
@@ -188,7 +188,7 @@ class TestSchwabAdapterCaching:
         assert adapter.metadata_manager is not None
         assert adapter.metadata_manager.symbol == "AAPL"
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_adapter_without_cache(self, mock_oauth_manager):
         """Test adapter initialization without caching."""
         config = {
@@ -202,7 +202,7 @@ class TestSchwabAdapterCaching:
         assert adapter.cache_root is None
         assert adapter.metadata_manager is None
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_read_from_cache_no_cache_file(self, mock_oauth_manager, tmp_path):
         """Test reading from cache when no cache exists."""
         config = {
@@ -218,7 +218,7 @@ class TestSchwabAdapterCaching:
 
         assert bars is None
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_write_to_cache(self, mock_oauth_manager, tmp_path):
         """Test writing bars to cache."""
         config = {
@@ -267,7 +267,7 @@ class TestSchwabAdapterCaching:
         assert metadata["date_range"]["start"] == "2020-01-02"
         assert metadata["date_range"]["end"] == "2020-01-03"
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_read_from_cache_success(self, mock_oauth_manager, tmp_path):
         """Test successfully reading bars from cache."""
         config = {
@@ -318,7 +318,7 @@ class TestSchwabAdapterCaching:
         assert cached_bars[1].close == 106.0
         assert cached_bars[1].volume == 1200000
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_cache_miss_uses_api(self, mock_get, mock_oauth_manager, tmp_path):
         """Test that read_bars uses API when cache misses."""
@@ -369,7 +369,7 @@ class TestSchwabAdapterCaching:
         assert adapter.metadata_manager is not None
         assert adapter.metadata_manager.cache_exists()
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_read_bars_cache_hit_skips_api(self, mock_oauth_manager, tmp_path):
         """Test that read_bars uses cache when available."""
         config = {
@@ -421,7 +421,7 @@ class TestSchwabAdapterCaching:
         assert len(bars) == 1
         assert bars[0].open == 100.0
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_write_to_cache_empty_bars(self, mock_oauth_manager, tmp_path):
         """Test writing empty bars list to cache."""
         config = {
@@ -495,7 +495,7 @@ class TestMetadataManagerEdgeCases:
 class TestGapDetection:
     """Test gap detection functionality."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_detect_gaps_gap_before_cache(self, mock_oauth_manager, tmp_path):
         """Test detecting gap before cached data."""
         config = {
@@ -515,7 +515,7 @@ class TestGapDetection:
         assert len(gaps) == 1
         assert gaps[0] == ("2020-01-01", "2020-06-01")
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_detect_gaps_gap_after_cache(self, mock_oauth_manager, tmp_path):
         """Test detecting gap after cached data."""
         config = {
@@ -535,7 +535,7 @@ class TestGapDetection:
         assert len(gaps) == 1
         assert gaps[0] == ("2020-06-30", "2020-12-31")
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_detect_gaps_both_sides(self, mock_oauth_manager, tmp_path):
         """Test detecting gaps on both sides of cache."""
         config = {
@@ -556,7 +556,7 @@ class TestGapDetection:
         assert gaps[0] == ("2020-01-01", "2020-06-01")
         assert gaps[1] == ("2020-06-30", "2020-12-31")
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_detect_gaps_no_gaps(self, mock_oauth_manager, tmp_path):
         """Test no gaps when cache fully covers request."""
         config = {
@@ -579,7 +579,7 @@ class TestGapDetection:
 class TestMergeBars:
     """Test merge bars functionality."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_merge_bars_removes_duplicates(self, mock_oauth_manager, tmp_path):
         """Test merging bars removes duplicates by timestamp."""
         config = {
@@ -627,7 +627,7 @@ class TestMergeBars:
         assert merged[0].close == 103.0
         assert merged[1].close == 106.0
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_merge_bars_sorts_chronologically(self, mock_oauth_manager, tmp_path):
         """Test merging bars sorts chronologically."""
         config = {
@@ -675,7 +675,7 @@ class TestMergeBars:
         assert merged[1].timestamp.day == 3
         assert merged[2].timestamp.day == 5
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_merge_bars_empty_lists(self, mock_oauth_manager, tmp_path):
         """Test merging with empty lists."""
         config = {
@@ -712,7 +712,7 @@ class TestMergeBars:
 class TestIncrementalUpdate:
     """Test incremental update functionality."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_update_to_latest_no_cache_configured(self, mock_oauth_manager):
         """Test update_to_latest when no cache is configured."""
         config = {
@@ -729,7 +729,7 @@ class TestIncrementalUpdate:
         assert start_date is None
         assert end_date is None
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_update_to_latest_no_metadata(self, mock_oauth_manager, tmp_path):
         """Test update_to_latest when metadata doesn't exist."""
         config = {
@@ -747,7 +747,7 @@ class TestIncrementalUpdate:
         assert start_date is None
         assert end_date is None
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_update_to_latest_already_up_to_date(self, mock_oauth_manager, tmp_path):
         """Test update_to_latest when cache is already current."""
         config = {
@@ -770,7 +770,7 @@ class TestIncrementalUpdate:
         assert start_date is None
         assert end_date is None
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_update_to_latest_dry_run(self, mock_oauth_manager, tmp_path):
         """Test update_to_latest in dry run mode."""
         from datetime import timedelta
@@ -796,7 +796,7 @@ class TestIncrementalUpdate:
         assert start_date is not None
         assert end_date is not None
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_update_to_latest_with_new_data(self, mock_get, mock_oauth_manager, tmp_path):
         """Test update_to_latest fetches and merges new data."""
@@ -856,7 +856,7 @@ class TestIncrementalUpdate:
         assert start_date is not None
         assert end_date is not None
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_update_to_latest_disabled_incremental(self, mock_oauth_manager, tmp_path):
         """Test update_to_latest when incremental updates are disabled."""
         config = {
@@ -879,7 +879,7 @@ class TestIncrementalUpdate:
 class TestSmartCachingStrategy:
     """Test smart caching strategy with gap filling."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_disabled_cache_uses_api(self, mock_get, mock_oauth_manager):
         """Test read_bars with disabled caching always uses API."""
@@ -920,7 +920,7 @@ class TestSmartCachingStrategy:
         assert len(bars) == 1
         assert mock_get.called
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_force_refresh(self, mock_get, mock_oauth_manager, tmp_path):
         """Test read_bars with force_refresh ignores cache."""
@@ -978,7 +978,7 @@ class TestSmartCachingStrategy:
         assert bars[0].close == 153.0  # New data
         assert mock_get.called
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_simple_strategy(self, mock_get, mock_oauth_manager, tmp_path):
         """Test read_bars with simple caching strategy."""
@@ -1033,7 +1033,7 @@ class TestSmartCachingStrategy:
         # Since cache has 2020-01-02 but we request from 2020-01-01, it's a miss
         assert mock_get.called  # Will be called again because range doesn't match exactly
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_smart_strategy_with_gaps(self, mock_get, mock_oauth_manager, tmp_path):
         """Test read_bars with smart strategy fills gaps."""
@@ -1091,7 +1091,7 @@ class TestSmartCachingStrategy:
         # Should have both cached and new data
         assert len(bars) >= 1
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     @patch("requests.Session.get")
     def test_read_bars_unknown_strategy_fallback(self, mock_get, mock_oauth_manager, tmp_path):
         """Test read_bars falls back to simple strategy for unknown strategy."""
@@ -1154,7 +1154,7 @@ class TestSmartCachingStrategy:
 class TestReadAllFromCache:
     """Test _read_all_from_cache functionality."""
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_read_all_from_cache_no_cache(self, mock_oauth_manager, tmp_path):
         """Test reading all from cache when no cache exists."""
         config = {
@@ -1170,7 +1170,7 @@ class TestReadAllFromCache:
 
         assert bars == []
 
-    @patch("qtrader.adapters.schwab.SchwabOAuthManager")
+    @patch("qtrader.services.data.adapters.schwab.SchwabOAuthManager")
     def test_read_all_from_cache_with_data(self, mock_oauth_manager, tmp_path):
         """Test reading all bars from cache."""
         config = {

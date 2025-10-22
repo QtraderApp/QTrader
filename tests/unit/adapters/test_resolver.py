@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from qtrader.adapters.resolver import DataSourceResolver
-from qtrader.config.data_source_selector import AssetClass, DataSourceSelector, DataType
 from qtrader.models.instrument import Instrument
+from qtrader.services.data.adapters.resolver import DataSourceResolver
+from qtrader.services.data.data_source_selector import AssetClass, DataSourceSelector, DataType
 
 
 @pytest.fixture
@@ -199,7 +199,7 @@ class TestResolverBySelectorFallback:
 
         with (
             patch.object(resolver, "_create_adapter") as mock_create,
-            patch("qtrader.adapters.resolver.logger") as mock_logger,
+            patch("qtrader.services.data.adapters.resolver.logger") as mock_logger,
         ):
             # First call fails, second succeeds
             mock_create.side_effect = [
@@ -265,7 +265,7 @@ class TestResolverMultipleMatches:
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()
 
-            with patch("qtrader.adapters.resolver.logger") as mock_logger:
+            with patch("qtrader.services.data.adapters.resolver.logger") as mock_logger:
                 resolver.resolve_by_selector(selector, instrument)
 
                 # Should log multiple matches
@@ -604,7 +604,7 @@ class TestDeprecatedResolveMethod:
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()
 
-            with patch("qtrader.adapters.resolver.logger") as mock_logger:
+            with patch("qtrader.services.data.adapters.resolver.logger") as mock_logger:
                 resolver.resolve(instrument)
 
                 # Should log deprecation warning
@@ -652,7 +652,7 @@ data_sources:
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()
 
-            with patch("qtrader.adapters.resolver.logger") as mock_logger:
+            with patch("qtrader.services.data.adapters.resolver.logger") as mock_logger:
                 resolver.resolve(instrument)
 
                 # Should log warning about multiple matches

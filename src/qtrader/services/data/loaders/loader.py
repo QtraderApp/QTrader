@@ -8,14 +8,14 @@ as the main entry point for loading price data in the QTrader system.
 
 from typing import TYPE_CHECKING, Any, Dict, List, Union
 
-from qtrader.adapters.algoseek import AlgoseekOHLCVendorAdapter
-from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.models.instrument import DataSource, Instrument
 from qtrader.models.vendors.algoseek import AlgoseekBar, AlgoseekPriceSeries
 from qtrader.models.vendors.schwab import SchwabBar, SchwabPriceSeries
+from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
+from qtrader.services.data.loaders.iterator import PriceSeriesIterator
 
 if TYPE_CHECKING:
-    from qtrader.config import DataConfig
+    from qtrader.services.data.data_config import DataConfig
 
 
 class DataLoader:
@@ -214,7 +214,7 @@ class DataLoader:
 
         # Initialize adapter and load bars based on type
         if data_source == DataSource.SCHWAB:
-            from qtrader.adapters.schwab import SchwabOHLCAdapter
+            from qtrader.services.data.adapters.schwab import SchwabOHLCAdapter
 
             schwab_adapter = SchwabOHLCAdapter(self._adapter_config, instrument)
             schwab_bars = list(schwab_adapter.read_bars(start_date, end_date))

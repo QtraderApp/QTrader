@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from qtrader.data.dataset_updater import DatasetUpdateResult
+from qtrader.services.data.loaders.dataset_updater import DatasetUpdateResult
 from qtrader.services.data.update_service import UpdateService
 
 
