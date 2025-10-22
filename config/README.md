@@ -178,6 +178,7 @@ ______________________________________________________________________
 | Universe (symbols)       | ❌                            | ✅                              |
 | Initial capital          | ❌                            | ✅                              |
 | Warmup bars              | ❌                            | ✅                              |
+| Replay speed             | ❌                            | ✅                              |
 | Dataset selection        | ❌                            | ✅                              |
 | Strategy selection       | ❌                            | ✅                              |
 | Strategy parameters      | ❌                            | ✅                              |
@@ -186,3 +187,40 @@ ______________________________________________________________________
 
 - **System config** (`system.yaml`): ALL service configurations - how the framework operates
 - **Backtest config** (external): ONLY run parameters - what to test
+
+### Replay Speed (Historical Backtests Only)
+
+The `replay_speed` parameter in backtest config controls how fast historical data is fed through the system. This is useful for:
+
+- **Visualization/Debugging**: Watch the backtest unfold slowly (1.0 = 1 second per bar)
+- **Educational purposes**: Demonstrate how the system processes data
+- **Integration testing**: Test with external systems that can't handle full speed
+
+**Values**:
+
+- `0.0`: Full speed (default) - no delay between bars
+- `0.1`: 100ms per bar - fast but visible
+- `1.0`: 1 second per bar - easy to watch
+- `5.0`: 5 seconds per bar - presentation mode
+
+**Important**: This only affects historical backtests. Live trading ignores this parameter (data arrives in real-time).
+
+**Example**:
+
+```yaml
+# backtest.yaml
+start_date: 2020-01-01
+end_date: 2023-12-31
+initial_capital: 100000
+universe: [AAPL, MSFT]
+replay_speed: 1.0  # 1 second per bar for debugging
+
+data:
+  dataset: schwab-us-equity-1d-adjusted
+
+strategies:
+  - path: strategies/momentum.py
+    strategy_id: momentum_v1
+    config:
+      lookback: 20
+```
