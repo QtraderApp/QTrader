@@ -12,7 +12,7 @@ This example shows:
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from qtrader.models.bar import Bar
+from qtrader.contracts.data import Bar
 from qtrader.services.execution.config import CommissionConfig, ExecutionConfig, SlippageConfig
 from qtrader.services.execution.models import Order, OrderSide
 from qtrader.services.execution.service import ExecutionService
