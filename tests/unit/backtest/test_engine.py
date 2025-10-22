@@ -1,19 +1,14 @@
 """
 Tests for BacktestEngine.
+
+Note: After refactoring, BacktestEngine.from_config() loads SystemConfig
+for service configurations. These tests use mock services or real services
+initialized from SystemConfig.
 """
 
-from qtrader.backtest.config import (
-    BacktestConfig,
-    ConcentrationLimitConfig,
-    DataConfig,
-    ExecutionConfig,
-    LeverageLimitConfig,
-    PortfolioConfig,
-    RiskConfig,
-)
+from qtrader.backtest.config import BacktestConfig, DataConfig
 from qtrader.backtest.engine import BacktestEngine, BacktestResult
 from qtrader.events.event_bus import EventBus
-from qtrader.services.risk.service import RiskService
 from qtrader.services.strategy.service import StrategyService
 
 
@@ -52,21 +47,14 @@ class TestBacktestEngineInit:
         from decimal import Decimal
         from unittest.mock import Mock
 
+        # Simplified config - only run parameters
         config = BacktestConfig(
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 12, 31),
             initial_capital=Decimal("100000"),
             warmup_bars=20,
             universe=["AAPL", "MSFT"],
-            data=DataConfig(source="schwab", data_path="/data/test", dataset="schwab-us-equity-1d-adjusted"),
-            portfolio=PortfolioConfig(initial_capital=Decimal("100000")),
-            risk=RiskConfig(
-                budgets=[],
-                sizing={},
-                concentration=ConcentrationLimitConfig(max_position_pct=0.1),
-                leverage=LeverageLimitConfig(max_gross=1.0, max_net=1.0),
-            ),
-            execution=ExecutionConfig(),
+            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
             strategies=[],
         )
 
@@ -76,9 +64,7 @@ class TestBacktestEngineInit:
         data_service = Mock()
         portfolio_service = Mock()
         execution_service = Mock()
-
-        risk_service = RiskService.from_config(config_dict=config.risk.model_dump(), event_bus=event_bus)
-
+        risk_service = Mock()
         strategy_service = StrategyService(event_bus=event_bus)
 
         engine = BacktestEngine(
@@ -101,29 +87,26 @@ class TestBacktestEngineFromConfig:
     """Test BacktestEngine.from_config() factory method."""
 
     def test_creates_engine_with_all_services(self):
-        """Should create engine with all services from configuration."""
+        """Should create engine with all services from configuration.
+
+        Services are initialized from SystemConfig (system.yaml).
+        BacktestConfig only provides run parameters.
+        """
         from datetime import datetime
         from decimal import Decimal
 
+        # Simplified config - only run parameters
         config = BacktestConfig(
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 12, 31),
             initial_capital=Decimal("100000"),
             warmup_bars=20,
             universe=["AAPL", "MSFT"],
-            data=DataConfig(source="schwab", data_path="/data/test", dataset="schwab-us-equity-1d-adjusted"),
-            portfolio=PortfolioConfig(initial_capital=Decimal("100000")),
-            risk=RiskConfig(
-                budgets=[],
-                sizing={},
-                concentration=ConcentrationLimitConfig(max_position_pct=0.1),
-                leverage=LeverageLimitConfig(max_gross=1.0, max_net=1.0),
-            ),
-            execution=ExecutionConfig(),
+            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
             strategies=[],
         )
 
-        # This should not raise and should create all services
+        # This should not raise and should create all services from SystemConfig
         engine = BacktestEngine.from_config(config)
 
         assert engine.config == config

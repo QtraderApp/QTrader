@@ -5,7 +5,7 @@ Pure event-driven orchestrator that coordinates all services via EventBus.
 No business logic, no direct service calls, just event publishing.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 
 import structlog
@@ -18,6 +18,7 @@ from qtrader.services.execution.service import ExecutionService
 from qtrader.services.portfolio.service import PortfolioService
 from qtrader.services.risk.service import RiskService
 from qtrader.services.strategy.service import StrategyService
+from qtrader.system.config import get_system_config
 
 logger = structlog.get_logger(__name__)
 
@@ -166,6 +167,9 @@ class BacktestEngine:
         """
         Factory method to create engine from configuration.
 
+        Loads SystemConfig for service configurations, uses BacktestConfig
+        for run parameters (dates, universe, strategies).
+
         Args:
             config: Backtest configuration loaded from YAML
 
@@ -175,24 +179,31 @@ class BacktestEngine:
         Raises:
             ValueError: If configuration is invalid or services fail to initialize
         """
+        # Load system configuration
+        system_config = get_system_config()
+
         # Create event bus
         event_bus = EventBus()
 
         # Create data service using factory method (with EventBus for event-driven mode)
         data_service = DataService.from_config(
-            config_dict=config.data.model_dump(),
+            config_dict=asdict(system_config.data),
             dataset=config.data.dataset,
             event_bus=event_bus,
         )
 
-        # Create portfolio service
-        portfolio_service = PortfolioService.from_config(config_dict=config.portfolio.model_dump(), event_bus=event_bus)
+        # Create portfolio service from system config
+        portfolio_service = PortfolioService.from_config(
+            config_dict=asdict(system_config.portfolio), event_bus=event_bus
+        )
 
-        # Create execution service
-        execution_service = ExecutionService.from_config(config_dict=config.execution.model_dump(), event_bus=event_bus)
+        # Create execution service from system config
+        execution_service = ExecutionService.from_config(
+            config_dict=asdict(system_config.execution), event_bus=event_bus
+        )
 
-        # Create risk service
-        risk_service = RiskService.from_config(config_dict=config.risk.model_dump(), event_bus=event_bus)
+        # Create risk service from system config
+        risk_service = RiskService.from_config(config_dict=asdict(system_config.risk), event_bus=event_bus)
 
         # Create strategy service
         strategy_service = StrategyService.from_config(
