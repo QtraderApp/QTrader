@@ -1,8 +1,12 @@
 """
 Backtest Configuration Models.
 
-Provides typed configuration structures for backtest engine and all services.
-Master config pattern: single YAML file configures all services.
+Philosophy: Clean separation of concerns
+- system.yaml: ALL service configurations (execution, risk, portfolio, data, etc.)
+- backtest YAML: ONLY run parameters (dates, universe, capital) + strategies
+
+This module provides BacktestConfig for per-run parameters.
+Services get their configuration from SystemConfig (system.yaml).
 """
 
 from datetime import datetime
@@ -15,131 +19,16 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class DataConfig(BaseModel):
-    """Data service configuration."""
+    """Data configuration for backtest run.
 
-    source: str = Field(..., description="Data source: 'schwab', 'algoseek', etc.")
-    data_path: str = Field(..., description="Path to data directory")
+    Specifies which dataset to use. Dataset details (source, path, etc.)
+    are defined in data_sources.yaml and managed by SystemConfig.
+    """
+
     dataset: str = Field(
         ...,
         description="Dataset name from data_sources.yaml (e.g., 'schwab-us-equity-1d-adjusted')",
     )
-
-    @field_validator("source")
-    @classmethod
-    def validate_source(cls, v: str) -> str:
-        """Validate data source."""
-        allowed = ["schwab", "algoseek"]
-        if v not in allowed:
-            raise ValueError(f"source must be one of {allowed}, got {v}")
-        return v
-
-
-class PortfolioConfig(BaseModel):
-    """Portfolio service configuration."""
-
-    initial_capital: Decimal = Field(..., description="Starting capital")
-
-
-class RiskBudgetConfig(BaseModel):
-    """Risk budget allocation for a strategy."""
-
-    strategy_id: str = Field(..., description="Strategy identifier")
-    capital_weight: float = Field(..., description="Fraction of capital allocated (0-1)")
-
-    @field_validator("capital_weight")
-    @classmethod
-    def validate_weight(cls, v: float) -> float:
-        """Validate capital weight is in [0, 1]."""
-        if not 0 <= v <= 1:
-            raise ValueError(f"capital_weight must be between 0 and 1, got {v}")
-        return v
-
-
-class PositionSizingConfig(BaseModel):
-    """Position sizing configuration for a strategy."""
-
-    fraction: float = Field(..., description="Fraction of allocated capital per position")
-
-    @field_validator("fraction")
-    @classmethod
-    def validate_fraction(cls, v: float) -> float:
-        """Validate sizing fraction."""
-        if not 0 < v <= 1:
-            raise ValueError(f"fraction must be between 0 and 1, got {v}")
-        return v
-
-
-class ConcentrationLimitConfig(BaseModel):
-    """Concentration limit configuration."""
-
-    max_position_pct: float = Field(..., description="Max position size as % of equity")
-
-    @field_validator("max_position_pct")
-    @classmethod
-    def validate_max_position(cls, v: float) -> float:
-        """Validate concentration limit."""
-        if not 0 < v <= 1:
-            raise ValueError(f"max_position_pct must be between 0 and 1, got {v}")
-        return v
-
-
-class LeverageLimitConfig(BaseModel):
-    """Leverage limit configuration."""
-
-    max_gross: float = Field(..., description="Max gross leverage")
-    max_net: float = Field(..., description="Max net leverage")
-
-    @field_validator("max_gross", "max_net")
-    @classmethod
-    def validate_leverage(cls, v: float) -> float:
-        """Validate leverage limits."""
-        if v < 0:
-            raise ValueError(f"leverage limit must be non-negative, got {v}")
-        return v
-
-
-class RiskConfig(BaseModel):
-    """Risk service configuration."""
-
-    cash_buffer_pct: float = Field(default=0.02, description="Cash buffer percentage")
-    budgets: list[RiskBudgetConfig] = Field(..., description="Strategy capital allocations")
-    sizing: dict[str, PositionSizingConfig] = Field(..., description="Position sizing per strategy")
-    concentration: ConcentrationLimitConfig = Field(..., description="Concentration limits")
-    leverage: LeverageLimitConfig = Field(..., description="Leverage limits")
-
-    @field_validator("cash_buffer_pct")
-    @classmethod
-    def validate_cash_buffer(cls, v: float) -> float:
-        """Validate cash buffer."""
-        if not 0 <= v <= 1:
-            raise ValueError(f"cash_buffer_pct must be between 0 and 1, got {v}")
-        return v
-
-    @field_validator("budgets")
-    @classmethod
-    def validate_budgets_sum(cls, v: list[RiskBudgetConfig]) -> list[RiskBudgetConfig]:
-        """Validate budget weights sum to <= 1."""
-        total = sum(b.capital_weight for b in v)
-        if total > 1.0:
-            raise ValueError(f"budget weights sum to {total}, must be <= 1.0")
-        return v
-
-
-class ExecutionConfig(BaseModel):
-    """Execution service configuration."""
-
-    fill_policy: str = Field(default="next_bar", description="Fill timing policy")
-    commission_model: str = Field(default="fixed", description="Commission model")
-    slippage_model: str = Field(default="fixed", description="Slippage model")
-
-    @field_validator("fill_policy")
-    @classmethod
-    def validate_fill_policy(cls, v: str) -> str:
-        """Validate fill policy."""
-        allowed = ["next_bar", "immediate", "realistic"]
-        if v not in allowed:
-            raise ValueError(f"fill_policy must be one of {allowed}, got {v}")
-        return v
 
 
 class StrategyConfigItem(BaseModel):
@@ -151,7 +40,33 @@ class StrategyConfigItem(BaseModel):
 
 
 class BacktestConfig(BaseModel):
-    """Master backtest configuration."""
+    """Backtest run configuration.
+
+    Contains ONLY per-run parameters:
+    - Dates, universe, capital (what to test)
+    - Strategy configurations (which strategies)
+    - Dataset selection (which data)
+
+    Service configurations (execution, risk, portfolio) come from SystemConfig (system.yaml).
+
+    Example YAML:
+        ```yaml
+        start_date: 2020-01-01
+        end_date: 2023-12-31
+        initial_capital: 100000
+        universe: [AAPL, MSFT, GOOGL]
+        warmup_bars: 20
+
+        data:
+          dataset: schwab-us-equity-1d-adjusted
+
+        strategies:
+          - path: strategies/momentum.py
+            strategy_id: momentum_20
+            config:
+              lookback: 20
+        ```
+    """
 
     # Backtest parameters
     start_date: datetime = Field(..., description="Backtest start date")
@@ -160,11 +75,8 @@ class BacktestConfig(BaseModel):
     warmup_bars: int = Field(default=0, description="Number of warmup bars")
     universe: list[str] = Field(..., description="List of symbols to trade")
 
-    # Service configurations
-    data: DataConfig = Field(..., description="Data service config")
-    portfolio: PortfolioConfig = Field(..., description="Portfolio service config")
-    risk: RiskConfig = Field(..., description="Risk service config")
-    execution: ExecutionConfig = Field(..., description="Execution service config")
+    # Data and strategies
+    data: DataConfig = Field(..., description="Dataset selection")
     strategies: list[StrategyConfigItem] = Field(..., description="Strategy configurations")
 
     @field_validator("end_date")
@@ -212,8 +124,10 @@ def load_backtest_config(config_path: str | Path) -> BacktestConfig:
         ConfigLoadError: If file not found, invalid YAML, or validation fails
 
     Example:
-        >>> config = load_backtest_config("config/backtest.yaml")
+        >>> config = load_backtest_config("my_backtest.yaml")
         >>> print(f"Running backtest from {config.start_date} to {config.end_date}")
+        >>> print(f"Universe: {config.universe}")
+        >>> print(f"Strategies: {[s.strategy_id for s in config.strategies]}")
     """
     path = Path(config_path)
 

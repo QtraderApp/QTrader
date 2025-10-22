@@ -1,4 +1,8 @@
-"""Tests for backtest configuration loading and validation."""
+"""Tests for backtest configuration loading and validation.
+
+After refactoring, BacktestConfig only contains run parameters.
+Service configurations (Risk, Execution, Portfolio) are tested in system/test_config.py.
+"""
 
 import tempfile
 from datetime import datetime
@@ -10,15 +14,8 @@ import yaml
 
 from qtrader.backtest.config import (
     BacktestConfig,
-    ConcentrationLimitConfig,
     ConfigLoadError,
     DataConfig,
-    ExecutionConfig,
-    LeverageLimitConfig,
-    PortfolioConfig,
-    PositionSizingConfig,
-    RiskBudgetConfig,
-    RiskConfig,
     StrategyConfigItem,
     load_backtest_config,
 )
@@ -29,160 +26,8 @@ class TestDataConfig:
 
     def test_valid_config(self):
         """Test valid data config."""
-        config = DataConfig(source="schwab", data_path="/path/to/data", dataset="schwab-us-equity-1d-adjusted")
-        assert config.source == "schwab"
-        assert config.data_path == "/path/to/data"
+        config = DataConfig(dataset="schwab-us-equity-1d-adjusted")
         assert config.dataset == "schwab-us-equity-1d-adjusted"
-
-    def test_invalid_source(self):
-        """Test invalid data source."""
-        with pytest.raises(ValueError, match="source must be one of"):
-            DataConfig(source="invalid", data_path="/path", dataset="invalid-dataset")
-
-
-class TestPortfolioConfig:
-    """Tests for PortfolioConfig.
-
-    Note: Commission and slippage have been moved to ExecutionConfig.
-    Portfolio only tracks positions and records fees from FillEvents.
-    """
-
-    def test_valid_config(self):
-        """Test valid configuration."""
-        config = PortfolioConfig(
-            initial_capital=Decimal("1000000"),
-        )
-        assert config.initial_capital == Decimal("1000000")
-
-    def test_defaults(self):
-        """Test default values."""
-        config = PortfolioConfig(initial_capital=Decimal("1000000"))
-        assert config.initial_capital == Decimal("1000000")
-
-
-class TestRiskBudgetConfig:
-    """Tests for RiskBudgetConfig."""
-
-    def test_valid_budget(self):
-        """Test valid budget."""
-        budget = RiskBudgetConfig(strategy_id="momentum", capital_weight=0.6)
-        assert budget.strategy_id == "momentum"
-        assert budget.capital_weight == 0.6
-
-    def test_weight_out_of_range(self):
-        """Test capital weight out of range."""
-        with pytest.raises(ValueError, match="must be between 0 and 1"):
-            RiskBudgetConfig(strategy_id="test", capital_weight=1.5)
-
-        with pytest.raises(ValueError, match="must be between 0 and 1"):
-            RiskBudgetConfig(strategy_id="test", capital_weight=-0.1)
-
-
-class TestPositionSizingConfig:
-    """Tests for PositionSizingConfig."""
-
-    def test_valid_fraction(self):
-        """Test valid sizing fraction."""
-        sizing = PositionSizingConfig(fraction=0.03)
-        assert sizing.fraction == 0.03
-
-    def test_fraction_out_of_range(self):
-        """Test fraction out of range."""
-        with pytest.raises(ValueError, match="must be between 0 and 1"):
-            PositionSizingConfig(fraction=1.5)
-
-        with pytest.raises(ValueError, match="must be between 0 and 1"):
-            PositionSizingConfig(fraction=0.0)
-
-
-class TestConcentrationLimitConfig:
-    """Tests for ConcentrationLimitConfig."""
-
-    def test_valid_limit(self):
-        """Test valid concentration limit."""
-        limit = ConcentrationLimitConfig(max_position_pct=0.10)
-        assert limit.max_position_pct == 0.10
-
-    def test_limit_out_of_range(self):
-        """Test limit out of range."""
-        with pytest.raises(ValueError, match="must be between 0 and 1"):
-            ConcentrationLimitConfig(max_position_pct=1.5)
-
-
-class TestLeverageLimitConfig:
-    """Tests for LeverageLimitConfig."""
-
-    def test_valid_limits(self):
-        """Test valid leverage limits."""
-        limit = LeverageLimitConfig(max_gross=2.0, max_net=1.0)
-        assert limit.max_gross == 2.0
-        assert limit.max_net == 1.0
-
-    def test_negative_leverage(self):
-        """Test negative leverage."""
-        with pytest.raises(ValueError, match="must be non-negative"):
-            LeverageLimitConfig(max_gross=-1.0, max_net=1.0)
-
-
-class TestRiskConfig:
-    """Tests for RiskConfig."""
-
-    def test_valid_config(self):
-        """Test valid risk config."""
-        config = RiskConfig(
-            cash_buffer_pct=0.02,
-            budgets=[
-                RiskBudgetConfig(strategy_id="momentum", capital_weight=0.6),
-                RiskBudgetConfig(strategy_id="mean_reversion", capital_weight=0.4),
-            ],
-            sizing={
-                "momentum": PositionSizingConfig(fraction=0.03),
-                "mean_reversion": PositionSizingConfig(fraction=0.02),
-            },
-            concentration=ConcentrationLimitConfig(max_position_pct=0.10),
-            leverage=LeverageLimitConfig(max_gross=2.0, max_net=1.0),
-        )
-        assert len(config.budgets) == 2
-        assert config.cash_buffer_pct == 0.02
-
-    def test_budgets_sum_exceeds_one(self):
-        """Test budget weights summing to > 1."""
-        with pytest.raises(ValueError, match="budget weights sum to"):
-            RiskConfig(
-                budgets=[
-                    RiskBudgetConfig(strategy_id="strat1", capital_weight=0.7),
-                    RiskBudgetConfig(strategy_id="strat2", capital_weight=0.5),
-                ],
-                sizing={
-                    "strat1": PositionSizingConfig(fraction=0.03),
-                    "strat2": PositionSizingConfig(fraction=0.03),
-                },
-                concentration=ConcentrationLimitConfig(max_position_pct=0.10),
-                leverage=LeverageLimitConfig(max_gross=2.0, max_net=1.0),
-            )
-
-
-class TestExecutionConfig:
-    """Tests for ExecutionConfig."""
-
-    def test_valid_config(self):
-        """Test valid execution config."""
-        config = ExecutionConfig(
-            fill_policy="next_bar",
-            commission_model="fixed",
-            slippage_model="fixed",
-        )
-        assert config.fill_policy == "next_bar"
-
-    def test_defaults(self):
-        """Test default values."""
-        config = ExecutionConfig()
-        assert config.fill_policy == "next_bar"
-
-    def test_invalid_fill_policy(self):
-        """Test invalid fill policy."""
-        with pytest.raises(ValueError, match="fill_policy must be one of"):
-            ExecutionConfig(fill_policy="invalid")
 
 
 class TestStrategyConfigItem:
@@ -208,7 +53,7 @@ class TestStrategyConfigItem:
 
 
 class TestBacktestConfig:
-    """Tests for BacktestConfig."""
+    """Tests for BacktestConfig (simplified - only run parameters)."""
 
     def test_valid_complete_config(self):
         """Test valid complete backtest config."""
@@ -218,15 +63,7 @@ class TestBacktestConfig:
             initial_capital=Decimal("1000000"),
             warmup_bars=100,
             universe=["AAPL", "GOOGL", "MSFT"],
-            data=DataConfig(source="schwab", data_path="/data", dataset="schwab-us-equity-1d-adjusted"),
-            portfolio=PortfolioConfig(initial_capital=Decimal("1000000")),
-            risk=RiskConfig(
-                budgets=[RiskBudgetConfig(strategy_id="test", capital_weight=0.5)],
-                sizing={"test": PositionSizingConfig(fraction=0.03)},
-                concentration=ConcentrationLimitConfig(max_position_pct=0.10),
-                leverage=LeverageLimitConfig(max_gross=2.0, max_net=1.0),
-            ),
-            execution=ExecutionConfig(),
+            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
             strategies=[
                 StrategyConfigItem(
                     path="strategies/test.py",
@@ -246,15 +83,7 @@ class TestBacktestConfig:
                 end_date=datetime(2020, 1, 1),
                 initial_capital=Decimal("1000000"),
                 universe=["AAPL"],
-                data=DataConfig(source="schwab", data_path="/data", dataset="schwab-us-equity-1d-adjusted"),
-                portfolio=PortfolioConfig(initial_capital=Decimal("1000000")),
-                risk=RiskConfig(
-                    budgets=[RiskBudgetConfig(strategy_id="test", capital_weight=0.5)],
-                    sizing={"test": PositionSizingConfig(fraction=0.03)},
-                    concentration=ConcentrationLimitConfig(max_position_pct=0.10),
-                    leverage=LeverageLimitConfig(max_gross=2.0, max_net=1.0),
-                ),
-                execution=ExecutionConfig(),
+                data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
                 strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
             )
 
@@ -267,15 +96,7 @@ class TestBacktestConfig:
                 initial_capital=Decimal("1000000"),
                 warmup_bars=-10,
                 universe=["AAPL"],
-                data=DataConfig(source="schwab", data_path="/data", dataset="schwab-us-equity-1d-adjusted"),
-                portfolio=PortfolioConfig(initial_capital=Decimal("1000000")),
-                risk=RiskConfig(
-                    budgets=[RiskBudgetConfig(strategy_id="test", capital_weight=0.5)],
-                    sizing={"test": PositionSizingConfig(fraction=0.03)},
-                    concentration=ConcentrationLimitConfig(max_position_pct=0.10),
-                    leverage=LeverageLimitConfig(max_gross=2.0, max_net=1.0),
-                ),
-                execution=ExecutionConfig(),
+                data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
                 strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
             )
 
@@ -287,15 +108,7 @@ class TestBacktestConfig:
                 end_date=datetime(2020, 12, 31),
                 initial_capital=Decimal("1000000"),
                 universe=[],
-                data=DataConfig(source="schwab", data_path="/data", dataset="schwab-us-equity-1d-adjusted"),
-                portfolio=PortfolioConfig(initial_capital=Decimal("1000000")),
-                risk=RiskConfig(
-                    budgets=[RiskBudgetConfig(strategy_id="test", capital_weight=0.5)],
-                    sizing={"test": PositionSizingConfig(fraction=0.03)},
-                    concentration=ConcentrationLimitConfig(max_position_pct=0.10),
-                    leverage=LeverageLimitConfig(max_gross=2.0, max_net=1.0),
-                ),
-                execution=ExecutionConfig(),
+                data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
                 strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
             )
 
@@ -311,15 +124,7 @@ class TestLoadBacktestConfig:
             "initial_capital": 1000000,
             "warmup_bars": 100,
             "universe": ["AAPL", "GOOGL"],
-            "data": {"source": "schwab", "data_path": "/data", "dataset": "schwab-us-equity-1d-adjusted"},
-            "portfolio": {"initial_capital": 1000000},
-            "risk": {
-                "budgets": [{"strategy_id": "momentum", "capital_weight": 0.6}],
-                "sizing": {"momentum": {"fraction": 0.03}},
-                "concentration": {"max_position_pct": 0.10},
-                "leverage": {"max_gross": 2.0, "max_net": 1.0},
-            },
-            "execution": {},
+            "data": {"dataset": "schwab-us-equity-1d-adjusted"},
             "strategies": [{"path": "strategies/momentum.py", "strategy_id": "momentum"}],
         }
 
@@ -371,15 +176,7 @@ class TestLoadBacktestConfig:
             "end_date": "2019-01-01",  # Before start!
             "initial_capital": 1000000,
             "universe": ["AAPL"],
-            "data": {"source": "schwab", "data_path": "/data", "dataset": "schwab-us-equity-1d-adjusted"},
-            "portfolio": {"initial_capital": 1000000},
-            "risk": {
-                "budgets": [{"strategy_id": "test", "capital_weight": 0.5}],
-                "sizing": {"test": {"fraction": 0.03}},
-                "concentration": {"max_position_pct": 0.10},
-                "leverage": {"max_gross": 2.0, "max_net": 1.0},
-            },
-            "execution": {},
+            "data": {"dataset": "schwab-us-equity-1d-adjusted"},
             "strategies": [{"path": "test.py", "strategy_id": "test"}],
         }
 
@@ -400,15 +197,7 @@ class TestLoadBacktestConfig:
             "end_date": "2020-12-31",
             "initial_capital": 1000000,
             "universe": ["AAPL"],
-            "data": {"source": "schwab", "data_path": "/data", "dataset": "schwab-us-equity-1d-adjusted"},
-            "portfolio": {"initial_capital": 1000000},
-            "risk": {
-                "budgets": [{"strategy_id": "test", "capital_weight": 0.5}],
-                "sizing": {"test": {"fraction": 0.03}},
-                "concentration": {"max_position_pct": 0.10},
-                "leverage": {"max_gross": 2.0, "max_net": 1.0},
-            },
-            "execution": {},
+            "data": {"dataset": "schwab-us-equity-1d-adjusted"},
             "strategies": [{"path": "test.py", "strategy_id": "test"}],
         }
 
