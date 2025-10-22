@@ -12,7 +12,7 @@ import structlog
 
 from qtrader.backtest.config import BacktestConfig
 from qtrader.events.event_bus import EventBus
-from qtrader.events.events import RiskEvaluationTriggerEvent, ValuationTriggerEvent
+from qtrader.events.events import Event, RiskEvaluationTriggerEvent, ValuationTriggerEvent
 from qtrader.services.data.service import DataService
 from qtrader.services.execution.service import ExecutionService
 from qtrader.services.portfolio.service import PortfolioService
@@ -47,9 +47,74 @@ class BacktestEngine:
     - Trigger risk evaluation (RiskEvaluationTriggerEvent)
     - Return BacktestResult
 
+    Phase Ordering for Quantitative Correctness:
+    =============================================
+    For each timestamp, strict sequential phases ensure causal consistency:
+
+    Phase 1: MarketData
+        - DataService publishes PriceBarEvent for ALL symbols at timestamp T
+        - Services update their internal state (indicators, caches)
+        - NO signals generated yet (prevents race conditions)
+
+    Phase 2: Signals (implicit)
+        - StrategyService processes all bars
+        - Generates trading signals based on updated state
+        - Signals buffered in RiskService (not executed immediately)
+
+    Phase 3: Valuation (barrier)
+        - Engine publishes ValuationTriggerEvent
+        - PortfolioService calculates equity, positions, P&L
+        - Creates CONSISTENT SNAPSHOT of portfolio state
+        - Critical: All bars processed BEFORE valuation starts
+
+    Phase 4: RiskEvaluation (barrier)
+        - Engine publishes RiskEvaluationTriggerEvent
+        - RiskService processes ALL buffered signals in single batch
+        - Cross-strategy netting: A buys 100 + B sells 100 = net 0
+        - Position limits checked against consistent portfolio snapshot
+        - Approved orders published as OrderEvent
+
+    Phase 5: Execution (next cycle)
+        - ExecutionService fills orders at next bar's prices
+        - Fill → Portfolio → updated equity → Risk sees new state
+        - Strict causal ordering: no stale state
+
+    Quant Gotchas Solved:
+    =====================
+    1. Race Conditions:
+       - Without barriers, Strategy A and B signals arrive in arbitrary order
+       - Risk calculations use inconsistent snapshots
+       - Solution: ValuationTriggerEvent = clock tick, all strategies sync
+
+    2. Wash Trades:
+       - Without coordinator, A buys 100 + B sells 100 = 2 fills (double commissions)
+       - Solution: RiskService nets across strategies BEFORE execution
+
+    3. Stale Portfolio State:
+       - If Risk reads portfolio while Fill still processing → wrong leverage
+       - Solution: Strict phases: Fill → Portfolio update → Risk evaluation
+
+    4. Indicator Lookahead:
+       - If Strategy A generates signal before all bars arrive → uses partial data
+       - Solution: All PriceBarEvents published BEFORE strategies evaluate
+
+    Production Considerations:
+    ==========================
+    Backtest Mode (current):
+        - Synchronous, deterministic, single-threaded
+        - Barriers are function calls (no async needed)
+        - Perfect for research: reproducible, debuggable
+
+    Production Mode (future):
+        - Async event bus with bounded queues
+        - Backpressure: drop old bars during market bursts (open/close)
+        - State versioning: tag snapshots with clock tick
+        - Monitor queue depths: alert if Risk buffer > 1000 signals
+
     Event Publishing Pattern:
+    =========================
     For each timestamp:
-        1. Publish BarEvent (per symbol) - services update state
+        1. Publish PriceBarEvent (per symbol) - services update state
         2. Publish ValuationTriggerEvent - portfolio calculates metrics
         3. Publish RiskEvaluationTriggerEvent - risk processes signals in batch
 
@@ -147,28 +212,108 @@ class BacktestEngine:
 
     def run(self) -> BacktestResult:
         """
-        Run the backtest.
+        Run the backtest with strict phase ordering for quantitative correctness.
 
-        Event Flow:
+        Phase-Based Event Flow:
+        =======================
         1. Warmup Phase (if warmup_bars > 0):
            - Stream warmup_bars worth of data with is_warmup=True
            - Strategies build indicators but don't generate signals
-        2. Main Phase:
-           - Stream data with is_warmup=False
-           - For each timestamp:
-             a. DataService publishes PriceBarEvent (per symbol)
-             b. Engine publishes ValuationTriggerEvent
-             c. Engine publishes RiskEvaluationTriggerEvent
+           - No orders executed during warmup
+
+        2. Main Phase (for each timestamp T):
+           The engine enforces strict sequential phases to prevent race conditions
+           and ensure causally consistent portfolio state:
+
+           Phase 1: MarketData
+           -------------------
+           - DataService publishes PriceBarEvent for ALL symbols at T
+           - StrategyService updates indicators for ALL strategies
+           - RiskService buffers any signals generated
+           - NO orders executed yet (prevents using partial data)
+
+           Phase 2: Valuation (barrier)
+           ----------------------------
+           - Engine publishes ValuationTriggerEvent(ts=T)
+           - This is a CLOCK TICK BARRIER: all data for T arrived
+           - PortfolioService calculates equity, positions, P&L
+           - Creates CONSISTENT SNAPSHOT for risk decisions
+           - Critical: happens AFTER all bars processed
+
+           Phase 3: RiskEvaluation (barrier)
+           ---------------------------------
+           - Engine publishes RiskEvaluationTriggerEvent(ts=T)
+           - RiskService processes ALL buffered signals in single batch
+           - Cross-strategy netting applied:
+             * Strategy A: BUY 100 AAPL
+             * Strategy B: SELL 100 AAPL
+             * Net order: 0 AAPL (no wash trade, no commissions)
+           - Position limit checks use consistent portfolio snapshot
+           - Approved orders published as OrderEvent
+
+           Phase 4: Execution (next cycle at T+1)
+           --------------------------------------
+           - ExecutionService fills orders at T+1 bar prices
+           - Fills → Portfolio updates → Risk sees new state
+           - Strict causal ordering: Fill → Portfolio → Risk
+
         3. Results Collection:
-           - Query final portfolio state
-           - Count executed trades
-           - Calculate performance metrics
+           - Query final portfolio state from PortfolioService
+           - Count executed trades from ExecutionService
+           - Calculate performance metrics (return, Sharpe, etc.)
+
+        Quantitative Correctness Guarantees:
+        ====================================
+        1. Consistent Snapshots:
+           - Valuation happens AFTER all bars for timestamp
+           - Risk decisions use single consistent portfolio state
+           - No race conditions between Strategy A and B
+
+        2. No Wash Trades:
+           - RiskService nets signals across ALL strategies
+           - A buys 100 + B sells 100 = net 0 (zero commissions)
+           - Without netting: 2 fills, double commissions, tax complexity
+
+        3. Causal Ordering:
+           - Fill event → Portfolio update → Equity recalc → Risk sees new state
+           - Never: Risk uses stale equity while Fill processing
+           - Deterministic: same inputs → same outputs (for research)
+
+        4. No Lookahead:
+           - Strategies only see data up to T when generating signals for T
+           - Orders executed at T+1 prices (realistic slippage model)
+           - Warmup phase builds indicators without affecting backtest
+
+        Implementation Notes:
+        =====================
+        Synchronous Execution (Backtest):
+            - Single-threaded, deterministic
+            - Barriers are simple function calls
+            - Perfect for research: reproducible, debuggable
+
+        Async Ready (Production):
+            - Same phase pattern works with async event bus
+            - Barriers become async coordination points
+            - Bounded queues prevent memory explosion
+            - Backpressure policy: drop old bars during market bursts
+
+        Performance:
+            - O(N*M) where N=days, M=universe_size
+            - Typical: 1000 days * 500 symbols = 500K bars
+            - Bottleneck: indicator calculations (pandas/numpy)
+            - Target: >100 bars/sec with 50+ indicators
 
         Returns:
             BacktestResult with performance metrics and trade log
 
         Raises:
-            RuntimeError: If backtest execution fails
+            RuntimeError: If backtest execution fails (data load, service error, etc.)
+
+        Example:
+            >>> engine = BacktestEngine.from_config(config)
+            >>> result = engine.run()
+            >>> print(f"Return: {result.total_return:.2%}")
+            >>> print(f"Trades: {result.num_trades}")
         """
         start_time = datetime.now()
         logger.info(
@@ -221,8 +366,8 @@ class BacktestEngine:
             self._bar_count = 0
 
             # Subscribe to price_bar events to track timestamps
-            def track_timestamp(event):
-                if hasattr(event, "timestamp") and not event.is_warmup:
+            def track_timestamp(event: Event) -> None:
+                if hasattr(event, "timestamp") and hasattr(event, "is_warmup") and not event.is_warmup:
                     new_ts = event.timestamp
                     # If timestamp changed, publish triggers for previous timestamp
                     if self._current_timestamp is not None and new_ts != self._current_timestamp:

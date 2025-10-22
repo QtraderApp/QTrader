@@ -13,6 +13,143 @@ Event Types:
 - CashChangedEvent: Cash balance updates by portfolio
 - RiskViolationEvent: Risk limit breaches
 - BacktestControlEvent: Backtest lifecycle events
+
+Phase-Based Event Ordering for Quantitative Correctness:
+========================================================
+QTrader uses a strict phase-based architecture with barrier events to ensure
+causally consistent state and prevent common quant gotchas.
+
+Phase Flow (per timestamp T):
+-----------------------------
+
+Phase 1: MarketData
+    Events: PriceBarEvent (multiple, one per symbol)
+    Published by: DataService
+    Consumed by: StrategyService (updates indicators), RiskService (caches prices)
+    Guarantees:
+        - ALL bars for timestamp T published before Phase 2
+        - No signals generated until all data arrived (prevents lookahead)
+        - Services update internal state (indicators, caches)
+
+Phase 2: Valuation (BARRIER)
+    Event: ValuationTriggerEvent (single, marks barrier)
+    Published by: BacktestEngine (after all PriceBarEvent for T)
+    Consumed by: PortfolioService
+    Guarantees:
+        - Creates CONSISTENT SNAPSHOT of portfolio state
+        - All market data for T processed before valuation
+        - Equity, positions, P&L calculated atomically
+        - Risk decisions use single coherent view (no race conditions)
+
+Phase 3: RiskEvaluation (BARRIER)
+    Event: RiskEvaluationTriggerEvent (single, marks barrier)
+    Published by: BacktestEngine (after valuation complete)
+    Consumed by: RiskService
+    Guarantees:
+        - Processes ALL buffered signals in single batch
+        - Cross-strategy netting applied (A buys + B sells = net 0)
+        - Position limits checked against consistent portfolio snapshot
+        - No wash trades (prevents double commissions)
+        - Approved orders published as OrderApprovedEvent
+
+Phase 4: Execution (next cycle at T+1)
+    Event: OrderEvent, FillEvent
+    Published by: ExecutionService
+    Consumed by: PortfolioService (updates positions/cash)
+    Guarantees:
+        - Fills occur at T+1 prices (realistic slippage model)
+        - Fill → Portfolio update → Risk sees new state
+        - Strict causal ordering (no stale state)
+
+Barrier Events Explained:
+-------------------------
+Barrier events (ValuationTriggerEvent, RiskEvaluationTriggerEvent) are
+"clock ticks" that synchronize all services to the same logical time.
+
+Without barriers:
+    ❌ Strategy A signal arrives before all bars → uses partial data
+    ❌ Risk reads portfolio while Fill processing → wrong leverage
+    ❌ Strategy A buys + Strategy B sells → 2 fills, double commissions
+
+With barriers:
+    ✅ All bars arrive → barrier → strategies see complete data
+    ✅ Fill completes → Portfolio updates → barrier → Risk sees new state
+    ✅ Signals buffered → barrier → net across strategies → single fill
+
+Quant Gotchas Prevented:
+========================
+
+1. Race Conditions:
+   Problem: Strategy A and B signals arrive in arbitrary order, Risk uses
+            inconsistent snapshots for position limit checks
+   Solution: ValuationTriggerEvent = clock tick, all strategies synchronized
+   Example: Both strategies evaluate at same portfolio equity value
+
+2. Wash Trades:
+   Problem: Strategy A buys 100 AAPL + Strategy B sells 100 AAPL = 2 fills
+            → double commissions, tax reporting complexity
+   Solution: RiskEvaluationTriggerEvent triggers batch netting across strategies
+   Example: A buys 100 + B sells 100 = net 0 (no fill, no commission)
+
+3. Stale Portfolio State:
+   Problem: Risk calculates position size while Fill still updating Portfolio
+            → wrong leverage, violates limits
+   Solution: Strict phase ordering: Fill → Portfolio → Barrier → Risk
+   Example: Fill at 09:31 → Portfolio equity updates → 09:32 Risk sees new equity
+
+4. Indicator Lookahead:
+   Problem: Strategy generates signal before all bars for timestamp arrive
+            → uses partial data, unrealistic backtest
+   Solution: All PriceBarEvent published before strategies evaluate
+   Example: 500 stocks * 1 bar → all arrive → then strategies compute
+
+5. Temporal Consistency:
+   Problem: Different services see different "now" times, calculations drift
+   Solution: Barrier events mark logical clock ticks, services sync
+   Example: Valuation at 16:00, Risk at 16:00, Execution at 16:00 (next day)
+
+Production Considerations:
+==========================
+
+Backtest Mode (synchronous):
+    - Single-threaded, deterministic
+    - Barriers are function calls (no async coordination needed)
+    - Perfect for research: reproducible, debuggable
+
+Production Mode (async):
+    - Same phase pattern, async event bus
+    - Barriers use async coordination (e.g., CountDownLatch)
+    - Bounded queues prevent memory explosion
+    - Backpressure policy: drop old bars during market bursts (open/close)
+    - State versioning: tag snapshots with clock tick for debugging
+
+Implementation Pattern:
+    Backtest: synchronous calls, immediate propagation
+    Production: async queues, coordinator tracks barriers
+    Both: same phase ordering, same logical correctness
+
+Event Design Principles:
+========================
+
+1. Immutability (frozen=True):
+   - Events are facts, cannot be modified after creation
+   - Safe to share across services without defensive copying
+   - Enables event replay for debugging
+
+2. Self-Describing:
+   - All events include timestamp, event_id
+   - Services can reconstruct state from event log
+   - Audit trail for regulatory compliance
+
+3. Separation of Concerns:
+   - Events carry data (Bar, Signal, Fill)
+   - Services implement business logic
+   - Engine orchestrates phases (no business logic)
+
+4. Contracts Integration:
+   - Events wrap contract payloads (PriceBarEvent contains Bar from contracts.data)
+   - Infrastructure (event_id, timestamp) separate from domain (Bar)
+   - Services depend on contracts, not internal models
 """
 
 from dataclasses import dataclass, field
@@ -530,18 +667,45 @@ class BarCloseEvent(Event):
 @dataclass(frozen=True)
 class ValuationTriggerEvent(Event):
     """
-    Trigger for PortfolioService to calculate portfolio metrics.
+    Barrier event: trigger portfolio valuation for consistent snapshot.
 
-    Published by BacktestEngine after bar events to trigger portfolio
-    valuation and metric calculation.
+    This is a CLOCK TICK BARRIER that marks "all market data for timestamp T
+    has arrived". PortfolioService uses this to calculate equity, positions,
+    and P&L atomically, creating a consistent snapshot for risk decisions.
+
+    Phase Ordering:
+        Phase 1: All PriceBarEvent for T published (market data complete)
+        Phase 2: ValuationTriggerEvent published (BARRIER)
+        Phase 3: PortfolioService calculates metrics using complete data
+
+    Published by: BacktestEngine (after all PriceBarEvent for timestamp T)
+    Consumed by: PortfolioService
+
+    Why This Matters (Quant Gotchas):
+    ---------------------------------
+    Without this barrier:
+        ❌ Risk Service calculates position size while bars still arriving
+        ❌ Strategy A uses equity $100K, Strategy B uses equity $98K (race)
+        ❌ Position limits violated because of inconsistent snapshot
+
+    With this barrier:
+        ✅ All services see same portfolio state (equity, positions, P&L)
+        ✅ Risk decisions use consistent snapshot (no race conditions)
+        ✅ Deterministic: same inputs → same outputs (for research)
+
+    Implementation:
+        Backtest: synchronous call, no coordination needed
+        Production: async barrier (e.g., CountDownLatch pattern)
 
     Attributes:
         ts: Timestamp of the valuation (bar close time)
 
     Example:
+        >>> # BacktestEngine publishes after all bars for T
         >>> event = ValuationTriggerEvent(
         ...     ts=datetime(2020, 1, 2, 16, 0)
         ... )
+        >>> # PortfolioService calculates equity, all strategies see same value
     """
 
     event_type: str = "valuation_trigger"
@@ -551,18 +715,64 @@ class ValuationTriggerEvent(Event):
 @dataclass(frozen=True)
 class RiskEvaluationTriggerEvent(Event):
     """
-    Trigger for RiskService to evaluate buffered signals.
+    Barrier event: trigger risk evaluation with cross-strategy netting.
 
-    Published by BacktestEngine at end of bar processing.
-    Signals batch evaluation of all accumulated signals.
+    This is a CLOCK TICK BARRIER that marks "portfolio valuation complete,
+    now evaluate ALL buffered signals in single batch". RiskService uses this
+    to apply cross-strategy netting and check limits against consistent snapshot.
+
+    Phase Ordering:
+        Phase 1: All PriceBarEvent for T published (market data complete)
+        Phase 2: ValuationTriggerEvent → Portfolio calculates equity
+        Phase 3: RiskEvaluationTriggerEvent published (BARRIER)
+        Phase 4: RiskService processes ALL signals with netting
+
+    Published by: BacktestEngine (after ValuationTriggerEvent processed)
+    Consumed by: RiskService
+
+    Why This Matters (Quant Gotchas):
+    ---------------------------------
+    Without this barrier:
+        ❌ Strategy A buys 100 AAPL + Strategy B sells 100 AAPL = 2 fills
+           → double commissions, tax reporting complexity (wash sale)
+        ❌ Signals processed individually → no netting opportunity
+        ❌ Position limits checked multiple times → race conditions
+
+    With this barrier:
+        ✅ All signals buffered → barrier → net across strategies
+        ✅ A buys 100 + B sells 100 = net 0 (no fill, no commission)
+        ✅ Single batch evaluation → consistent limit checks
+        ✅ Audit trail: all signals evaluated together (transparency)
+
+    Cross-Strategy Netting Example:
+        Signals buffered:
+            - Strategy "momentum_v1": BUY 100 AAPL (strength=0.8)
+            - Strategy "mean_revert": SELL 100 AAPL (strength=0.6)
+
+        Without netting:
+            → 2 orders: BUY 100 + SELL 100
+            → 2 fills: commission on 200 shares
+            → Net position: 0 (but paid 2x commissions)
+
+        With netting (this event triggers):
+            → Net signal: 0 AAPL (100 - 100)
+            → 0 orders, 0 commissions
+            → Same net position, lower costs
+
+    Implementation:
+        Backtest: synchronous call, processes buffer immediately
+        Production: async barrier, bounded buffer (drop if >1000 signals)
 
     Attributes:
         ts: Timestamp of the evaluation (bar close time)
 
     Example:
+        >>> # RiskService buffers signals during bar processing
+        >>> # BacktestEngine publishes after valuation complete
         >>> event = RiskEvaluationTriggerEvent(
         ...     ts=datetime(2020, 1, 2, 16, 0)
         ... )
+        >>> # RiskService: net signals, check limits, publish approved orders
     """
 
     event_type: str = "risk_evaluation_trigger"
