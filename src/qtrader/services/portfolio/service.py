@@ -10,9 +10,11 @@ Week 4: State management, polish
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal, Optional
 
 from qtrader.config import LoggerFactory
+from qtrader.events.event_bus import EventBus
+from qtrader.events.events import FillEvent, PortfolioStateEvent, PriceBarEvent, ValuationTriggerEvent
 from qtrader.services.portfolio.lot_tracker import LotTracker
 from qtrader.services.portfolio.models import (
     Ledger,
@@ -53,14 +55,16 @@ class PortfolioService:
         >>> print(f"Equity: ${portfolio.get_equity()}")
     """
 
-    def __init__(self, config: PortfolioConfig):
+    def __init__(self, config: PortfolioConfig, event_bus: Optional[EventBus] = None):
         """
         Initialize portfolio service.
 
         Args:
             config: Portfolio configuration
+            event_bus: Optional event bus for Phase 5 event-driven mode
         """
         self.config = config
+        self._event_bus = event_bus
 
         # Core state
         self._cash: Decimal = config.initial_cash
@@ -78,11 +82,21 @@ class PortfolioService:
         self._total_dividends_received = Decimal("0")
         self._total_dividends_paid = Decimal("0")
 
+        # Latest prices for mark-to-market (Phase 5)
+        self._latest_prices: dict[str, Decimal] = {}
+
+        # Subscribe to events if event bus provided
+        if self._event_bus:
+            self._event_bus.subscribe("price_bar", self.on_bar)  # type: ignore[arg-type]
+            self._event_bus.subscribe("valuation_trigger", self.on_valuation_trigger)  # type: ignore[arg-type]
+            self._event_bus.subscribe("fill", self.on_fill)  # type: ignore[arg-type]
+
         logger.info(
             "portfolio_service.initialized",
             initial_cash=str(config.initial_cash),
             lot_method_long=config.lot_method_long,
             lot_method_short=config.lot_method_short,
+            event_driven=self._event_bus is not None,
         )
 
     # ==================== Fill Processing ====================
@@ -1393,3 +1407,114 @@ class PortfolioService:
         results["no_orphaned_trackers"] = no_orphaned_trackers
 
         return results
+
+    # ==================== Phase 5: Event Handlers ====================
+
+    def on_bar(self, event: PriceBarEvent) -> None:
+        """
+        Handle bar event - update latest prices for mark-to-market.
+
+        Args:
+            event: Price bar event with symbol and bar data
+        """
+        if event.bar:
+            self._latest_prices[event.symbol] = Decimal(str(event.bar.close))
+            logger.debug(
+                "portfolio_service.price_updated",
+                symbol=event.symbol,
+                price=str(event.bar.close),
+                is_warmup=event.is_warmup,
+            )
+
+    def on_valuation_trigger(self, event: ValuationTriggerEvent) -> None:
+        """
+        Handle valuation trigger - calculate portfolio metrics and publish state.
+
+        Args:
+            event: Valuation trigger event
+        """
+        # Calculate portfolio metrics with latest prices
+        positions_value = Decimal("0")
+        for symbol, position in self._positions.items():
+            if symbol in self._latest_prices:
+                positions_value += position.quantity * self._latest_prices[symbol]
+
+        total_equity = self._cash + positions_value
+        cash = self._cash
+
+        # Calculate exposures
+        gross_exposure = Decimal("0")
+        net_exposure = Decimal("0")
+
+        for symbol, position in self._positions.items():
+            if symbol in self._latest_prices:
+                position_value = position.quantity * self._latest_prices[symbol]
+                gross_exposure += abs(position_value)
+                net_exposure += position_value
+
+        # Publish portfolio state event
+        if self._event_bus:
+            state_event = PortfolioStateEvent(
+                ts=event.ts,
+                total_equity=total_equity,
+                cash=cash,
+                positions_value=positions_value,
+                num_positions=len(self._positions),
+                gross_exposure=gross_exposure,
+                net_exposure=net_exposure,
+            )
+            self._event_bus.publish(state_event)
+
+            logger.debug(
+                "portfolio_service.state_published",
+                total_equity=str(total_equity),
+                cash=str(cash),
+                num_positions=len(self._positions),
+            )
+
+    def on_fill(self, event: FillEvent) -> None:
+        """
+        Handle fill event - apply fill to portfolio.
+
+        Args:
+            event: Fill event with trade details
+        """
+        self.apply_fill(
+            fill_id=event.fill_id,
+            timestamp=event.timestamp,
+            symbol=event.symbol,
+            side=event.side,
+            quantity=event.quantity,
+            price=event.price,
+            commission=event.commission,
+        )
+
+        logger.debug(
+            "portfolio_service.fill_applied",
+            fill_id=event.fill_id,
+            symbol=event.symbol,
+            side=event.side,
+            quantity=str(event.quantity),
+        )
+
+    @classmethod
+    def from_config(cls, config_dict: dict[str, Any], event_bus: EventBus) -> "PortfolioService":
+        """
+        Factory method to create service from configuration.
+
+        Args:
+            config_dict: Portfolio configuration dictionary
+            event_bus: Event bus for communication
+
+        Returns:
+            Configured PortfolioService instance
+        """
+        # Convert config dict to PortfolioConfig
+        portfolio_config = PortfolioConfig(
+            initial_cash=Decimal(str(config_dict.get("initial_capital", "100000"))),
+            max_ledger_entries=config_dict.get("max_ledger_entries", 10000),
+            lot_method_long=config_dict.get("lot_method_long", "fifo"),
+            lot_method_short=config_dict.get("lot_method_short", "lifo"),  # Phase 2 only supports lifo for shorts
+        )
+
+        return cls(config=portfolio_config, event_bus=event_bus)

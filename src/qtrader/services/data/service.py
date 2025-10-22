@@ -4,8 +4,8 @@ Provides concrete implementation of IDataService that coordinates
 data loading from vendor adapters using DataLoader and DataSourceResolver.
 """
 
-from datetime import date
-from typing import Dict, List, Optional
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 
 import structlog
 
@@ -13,9 +13,11 @@ from qtrader.adapters.resolver import DataSourceResolver
 from qtrader.config import DataConfig
 from qtrader.data.iterator import PriceSeriesIterator
 from qtrader.data.loader import DataLoader
+from qtrader.events.event_bus import IEventBus
+from qtrader.events.events import PriceBarEvent
 from qtrader.models.instrument import Instrument
 
-logger = structlog.get_logger(__name__)
+logger = structlog.get_logger()
 
 
 class DataService:
@@ -70,6 +72,7 @@ class DataService:
         config: DataConfig,
         dataset: Optional[str] = None,
         resolver: Optional[DataSourceResolver] = None,
+        event_bus: Optional[IEventBus] = None,
     ):
         """
         Initialize data service.
@@ -79,10 +82,17 @@ class DataService:
             dataset: Dataset name from data_sources.yaml (e.g., "schwab-us-equity-1d-adjusted").
                     If None, will try to infer from config.source_selector (legacy behavior).
             resolver: Data source resolver (creates default if None)
+            event_bus: Optional EventBus for publishing PriceBarEvent and CorporateActionEvent.
+                      If None, DataService operates in non-event mode (pull-based).
 
         Examples:
             >>> # Explicit dataset (RECOMMENDED)
             >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted")
+            >>>
+            >>> # With EventBus (event-driven mode)
+            >>> from qtrader.events.event_bus import EventBus
+            >>> bus = EventBus()
+            >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted", event_bus=bus)
             >>>
             >>> # With custom resolver
             >>> resolver = DataSourceResolver("config/custom_sources.yaml")
@@ -93,6 +103,7 @@ class DataService:
         """
         self.config = config
         self.resolver = resolver or DataSourceResolver()
+        self._event_bus = event_bus
 
         # Store explicit dataset if provided
         self.dataset = dataset
@@ -124,6 +135,109 @@ class DataService:
             "data_service.initialized",
             mode=config.mode,
             source=config.source_selector.to_tag(),
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        config_dict: dict,
+        dataset: str,
+        resolver: Optional[DataSourceResolver] = None,
+        event_bus: Optional[IEventBus] = None,
+    ) -> "DataService":
+        """
+        Factory method to create DataService from backtest configuration.
+
+        This bridges the gap between backtest DataConfig (simple source + path)
+        and the service-level DataConfig (complex with source_selector, mode, etc.).
+
+        Args:
+            config_dict: Dict from backtest DataConfig.model_dump()
+                        Expected keys: 'source', 'data_path', 'dataset'
+            dataset: Dataset name from data_sources.yaml
+                    (e.g., "schwab-us-equity-1d-adjusted")
+            resolver: Optional DataSourceResolver instance
+            event_bus: Optional EventBus for event-driven operation
+
+        Returns:
+            Configured DataService instance
+
+        Examples:
+            >>> from qtrader.backtest.config import BacktestConfig
+            >>> backtest_config = BacktestConfig(...)
+            >>> service = DataService.from_config(
+            ...     config_dict=backtest_config.data.model_dump(),
+            ...     dataset="schwab-us-equity-1d-adjusted",
+            ...     event_bus=event_bus
+            ... )
+
+        Note:
+            This method creates a service-level DataConfig internally by inferring
+            the proper source_selector and mode from the dataset name.
+        """
+        from qtrader.config import AssetClass, BarSchemaConfig
+        from qtrader.config import DataConfig as ServiceDataConfig
+        from qtrader.config import DataSourceSelector
+
+        source = config_dict.get("source", "schwab")
+
+        # Infer asset class and mode from dataset name
+        # Dataset format: {provider}-{asset_class}-{timeframe}-{mode}
+        # e.g., "schwab-us-equity-1d-adjusted" or "algoseek-us-equity-1d-ohlc"
+
+        # Determine asset class (default to EQUITY)
+        asset_class = AssetClass.EQUITY
+        if "equity" in dataset.lower():
+            asset_class = AssetClass.EQUITY
+        elif "option" in dataset.lower():
+            asset_class = AssetClass.OPTIONS
+        elif "future" in dataset.lower():
+            asset_class = AssetClass.FUTURES
+
+        # Determine mode (adjusted vs ohlc)
+        mode = "adjusted" if "adjusted" in dataset.lower() else "ohlc"
+
+        # Create source selector
+        source_selector = DataSourceSelector(
+            provider=source,
+            asset_class=asset_class,
+        )
+
+        # Create minimal bar schema (will be overridden by resolver/loader)
+        bar_schema = BarSchemaConfig(
+            ts="trade_datetime",
+            symbol="symbol",
+            open="open",
+            high="high",
+            low="low",
+            close="close",
+            volume="volume",
+        )
+
+        # Create service-level DataConfig
+        service_config = ServiceDataConfig(
+            mode=mode,
+            source_selector=source_selector,
+            bar_schema=bar_schema,
+        )
+
+        # Create resolver if not provided
+        if resolver is None:
+            resolver = DataSourceResolver()
+
+        logger.info(
+            "data_service.from_config",
+            source=source,
+            dataset=dataset,
+            mode=mode,
+            asset_class=asset_class.value,
+        )
+
+        return cls(
+            config=service_config,
+            dataset=dataset,
+            resolver=resolver,
+            event_bus=event_bus,
         )
 
     def load_symbol(
@@ -282,6 +396,197 @@ class DataService:
         )
 
         return iterators
+
+    def stream_bars(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        *,
+        is_warmup: bool = False,
+    ) -> None:
+        """
+        Load bars and publish PriceBarEvent for each bar (event-driven mode).
+
+        This method combines loading and event publishing for a single symbol.
+        Requires EventBus to be configured during initialization.
+
+        Args:
+            symbol: Ticker symbol (e.g., 'AAPL')
+            start_date: Start of date range
+            end_date: End of date range (inclusive)
+            is_warmup: If True, publishes bars with is_warmup=True flag.
+                      Strategies should NOT generate signals during warmup.
+
+        Raises:
+            ValueError: If EventBus not configured
+            ValueError: If symbol not found or invalid date range
+            FileNotFoundError: If data files missing
+
+        Examples:
+            >>> # Load warmup bars (no signals)
+            >>> service.stream_bars("AAPL", date(2019, 1, 1), date(2019, 12, 31), is_warmup=True)
+            >>>
+            >>> # Load live bars (generate signals)
+            >>> service.stream_bars("AAPL", date(2020, 1, 1), date(2020, 12, 31), is_warmup=False)
+
+        Flow:
+            DataService loads bar → Publishes PriceBarEvent →
+            PortfolioService updates prices →
+            ExecutionService checks fills →
+            StrategyService sees bar → Publishes SignalEvent
+
+        Note:
+            This method blocks until all bars are processed. Use in BacktestEngine event loop.
+        """
+        if self._event_bus is None:
+            raise ValueError(
+                "EventBus not configured. Initialize DataService with event_bus parameter "
+                "or use load_symbol() for non-event mode."
+            )
+
+        logger.info(
+            "data_service.stream_bars",
+            symbol=symbol,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            is_warmup=is_warmup,
+        )
+
+        # Load data
+        iterator = self.load_symbol(symbol, start_date, end_date)
+
+        # Stream bars as events
+        bar_count = 0
+        for multi_bar in iterator:
+            # Publish event with adjusted bar (canonical mode for strategies)
+            event = PriceBarEvent(
+                symbol=symbol,
+                bar=multi_bar.adjusted,  # Use adjusted mode for strategies
+                timestamp=multi_bar.adjusted.trade_datetime,
+                is_warmup=is_warmup,
+            )
+            self._event_bus.publish(event)
+            bar_count += 1
+
+        logger.info(
+            "data_service.stream_bars.complete",
+            symbol=symbol,
+            bar_count=bar_count,
+            is_warmup=is_warmup,
+        )
+
+    def stream_universe(
+        self,
+        symbols: List[str],
+        start_date: date,
+        end_date: date,
+        *,
+        is_warmup: bool = False,
+        strict: bool = False,
+    ) -> None:
+        """
+        Load bars for multiple symbols and publish PriceBarEvent for each bar.
+
+        Synchronizes iterators to publish all bars for a given timestamp together
+        before moving to next timestamp. This ensures proper event ordering.
+
+        Args:
+            symbols: List of ticker symbols
+            start_date: Start of date range
+            end_date: End of date range (inclusive)
+            is_warmup: If True, all bars published with is_warmup=True
+            strict: If True, raise ValueError if any symbol fails to load
+
+        Raises:
+            ValueError: If EventBus not configured
+            ValueError: If any symbol not found and strict=True
+
+        Examples:
+            >>> # Stream universe in warmup mode
+            >>> service.stream_universe(
+            ...     ["AAPL", "MSFT", "GOOGL"],
+            ...     date(2019, 1, 1),
+            ...     date(2019, 12, 31),
+            ...     is_warmup=True
+            ... )
+            >>>
+            >>> # Stream universe in live mode
+            >>> service.stream_universe(
+            ...     ["AAPL", "MSFT", "GOOGL"],
+            ...     date(2020, 1, 1),
+            ...     date(2020, 12, 31),
+            ...     is_warmup=False
+            ... )
+
+        Event Ordering:
+            For each timestamp T:
+            1. Publish PriceBarEvent(AAPL, T)
+            2. Publish PriceBarEvent(MSFT, T)
+            3. Publish PriceBarEvent(GOOGL, T)
+            4. Move to next timestamp T+1
+
+        Note:
+            Bars are aligned by timestamp. If a symbol is missing data for a timestamp,
+            that symbol is skipped for that timestamp.
+        """
+        if self._event_bus is None:
+            raise ValueError(
+                "EventBus not configured. Initialize DataService with event_bus parameter "
+                "or use load_universe() for non-event mode."
+            )
+
+        logger.info(
+            "data_service.stream_universe",
+            symbol_count=len(symbols),
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            is_warmup=is_warmup,
+        )
+
+        # Load iterators for all symbols
+        iterators = self.load_universe(symbols, start_date, end_date, strict=strict)
+
+        # Create dict to track active iterators
+        active_iterators = {symbol: iter(iterator) for symbol, iterator in iterators.items()}
+
+        # Track bars by timestamp for synchronization
+        timestamp_bars: Dict[datetime, Dict[str, Any]] = {}
+
+        # Collect all bars from all iterators
+        for symbol, iterator in active_iterators.items():
+            try:
+                for multi_bar in iterator:
+                    ts = multi_bar.adjusted.trade_datetime
+                    if ts not in timestamp_bars:
+                        timestamp_bars[ts] = {}
+                    timestamp_bars[ts][symbol] = multi_bar
+            except StopIteration:
+                continue
+
+        # Publish bars in timestamp order
+        total_bars = 0
+        for ts in sorted(timestamp_bars.keys()):
+            bars_at_ts = timestamp_bars[ts]
+
+            # Publish bar for each symbol at this timestamp
+            for symbol, multi_bar in sorted(bars_at_ts.items()):  # Sort for determinism
+                event = PriceBarEvent(
+                    symbol=symbol,
+                    bar=multi_bar.adjusted,  # Use adjusted mode for strategies
+                    timestamp=ts,
+                    is_warmup=is_warmup,
+                )
+                self._event_bus.publish(event)
+                total_bars += 1
+
+        logger.info(
+            "data_service.stream_universe.complete",
+            symbol_count=len(active_iterators),
+            total_bars=total_bars,
+            unique_timestamps=len(timestamp_bars),
+            is_warmup=is_warmup,
+        )
 
     def get_instrument(self, symbol: str) -> Instrument:
         """
@@ -530,6 +835,8 @@ class DataService:
         symbol: str,
         start_date: date,
         end_date: date,
+        *,
+        publish_events: bool = True,
     ) -> list:
         """
         Get corporate actions for symbol in date range.
@@ -541,21 +848,29 @@ class DataService:
             symbol: Ticker symbol
             start_date: Start date (inclusive)
             end_date: End date (inclusive)
+            publish_events: If True and EventBus configured, publishes CorporateActionEvent
+                          for each action. Default True.
 
         Returns:
             List of CorporateActionEvent
 
         Examples:
+            >>> # Get actions without publishing (pull mode)
             >>> actions = service.get_corporate_actions(
             ...     "AAPL",
             ...     date(2020, 1, 1),
-            ...     date(2020, 12, 31)
+            ...     date(2020, 12, 31),
+            ...     publish_events=False
             ... )
             >>> for action in actions:
             ...     if action.action_type == "dividend":
             ...         print(f"Dividend: ${action.dividend_amount}")
             ...     elif action.action_type == "split":
             ...         print(f"Split: {action.split_ratio}:1")
+            >>>
+            >>> # Get actions with event publishing (event-driven mode)
+            >>> service.get_corporate_actions("AAPL", date(2020, 1, 1), date(2020, 12, 31))
+            >>> # Publishes CorporateActionEvent for each action
         """
         if start_date > end_date:
             raise ValueError(f"Invalid date range: {start_date} > {end_date}")
@@ -565,6 +880,7 @@ class DataService:
             symbol=symbol,
             start_date=start_date.isoformat(),
             end_date=end_date.isoformat(),
+            publish_events=publish_events and self._event_bus is not None,
         )
 
         # Get instrument and create adapter
@@ -591,6 +907,18 @@ class DataService:
                 start_date.isoformat(),
                 end_date.isoformat(),
             )
+
+            # Publish events if requested and EventBus configured
+            if publish_events and self._event_bus is not None:
+                for action in actions:
+                    # action is already a CorporateActionEvent from adapter
+                    self._event_bus.publish(action)
+
+                logger.info(
+                    "data_service.get_corporate_actions.published",
+                    symbol=symbol,
+                    count=len(actions),
+                )
 
             logger.info(
                 "data_service.get_corporate_actions.complete",

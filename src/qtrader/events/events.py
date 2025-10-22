@@ -76,12 +76,14 @@ class PriceBarEvent(MarketDataEvent):
         >>> event = PriceBarEvent(
         ...     symbol="AAPL",
         ...     bar=bar_instance,
-        ...     timestamp=datetime(2020, 1, 2, 16, 0)
+        ...     timestamp=datetime(2020, 1, 2, 16, 0),
+        ...     is_warmup=False
         ... )
     """
 
     event_type: str = "price_bar"
     bar: Bar | None = None
+    is_warmup: bool = False  # True during warmup phase, strategies should not generate signals
 
 
 @dataclass(frozen=True)
@@ -350,6 +352,50 @@ class CashChangedEvent(Event):
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class PortfolioStateEvent(Event):
+    """
+    Current portfolio state snapshot.
+
+    Published by PortfolioService after valuation trigger.
+    Contains all metrics needed for risk evaluation.
+
+    Published by: PortfolioService
+    Consumed by: RiskService (for risk checks)
+
+    Attributes:
+        ts: Timestamp of state snapshot
+        total_equity: Total portfolio value (cash + positions)
+        cash: Available cash
+        positions_value: Total value of all positions
+        num_positions: Number of open positions
+        gross_exposure: Sum of abs(position_values)
+        net_exposure: Sum of position_values (long - short)
+        metadata: Additional state information
+
+    Example:
+        >>> event = PortfolioStateEvent(
+        ...     ts=datetime(2020, 1, 2, 16, 0),
+        ...     total_equity=Decimal("105000"),
+        ...     cash=Decimal("50000"),
+        ...     positions_value=Decimal("55000"),
+        ...     num_positions=3,
+        ...     gross_exposure=Decimal("55000"),
+        ...     net_exposure=Decimal("55000")
+        ... )
+    """
+
+    event_type: str = "portfolio_state"
+    ts: datetime = field(default_factory=datetime.now)
+    total_equity: Decimal = Decimal("0")
+    cash: Decimal = Decimal("0")
+    positions_value: Decimal = Decimal("0")
+    num_positions: int = 0
+    gross_exposure: Decimal = Decimal("0")
+    net_exposure: Decimal = Decimal("0")
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 # ============================================
 # Risk Events
 # ============================================
@@ -479,6 +525,27 @@ class BarCloseEvent(Event):
 # ============================================
 # Risk Management Events (Phase 4)
 # ============================================
+
+
+@dataclass(frozen=True)
+class ValuationTriggerEvent(Event):
+    """
+    Trigger for PortfolioService to calculate portfolio metrics.
+
+    Published by BacktestEngine after bar events to trigger portfolio
+    valuation and metric calculation.
+
+    Attributes:
+        ts: Timestamp of the valuation (bar close time)
+
+    Example:
+        >>> event = ValuationTriggerEvent(
+        ...     ts=datetime(2020, 1, 2, 16, 0)
+        ... )
+    """
+
+    event_type: str = "valuation_trigger"
+    ts: datetime = field(default_factory=datetime.now)
 
 
 @dataclass(frozen=True)
