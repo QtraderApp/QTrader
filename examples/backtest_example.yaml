@@ -15,6 +15,11 @@ end_date: 2023-12-31
 initial_capital: 100000
 warmup_bars: 20 # Number of bars to warm up indicators
 
+# Replay speed (optional, for visualization/debugging)
+# 0.0 = full speed (default), 1.0 = 1 second per bar, 0.1 = 100ms per bar
+# Only affects historical backtests, ignored in live trading
+replay_speed: 0.0
+
 # Universe (symbols to trade)
 universe:
   - AAPL
