@@ -31,10 +31,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from qtrader.events.event_bus import EventBus
 from qtrader.services.data.service import DataService
-from qtrader.system import LoggerFactory, LoggingConfig
+from qtrader.system import LoggerFactory, get_system_config
 
-# Configure logging
-LoggerFactory.configure(LoggingConfig(level="INFO", format="console"))
+# Configure logging from system.yaml (can be overridden programmatically)
+# The system.yaml file sets level="INFO" for user-friendly output
+#
+# Option 1 (Recommended): Load from system.yaml
+system_config = get_system_config()
+LoggerFactory.configure(system_config.logging.to_logger_config())
+#
+# Option 2: Override programmatically (useful for debugging)
+# from qtrader.system.log_system import LoggingConfig
+# LoggerFactory.configure(LoggingConfig(level="DEBUG"))
+
 logger = LoggerFactory.get_logger()  # Auto-detects module name
 
 
@@ -379,7 +388,3 @@ if __name__ == "__main__":
     print("3. Without EventBus: Use load_symbol() / load_universe() for pull-based access")
     print("4. Events published in timestamp order (all symbols at T, then T+1)")
     print("5. Other services (Strategy, Risk, etc.) subscribe to events")
-    print("\nNext Steps:")
-    print("- See examples/services/strategy/ for strategy examples")
-    print("- See examples/services/risk/ for risk management examples")
-    print("- See src/qtrader/backtest/engine.py for full backtest orchestration")
