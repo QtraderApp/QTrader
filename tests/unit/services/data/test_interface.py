@@ -91,7 +91,7 @@ class TestIDataServiceProtocol:
                 start_date: date,
                 end_date: date,
                 *,
-                data_source: str = None,
+                data_source: str | None = None,
             ) -> PriceSeriesIterator:
                 return MagicMock(spec=PriceSeriesIterator)
 
@@ -112,7 +112,7 @@ class TestIDataServiceProtocol:
                 start_date: date,
                 end_date: date,
                 *,
-                data_source: str = None,
+                data_source: str | None = None,
             ) -> Dict[str, PriceSeriesIterator]:
                 return {}
 
