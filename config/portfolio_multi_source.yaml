@@ -1,0 +1,57 @@
+# Multi-Source Backtest Example
+# Demonstrates loading different symbols from different data sources
+
+# Backtest parameters
+start_date: "2023-01-01"
+end_date: "2023-12-31"
+initial_equity: 500_000
+
+# Replay speed for visualization (0.0 = full speed, 1.0 = 1 sec/bar)
+replay_speed: 0.0 # Full speed
+
+# Data configuration - per data source universe
+# This demonstrates the key feature: different symbols from different sources
+data:
+  sources:
+    - name: "algoseek-us-equity-1d-adjusted" # Price data source
+      universe: ["AAPL", "MSFT", "GOOGL"] # Load prices for tech stocks
+
+    # Future: News sentiment data
+    # - name: "news-sentiment-feed"
+    #   universe: ["AAPL"]  # Load news only for AAPL
+
+# Strategies to run (referenced by name from registry)
+strategies:
+  # Strategy 1: Momentum strategy on AAPL and MSFT
+  - strategy_id: "momentum" # Registry name
+    universe: ["AAPL", "MSFT"] # Subset of loaded symbols
+    data_sources: ["algoseek-us-equity-1d-adjusted"] # Uses price data
+    config:
+      lookback: 20
+      warmup_bars: 21
+
+  # Strategy 2: Mean reversion on GOOGL
+  - strategy_id: "mean_reversion" # Registry name
+    universe: ["GOOGL"] # Different subset
+    data_sources: ["algoseek-us-equity-1d-adjusted"] # Uses price data
+    config:
+      z_score_threshold: 2.0
+      lookback: 50
+      warmup_bars: 51
+
+  # Future: News-based strategy
+  # - strategy_id: "news_momentum"
+  #   universe: ["AAPL"]
+  #   data_sources:
+  #     - "algoseek-us-equity-1d-adjusted"  # Price data
+  #     - "news-sentiment-feed"  # News data
+  #   config:
+  #     sentiment_threshold: 0.7
+  #     warmup_bars: 21
+
+# Risk policy (Portfolio Manager level)
+risk_policy:
+  name: "vol_target" # Registry name
+  config:
+    target_volatility: 0.15 # 15% annualized
+    max_pct_position_size: 0.20 # Max 20% per position
