@@ -16,9 +16,9 @@ from pathlib import Path
 
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import OrderApprovedEvent, OrderRejectedEvent, RiskEvaluationTriggerEvent, SignalEvent
-from qtrader.services.risk.config_loader import load_risk_config
-from qtrader.services.risk.models import PortfolioState, Position
-from qtrader.services.risk.service import RiskService
+from qtrader.services.portfolio_manager.config_loader import load_risk_config
+from qtrader.services.portfolio_manager.models import PortfolioState, Position
+from qtrader.services.portfolio_manager.service import RiskService
 
 
 def main():

@@ -45,9 +45,6 @@ data:
 # Portfolio Service Configuration
 # ============================================================
 portfolio:
-  # Initial capital (can be overridden per backtest)
-  initial_capital: 100000.00
-
   # Lot tracking method for long positions
   # Options: fifo (first in first out), lifo (last in first out)
   lot_method_long: "fifo"
@@ -57,7 +54,7 @@ portfolio:
   lot_method_short: "lifo"
 
   # Maximum ledger entries to track
-  max_ledger_entries: 10000
+  max_ledger_entries: 10_000
 
 # ============================================================
 # Execution Service Configuration
@@ -88,32 +85,15 @@ execution:
   max_volume_participation: 0.10 # Max 10% of bar volume per fill
 
 # ============================================================
-# Risk Service Configuration
+# Libraries
 # ============================================================
-risk:
-  # Cash buffer to maintain (as fraction of equity)
-  cash_buffer_pct: 0.02 # Reserve 2% cash for safety
-
-  # Default strategy budgets (can be overridden per backtest)
-  # These define how capital is allocated across strategies
-  budgets:
-    - strategy_id: "default"
-      capital_weight: 1.0 # 100% of capital available
-
-  # Default position sizing per strategy
-  sizing:
-    default:
-      model: "fixed_fraction"
-      fraction: 0.20 # 20% of allocated capital per position
-
-  # Concentration limits
-  concentration:
-    max_position_pct: 0.10 # Max 10% of equity in single position
-
-  # Leverage limits
-  leverage:
-    max_gross: 1.0 # Maximum gross leverage (1.0 = fully invested)
-    max_net: 1.0 # Maximum net leverage
+# External library paths for custom implementations
+# System will scan these directories and register all valid implementations
+custom_libraries:
+  risk_policies: "my_library/risk_policies"
+  indicators: "my_library/indicators"
+  strategies: "my_library/strategies"
+  metrics: "my_library/metrics"
 
 # ============================================================
 # Strategy Service Configuration
@@ -125,39 +105,10 @@ strategy:
   # Allow multiple strategies to run concurrently
   allow_concurrent: true
 
-  # Strategy warmup behavior
-  warmup:
-    skip_signals: true # Don't generate signals during warmup
-
 # ============================================================
 # Output & Results Configuration
 # ============================================================
-output:
-  # Default results directory
-  default_results_dir: "output/backtests"
-
-  # Create timestamped subdirectories
-  use_timestamps: true
-  timestamp_format: "%Y%m%d_%H%M%S"
-
-  # Organize by date (creates YYYY-MM-DD subdirs)
-  organize_by_date: false
-
-  # Files to generate
-  generate_files:
-    metadata: true # metadata.json
-    trades: true # trades.csv
-    fills: true # fills.csv
-    portfolio: true # portfolio.csv
-    positions: true # positions.csv
-    equity_curve: true # equity_curve.csv
-    metrics: true # metrics.json
-
-  # File formats
-  formats:
-    json: true
-    csv: true
-    parquet: false # Future: efficient binary format
+# to be implemented
 
 # ============================================================
 # Logging Configuration
@@ -195,35 +146,36 @@ logging:
 # ============================================================
 # Reporting Configuration
 # ============================================================
-reporting:
-  # Metrics to calculate
-  metrics:
-    - "total_return"
-    - "sharpe_ratio"
-    - "max_drawdown"
-    - "win_rate"
-    - "profit_factor"
-    - "avg_trade_duration"
-    - "calmar_ratio"
-    - "sortino_ratio"
-    - "num_trades"
-    - "avg_win"
-    - "avg_loss"
+# reporting:
+#   # Metrics to calculate
+#   metrics:
+#     - "total_return"
+#     - "sharpe_ratio"
+#     - "max_drawdown"
+#     - "win_rate"
+#     - "profit_factor"
+#     - "avg_trade_duration"
+#     - "calmar_ratio"
+#     - "sortino_ratio"
+#     - "num_trades"
+#     - "avg_win"
+#     - "avg_loss"
 
-  # Report formatting
-  decimal_places: 4
-  include_trade_details: true
+#   # Report formatting
+#   decimal_places: 4
+#   include_trade_details: true
 
-  # Report generation
-  formats:
-    json: true
-    csv: true
-    html: false # Future
-    pdf: false # Future
+#   # Report generation
+#   formats:
+#     json: true
+#     csv: true
+#     html: false # Future
+#     pdf: false # Future
 
 # ============================================================
 # User Preferences
 # ============================================================
+# is this in use?
 preferences:
   # Display formats
   date_format: "%Y-%m-%d"

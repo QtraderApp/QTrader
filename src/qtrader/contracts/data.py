@@ -570,3 +570,22 @@ class EconomicEvent(BaseModel):
     actual_value: Optional[Decimal] = None
 
     model_config = {"frozen": True}
+
+
+# ============================================
+# public API
+# ============================================
+__all__ = [
+    # Version
+    "CONTRACT_VERSION",
+    # Data Contract
+    "Bar",
+    "PriceSeries",
+    "MultiBar",
+    "AdjustmentMode",
+    "Instrument",
+    "InstrumentType",
+    "DataSource",
+    "CorporateAction",
+    "CorporateActionType",
+]

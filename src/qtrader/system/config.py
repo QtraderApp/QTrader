@@ -79,7 +79,7 @@ class SlippageConfig:
 class PortfolioConfig:
     """Portfolio service configuration."""
 
-    initial_capital: Decimal = Decimal("100000.00")
+    initial_equity: Decimal = Decimal("100000.00")
     lot_method_long: str = "fifo"
     lot_method_short: str = "lifo"
     max_ledger_entries: int = 10000
@@ -414,7 +414,7 @@ class SystemConfig:
         portfolio_commission_dict = portfolio_dict.get("commission", {})
         portfolio_slippage_dict = portfolio_dict.get("slippage", {})
         portfolio = PortfolioConfig(
-            initial_capital=Decimal(str(portfolio_dict.get("initial_capital", "100000.00"))),
+            initial_equity=Decimal(str(portfolio_dict.get("initial_equity", "100000.00"))),
             lot_method_long=portfolio_dict.get("lot_method_long", "fifo"),
             lot_method_short=portfolio_dict.get("lot_method_short", "lifo"),
             max_ledger_entries=portfolio_dict.get("max_ledger_entries", 10000),
