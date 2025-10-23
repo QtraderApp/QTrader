@@ -106,7 +106,7 @@ class TestDataSourceSelector:
         assert selector.matches(source_config) is True
 
         # Should not match different provider
-        source_config["provider"] = "algoseek"
+        source_config["provider"] = "polygon"
         assert selector.matches(source_config) is False
 
     def test_matches_asset_class_only(self):
