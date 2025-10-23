@@ -1,0 +1,10 @@
+portfolio_risk_policy:
+  name: "naive"
+  max_pct_position_size: 0.90  # Max 90% position size
+  max_drawdown: 0.25  # Max 25% drawdown
+  allow_short_positions: false
+  allow-negative_cash: false
+  allow_leveraged_positions: false
+  daily_loss_limit_pct: 0.0  # 0.0 means no limit
+  min_cash_reserve_pct: 0.0  # No minimum cash reserve
+  max_positions : null  # No limit on number of positions
