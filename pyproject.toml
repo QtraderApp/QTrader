@@ -77,6 +77,11 @@ line-length = 120
 target-version = "py313"
 src = ["src"]
 
+[tool.ruff.lint]
+ignore = [
+    "F541",
+] # Allow f-strings without placeholders (useful for consistency)
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
