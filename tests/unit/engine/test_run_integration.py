@@ -42,7 +42,7 @@ class TestBacktestEngineRun:
         config_dict = {
             "start_date": "2020-01-02",
             "end_date": "2020-01-05",
-            "initial_capital": 100000,
+            "initial_equity": 100000,
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
@@ -51,7 +51,7 @@ class TestBacktestEngineRun:
                 "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
-                "initial_capital": 100000,
+                "initial_equity": 100000,
                 "base_currency": "USD",
                 "accounting_method": "average_cost",
             },
@@ -103,7 +103,7 @@ class TestBacktestEngineRun:
             assert isinstance(result, BacktestResult)
             assert result.start_date == config.start_date
             assert result.end_date == config.end_date
-            assert result.initial_capital == 100000.0
+            assert result.initial_equity == 100000.0
             assert result.final_capital == 105000.0
             assert result.total_return == pytest.approx(0.05)  # 5% return
             assert result.num_trades == 0
@@ -113,7 +113,7 @@ class TestBacktestEngineRun:
         config_dict = {
             "start_date": "2020-01-10",
             "end_date": "2020-01-15",
-            "initial_capital": 100000,
+            "initial_equity": 100000,
             "warmup_bars": 5,  # 5 warmup bars
             "universe": ["AAPL"],
             "data": {
@@ -122,7 +122,7 @@ class TestBacktestEngineRun:
                 "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
-                "initial_capital": 100000,
+                "initial_equity": 100000,
                 "base_currency": "USD",
                 "accounting_method": "average_cost",
             },
@@ -184,7 +184,7 @@ class TestBacktestEngineRun:
         config_dict = {
             "start_date": "2020-01-02",
             "end_date": "2020-01-03",
-            "initial_capital": 100000,
+            "initial_equity": 100000,
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
@@ -193,7 +193,7 @@ class TestBacktestEngineRun:
                 "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
-                "initial_capital": 100000,
+                "initial_equity": 100000,
                 "base_currency": "USD",
                 "accounting_method": "average_cost",
             },
@@ -303,7 +303,7 @@ class TestBacktestEngineRun:
         config_dict = {
             "start_date": "2020-01-02",
             "end_date": "2020-01-05",
-            "initial_capital": 100000,
+            "initial_equity": 100000,
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
@@ -312,7 +312,7 @@ class TestBacktestEngineRun:
                 "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
-                "initial_capital": 100000,
+                "initial_equity": 100000,
                 "base_currency": "USD",
                 "accounting_method": "average_cost",
             },
@@ -368,7 +368,7 @@ class TestBacktestEngineRun:
         config_dict = {
             "start_date": "2020-01-02",
             "end_date": "2020-01-05",
-            "initial_capital": 100000,
+            "initial_equity": 100000,
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
@@ -377,7 +377,7 @@ class TestBacktestEngineRun:
                 "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
-                "initial_capital": 100000,
+                "initial_equity": 100000,
                 "base_currency": "USD",
                 "accounting_method": "average_cost",
             },
@@ -424,7 +424,7 @@ class TestBacktestEngineEndToEnd:
         config_dict = {
             "start_date": "2020-01-02",
             "end_date": "2020-01-05",
-            "initial_capital": 100000,
+            "initial_equity": 100000,
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
@@ -433,7 +433,7 @@ class TestBacktestEngineEndToEnd:
                 "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
-                "initial_capital": 100000,
+                "initial_equity": 100000,
                 "base_currency": "USD",
                 "accounting_method": "average_cost",
             },
@@ -465,5 +465,5 @@ class TestBacktestEngineEndToEnd:
 
         # Verify result
         assert isinstance(result, BacktestResult)
-        assert result.initial_capital == 100000.0
+        assert result.initial_equity == 100000.0
         assert result.final_capital > 0  # Should have some value

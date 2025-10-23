@@ -26,7 +26,7 @@ class TestSystemConfigLoad:
 
         # Should have built-in defaults
         assert config.data.default_mode == "adjusted"
-        assert config.portfolio.initial_capital == Decimal("100000.00")
+        assert config.portfolio.initial_equity == Decimal("100000.00")
         assert config.execution.commission.per_share == 0.0005
         assert config.risk.cash_buffer_pct == 0.02
 
@@ -76,7 +76,7 @@ class TestPortfolioConfig:
         """Test portfolio configuration has correct defaults."""
         config = SystemConfig.load()
 
-        assert config.portfolio.initial_capital == Decimal("100000.00")
+        assert config.portfolio.initial_equity == Decimal("100000.00")
         assert config.portfolio.lot_method_long == "fifo"
         assert config.portfolio.lot_method_short == "lifo"
         assert config.portfolio.max_ledger_entries == 10000
@@ -323,7 +323,7 @@ class TestConfigMerging:
         custom_config.write_text(
             """
 portfolio:
-  initial_capital: 500000.00
+  initial_equity: 500000.00
   lot_method_long: lifo
 
 execution:
@@ -338,7 +338,7 @@ logging:
         config = SystemConfig.load(custom_config)
 
         # Custom values should override defaults
-        assert config.portfolio.initial_capital == Decimal("500000.00")
+        assert config.portfolio.initial_equity == Decimal("500000.00")
         assert config.portfolio.lot_method_long == "lifo"
         assert config.execution.fill_policy == "aggressive"
         assert config.execution.queue_bars == 5
