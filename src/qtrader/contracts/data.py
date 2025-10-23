@@ -70,7 +70,6 @@ class DataSource(Enum):
     """
 
     ALGOSEEK = "algoseek"
-    SCHWAB = "schwab"
     CSV_FILE = "csv_file"
 
 
@@ -85,8 +84,8 @@ class Instrument(BaseModel):
     Used By: All services requiring instrument identification
 
     Design Philosophy:
-        User specifies: "Give me bars for AAPL from dataset schwab-us-equity-1d"
-        Not: "Give me bars for AAPL (equity, from Schwab)" - that duplicates dataset config
+        User specifies: "Give me bars for AAPL from dataset algoseek-us-equity-1d"
+        Not: "Give me bars for AAPL (equity, from AlgoSeek)" - that duplicates dataset config
 
     Attributes:
         symbol: Ticker symbol (e.g., "AAPL", "BTCUSD", "ES_Z24")

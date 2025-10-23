@@ -12,7 +12,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from qtrader.engine.config import BacktestConfig, ConfigLoadError, DataConfig, StrategyConfigItem, load_backtest_config
+from qtrader.engine.config import (
+    BacktestConfig,
+    ConfigLoadError,
+    DataConfig,
+    DataSourceConfig,
+    StrategyConfigItem,
+    load_backtest_config,
+)
 
 
 class TestDataConfig:
@@ -20,8 +27,12 @@ class TestDataConfig:
 
     def test_valid_config(self):
         """Test valid data config."""
-        config = DataConfig(dataset="algoseek-us-equity-1d-unadjusted")
-        assert config.dataset == "algoseek-us-equity-1d-unadjusted"
+        config = DataConfig(
+            sources=[DataSourceConfig(name="algoseek-us-equity-1d-unadjusted", universe=["AAPL", "MSFT"])]
+        )
+        assert len(config.sources) == 1
+        assert config.sources[0].name == "algoseek-us-equity-1d-unadjusted"
+        assert len(config.sources[0].universe) == 2
 
 
 class TestStrategyConfigItem:

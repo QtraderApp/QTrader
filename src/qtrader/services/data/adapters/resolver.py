@@ -334,7 +334,7 @@ class DataSourceResolver:
         of truth for provider, asset type, frequency, etc.
 
         Args:
-            dataset: Dataset name from data_sources.yaml (e.g., "schwab-us-equity-1d-adjusted")
+            dataset: Dataset name from data_sources.yaml (e.g., "algoseek-us-equity-1d-unadjusted")
             instrument: Instrument with symbol (and optional overrides)
 
         Returns:
@@ -347,7 +347,7 @@ class DataSourceResolver:
         Examples:
             >>> resolver = DataSourceResolver()
             >>> instrument = Instrument("AAPL")
-            >>> adapter = resolver.resolve_by_dataset("schwab-us-equity-1d-adjusted", instrument)
+            >>> adapter = resolver.resolve_by_dataset("algoseek-us-equity-1d-unadjusted", instrument)
             >>> bars = adapter.read_bars(start_date="2024-01-01", end_date="2024-12-31")
         """
         if dataset not in self.sources:
