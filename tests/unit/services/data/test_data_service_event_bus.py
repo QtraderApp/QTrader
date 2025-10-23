@@ -33,7 +33,7 @@ def bar_schema() -> BarSchemaConfig:
 @pytest.fixture
 def data_config(bar_schema: BarSchemaConfig) -> DataConfig:
     """Data configuration for tests."""
-    selector = DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
+    selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
     return DataConfig(
         mode="adjusted",
         frequency="1d",
@@ -54,7 +54,7 @@ def data_service_with_bus(data_config: DataConfig, event_bus: EventBus) -> DataS
     """Create DataService with EventBus configured."""
     return DataService(
         config=data_config,
-        dataset="schwab-us-equity-1d-adjusted",
+        dataset="algoseek-us-equity-1d-unadjusted",
         event_bus=event_bus,
     )
 
@@ -64,7 +64,7 @@ def data_service_no_bus(data_config: DataConfig) -> DataService:
     """Create DataService without EventBus."""
     return DataService(
         config=data_config,
-        dataset="schwab-us-equity-1d-adjusted",
+        dataset="algoseek-us-equity-1d-unadjusted",
         event_bus=None,
     )
 
@@ -76,7 +76,7 @@ class TestDataServiceEventBusIntegration:
         """Test DataService can be initialized with EventBus."""
         service = DataService(
             config=data_config,
-            dataset="schwab-us-equity-1d-adjusted",
+            dataset="algoseek-us-equity-1d-unadjusted",
             event_bus=event_bus,
         )
 
@@ -86,7 +86,7 @@ class TestDataServiceEventBusIntegration:
         """Test DataService can be initialized without EventBus (legacy mode)."""
         service = DataService(
             config=data_config,
-            dataset="schwab-us-equity-1d-adjusted",
+            dataset="algoseek-us-equity-1d-unadjusted",
             event_bus=None,
         )
 
@@ -96,7 +96,7 @@ class TestDataServiceEventBusIntegration:
         """Test from_config factory method with EventBus."""
         service = DataService.from_config(
             config_dict=data_config.model_dump(),
-            dataset="schwab-us-equity-1d-adjusted",
+            dataset="algoseek-us-equity-1d-unadjusted",
             event_bus=event_bus,
         )
 
@@ -106,7 +106,7 @@ class TestDataServiceEventBusIntegration:
         """Test from_config factory method without EventBus."""
         service = DataService.from_config(
             config_dict=data_config.model_dump(),
-            dataset="schwab-us-equity-1d-adjusted",
+            dataset="algoseek-us-equity-1d-unadjusted",
             event_bus=None,
         )
 
@@ -246,7 +246,7 @@ class TestDataServiceFromBacktestConfig:
 
         config = DataConfig(
             mode="adjusted",
-            source_selector=DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY),
+            source_selector=DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY),
             bar_schema=BarSchemaConfig(
                 ts="trade_datetime",
                 symbol="symbol",
@@ -261,7 +261,7 @@ class TestDataServiceFromBacktestConfig:
         # Create DataService using from_config with EventBus
         service = DataService.from_config(
             config_dict=config.model_dump(),
-            dataset="schwab-us-equity-1d-adjusted",
+            dataset="algoseek-us-equity-1d-unadjusted",
             event_bus=event_bus,
         )
 

@@ -41,9 +41,9 @@ class TestBacktestEngineRun:
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
-                "source": "schwab",
+                "source": "algoseek",
                 "data_path": "data/",
-                "dataset": "schwab-us-equity-1d-adjusted",
+                "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
                 "initial_capital": 100000,
@@ -112,9 +112,9 @@ class TestBacktestEngineRun:
             "warmup_bars": 5,  # 5 warmup bars
             "universe": ["AAPL"],
             "data": {
-                "source": "schwab",
+                "source": "algoseek",
                 "data_path": "data/",
-                "dataset": "schwab-us-equity-1d-adjusted",
+                "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
                 "initial_capital": 100000,
@@ -183,9 +183,9 @@ class TestBacktestEngineRun:
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
-                "source": "schwab",
+                "source": "algoseek",
                 "data_path": "data/",
-                "dataset": "schwab-us-equity-1d-adjusted",
+                "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
                 "initial_capital": 100000,
@@ -302,9 +302,9 @@ class TestBacktestEngineRun:
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
-                "source": "schwab",
+                "source": "algoseek",
                 "data_path": "data/",
-                "dataset": "schwab-us-equity-1d-adjusted",
+                "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
                 "initial_capital": 100000,
@@ -367,9 +367,9 @@ class TestBacktestEngineRun:
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
-                "source": "schwab",
+                "source": "algoseek",
                 "data_path": "data/",
-                "dataset": "schwab-us-equity-1d-adjusted",
+                "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
                 "initial_capital": 100000,
@@ -423,9 +423,9 @@ class TestBacktestEngineEndToEnd:
             "warmup_bars": 0,
             "universe": ["AAPL"],
             "data": {
-                "source": "schwab",
+                "source": "algoseek",
                 "data_path": "data/",
-                "dataset": "schwab-us-equity-1d-adjusted",
+                "dataset": "algoseek-us-equity-1d-unadjusted",
             },
             "portfolio": {
                 "initial_capital": 100000,

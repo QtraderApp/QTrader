@@ -20,8 +20,8 @@ class TestDataConfig:
 
     def test_valid_config(self):
         """Test valid data config."""
-        config = DataConfig(dataset="schwab-us-equity-1d-adjusted")
-        assert config.dataset == "schwab-us-equity-1d-adjusted"
+        config = DataConfig(dataset="algoseek-us-equity-1d-unadjusted")
+        assert config.dataset == "algoseek-us-equity-1d-unadjusted"
 
 
 class TestStrategyConfigItem:
@@ -57,7 +57,7 @@ class TestBacktestConfig:
             initial_capital=Decimal("1000000"),
             warmup_bars=100,
             universe=["AAPL", "GOOGL", "MSFT"],
-            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+            data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
             strategies=[
                 StrategyConfigItem(
                     path="strategies/test.py",
@@ -77,7 +77,7 @@ class TestBacktestConfig:
                 end_date=datetime(2020, 1, 1),
                 initial_capital=Decimal("1000000"),
                 universe=["AAPL"],
-                data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+                data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
                 strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
             )
 
@@ -90,7 +90,7 @@ class TestBacktestConfig:
                 initial_capital=Decimal("1000000"),
                 warmup_bars=-10,
                 universe=["AAPL"],
-                data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+                data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
                 strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
             )
 
@@ -102,7 +102,7 @@ class TestBacktestConfig:
                 end_date=datetime(2020, 12, 31),
                 initial_capital=Decimal("1000000"),
                 universe=[],
-                data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+                data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
                 strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
             )
 
@@ -113,7 +113,7 @@ class TestBacktestConfig:
             end_date=datetime(2020, 12, 31),
             initial_capital=Decimal("1000000"),
             universe=["AAPL"],
-            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+            data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
             strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
         )
         assert config.replay_speed == 0.0
@@ -126,7 +126,7 @@ class TestBacktestConfig:
             initial_capital=Decimal("1000000"),
             universe=["AAPL"],
             replay_speed=1.0,
-            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+            data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
             strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
         )
         assert config.replay_speed == 1.0
@@ -140,7 +140,7 @@ class TestBacktestConfig:
                 initial_capital=Decimal("1000000"),
                 universe=["AAPL"],
                 replay_speed=-1.0,
-                data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+                data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
                 strategies=[StrategyConfigItem(path="test.py", strategy_id="test")],
             )
 
@@ -156,7 +156,7 @@ class TestLoadBacktestConfig:
             "initial_capital": 1000000,
             "warmup_bars": 100,
             "universe": ["AAPL", "GOOGL"],
-            "data": {"dataset": "schwab-us-equity-1d-adjusted"},
+            "data": {"dataset": "algoseek-us-equity-1d-unadjusted"},
             "strategies": [{"path": "strategies/momentum.py", "strategy_id": "momentum"}],
         }
 
@@ -208,7 +208,7 @@ class TestLoadBacktestConfig:
             "end_date": "2019-01-01",  # Before start!
             "initial_capital": 1000000,
             "universe": ["AAPL"],
-            "data": {"dataset": "schwab-us-equity-1d-adjusted"},
+            "data": {"dataset": "algoseek-us-equity-1d-unadjusted"},
             "strategies": [{"path": "test.py", "strategy_id": "test"}],
         }
 
@@ -229,7 +229,7 @@ class TestLoadBacktestConfig:
             "end_date": "2020-12-31",
             "initial_capital": 1000000,
             "universe": ["AAPL"],
-            "data": {"dataset": "schwab-us-equity-1d-adjusted"},
+            "data": {"dataset": "algoseek-us-equity-1d-unadjusted"},
             "strategies": [{"path": "test.py", "strategy_id": "test"}],
         }
 

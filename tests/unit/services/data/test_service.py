@@ -182,7 +182,7 @@ class TestLoadSymbol:
                 "AAPL",
                 date(2020, 1, 1),
                 date(2020, 12, 31),
-                data_source="schwab",
+                data_source="algoseek",
             )
 
             assert isinstance(result, PriceSeriesIterator)
@@ -397,23 +397,6 @@ class TestPrivateMethods:
 
         # Verify the dataset was inferred correctly
         assert service.dataset == "algoseek-us-equity-1d-unadjusted"
-
-    def test_dataset_inference_schwab(
-        self,
-        bar_schema: BarSchemaConfig,
-    ) -> None:
-        """Test dataset inference for schwab."""
-        selector = DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
-        config = DataConfig(
-            mode="adjusted",
-            bar_schema=bar_schema,
-            source_selector=selector,
-        )
-        # Don't mock the resolver - let DataService create real one
-        service = DataService(config)
-
-        # Verify the dataset was inferred correctly
-        assert service.dataset == "schwab-us-equity-1d-adjusted"
 
     def test_dataset_inference_csv(
         self,

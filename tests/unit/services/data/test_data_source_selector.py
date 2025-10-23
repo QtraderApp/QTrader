@@ -45,8 +45,8 @@ class TestDataSourceSelector:
 
     def test_provider_only(self):
         """Test selector with only provider specified."""
-        selector = DataSourceSelector(provider="schwab")
-        assert selector.provider == "schwab"
+        selector = DataSourceSelector(provider="algoseek")
+        assert selector.provider == "algoseek"
         assert selector.asset_class is None
 
     def test_asset_class_only(self):
@@ -58,7 +58,7 @@ class TestDataSourceSelector:
     def test_full_specification(self):
         """Test fully specified selector."""
         selector = DataSourceSelector(
-            provider="schwab",
+            provider="algoseek",
             asset_class=AssetClass.EQUITY,
             data_type=DataType.OHLCV,
             frequency="1d",
@@ -67,7 +67,7 @@ class TestDataSourceSelector:
             adjustment_mode="adjusted",
             fallback_providers=["algoseek", "polygon"],
         )
-        assert selector.provider == "schwab"
+        assert selector.provider == "algoseek"
         assert selector.asset_class == AssetClass.EQUITY
         assert selector.data_type == DataType.OHLCV
         assert selector.frequency == "1d"
@@ -79,13 +79,13 @@ class TestDataSourceSelector:
     def test_matches_exact(self):
         """Test matching with exact criteria."""
         selector = DataSourceSelector(
-            provider="schwab",
+            provider="algoseek",
             asset_class=AssetClass.EQUITY,
             frequency="1d",
         )
 
         source_config = {
-            "provider": "schwab",
+            "provider": "algoseek",
             "asset_class": "equity",
             "data_type": "ohlcv",
             "frequency": "1d",
@@ -95,11 +95,11 @@ class TestDataSourceSelector:
 
     def test_matches_provider_only(self):
         """Test matching with only provider specified."""
-        selector = DataSourceSelector(provider="schwab")
+        selector = DataSourceSelector(provider="algoseek")
 
-        # Should match any source with schwab provider
+        # Should match any source with algoseek provider
         source_config = {
-            "provider": "schwab",
+            "provider": "algoseek",
             "asset_class": "equity",
             "frequency": "1d",
         }
@@ -146,7 +146,7 @@ class TestDataSourceSelector:
 
         # All criteria match
         source_config = {
-            "provider": "schwab",
+            "provider": "algoseek",
             "asset_class": "equity",
             "frequency": "1d",
             "region": "US",
@@ -177,12 +177,12 @@ class TestDataSourceSelector:
     def test_matches_with_adjustment_mode(self):
         """Test matching with adjustment mode specified."""
         selector = DataSourceSelector(
-            provider="schwab",
+            provider="algoseek",
             adjustment_mode="adjusted",
         )
 
         source_config = {
-            "provider": "schwab",
+            "provider": "algoseek",
             "asset_class": "equity",
             "adjustment_mode": "adjusted",
         }
@@ -215,8 +215,8 @@ class TestDataSourceSelector:
 
     def test_to_tag_provider_only(self):
         """Test tag generation with provider only."""
-        selector = DataSourceSelector(provider="schwab")
-        assert selector.to_tag() == "schwab"
+        selector = DataSourceSelector(provider="algoseek")
+        assert selector.to_tag() == "algoseek"
 
     def test_to_tag_asset_class_only(self):
         """Test tag generation with asset class only."""
@@ -226,10 +226,10 @@ class TestDataSourceSelector:
     def test_to_tag_provider_and_asset_class(self):
         """Test tag generation with provider and asset class."""
         selector = DataSourceSelector(
-            provider="schwab",
+            provider="algoseek",
             asset_class=AssetClass.EQUITY,
         )
-        assert selector.to_tag() == "schwab-equity"
+        assert selector.to_tag() == "algoseek-equity"
 
     def test_to_tag_full(self):
         """Test tag generation with all criteria."""
@@ -245,24 +245,24 @@ class TestDataSourceSelector:
     def test_to_tag_ohlcv_not_included(self):
         """Test that OHLCV (default) is not included in tag."""
         selector = DataSourceSelector(
-            provider="schwab",
+            provider="algoseek",
             asset_class=AssetClass.EQUITY,
             data_type=DataType.OHLCV,  # Default, should not appear
             frequency="1d",
         )
-        assert selector.to_tag() == "schwab-equity-1d"
+        assert selector.to_tag() == "algoseek-equity-1d"
 
     def test_fallback_providers(self):
         """Test fallback providers list."""
         selector = DataSourceSelector(
             asset_class=AssetClass.EQUITY,
-            fallback_providers=["schwab", "algoseek", "polygon"],
+            fallback_providers=["algoseek", "algoseek", "polygon"],
         )
-        assert selector.fallback_providers == ["schwab", "algoseek", "polygon"]
+        assert selector.fallback_providers == ["algoseek", "algoseek", "polygon"]
 
     def test_fallback_providers_empty_default(self):
         """Test that fallback providers defaults to empty list."""
-        selector = DataSourceSelector(provider="schwab")
+        selector = DataSourceSelector(provider="algoseek")
         assert selector.fallback_providers == []
         # Ensure it's mutable and not shared
         selector.fallback_providers.append("backup")

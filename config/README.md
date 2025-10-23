@@ -216,7 +216,7 @@ universe: [AAPL, MSFT]
 replay_speed: 1.0  # 1 second per bar for debugging
 
 data:
-  dataset: schwab-us-equity-1d-adjusted
+  dataset: algoseek-us-equity-1d-unadjusted
 
 strategies:
   - path: strategies/momentum.py

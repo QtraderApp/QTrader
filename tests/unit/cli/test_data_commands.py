@@ -72,7 +72,7 @@ class TestRawDataCommand:
                 "--end-date",
                 "2020-12-31",
                 "--source",
-                "schwab",
+                "algoseek",
             ],
         )
 
@@ -825,13 +825,13 @@ class TestListDatasetsCommand:
         mock_resolver_class.return_value = mock_resolver
         mock_resolver.config_path = "/path/to/data_sources.yaml"
         mock_resolver.list_sources.return_value = [
-            "schwab-us-equity-1d-adjusted",
+            "algoseek-us-equity-1d-unadjusted",
             "algoseek-us-equity-1d-unadjusted",
         ]
         mock_resolver.get_source_config.side_effect = [
             {
-                "provider": "schwab",
-                "adapter": "schwabOHLC",
+                "provider": "algoseek",
+                "adapter": "algoseekOHLC",
                 "asset_class": "equity",
             },
             {
@@ -847,9 +847,9 @@ class TestListDatasetsCommand:
         # Assert
         assert result.exit_code == 0
         assert "Found 2 configured dataset(s)" in result.output
-        assert "schwab-us-equity-1d-adjusted" in result.output
         assert "algoseek-us-equity-1d-unadjusted" in result.output
-        assert "schwab" in result.output
+        assert "algoseek-us-equity-1d-unadjusted" in result.output
+        assert "algoseek" in result.output
         assert "algoseek" in result.output
 
     @patch("qtrader.cli.commands.data.DataSourceResolver")
@@ -860,10 +860,10 @@ class TestListDatasetsCommand:
         mock_resolver = MagicMock()
         mock_resolver_class.return_value = mock_resolver
         mock_resolver.config_path = "/path/to/data_sources.yaml"
-        mock_resolver.list_sources.return_value = ["schwab-us-equity-1d-adjusted"]
+        mock_resolver.list_sources.return_value = ["algoseek-us-equity-1d-unadjusted"]
         mock_resolver.get_source_config.return_value = {
-            "provider": "schwab",
-            "adapter": "schwabOHLC",
+            "provider": "algoseek",
+            "adapter": "algoseekOHLC",
             "asset_class": "equity",
             "frequency": "1d",
             "cache_root": "/cache/path",
@@ -874,7 +874,7 @@ class TestListDatasetsCommand:
 
         # Assert
         assert result.exit_code == 0
-        assert "schwab-us-equity-1d-adjusted" in result.output
+        assert "algoseek-us-equity-1d-unadjusted" in result.output
         assert "1d" in result.output  # Frequency shown in verbose
         assert "✓" in result.output or "✗" in result.output  # Cache status
 

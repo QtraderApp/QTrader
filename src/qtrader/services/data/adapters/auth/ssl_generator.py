@@ -2,7 +2,7 @@
 SSL certificate generator for local HTTPS OAuth callback server.
 
 This module generates self-signed SSL certificates for localhost to enable
-HTTPS callback URLs required by Schwab OAuth flow.
+HTTPS callback URLs required by OAuth flows.
 
 The certificates are stored in ~/.qtrader/ssl/ and reused across sessions.
 Browser security warnings are expected for self-signed certificates.

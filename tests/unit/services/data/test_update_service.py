@@ -19,11 +19,11 @@ class TestUpdateServiceInitialization:
         """Test initialization creates DatasetUpdater with correct dataset."""
         # Arrange & Act
         with patch("qtrader.services.data.update_service.DatasetUpdater") as mock_updater_class:
-            service = UpdateService("schwab-us-equity-1d-adjusted")
+            service = UpdateService("algoseek-us-equity-1d-unadjusted")
 
             # Assert
-            mock_updater_class.assert_called_once_with("schwab-us-equity-1d-adjusted")
-            assert service.dataset == "schwab-us-equity-1d-adjusted"
+            mock_updater_class.assert_called_once_with("algoseek-us-equity-1d-unadjusted")
+            assert service.dataset == "algoseek-us-equity-1d-unadjusted"
 
     def test_init_stores_dataset_name(self):
         """Test initialization stores dataset name."""

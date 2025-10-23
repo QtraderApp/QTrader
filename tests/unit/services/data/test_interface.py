@@ -293,9 +293,9 @@ class TestProtocolUsagePatterns:
                     "total_return": MagicMock(spec=PriceSeries),
                 }
 
-        class MockSchwabAdapter:
+        class MockBinanceAdapter:
             def read_bars(self, start_date: str, end_date: str):
-                return [{"schwab_specific": "data"}]
+                return [{"binance_specific": "data"}]
 
             def to_canonical_series(self, bars: List):
                 return {
@@ -306,10 +306,10 @@ class TestProtocolUsagePatterns:
 
         # Both adapters satisfy the protocol
         algoseek = MockAlgoseekAdapter()
-        schwab = MockSchwabAdapter()
+        binance = MockBinanceAdapter()
 
         # Both can be used interchangeably
-        for adapter in [algoseek, schwab]:
+        for adapter in [algoseek, binance]:
             bars = adapter.read_bars("2020-01-01", "2020-12-31")
             assert isinstance(bars, list)
 

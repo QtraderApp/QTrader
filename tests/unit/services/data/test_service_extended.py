@@ -47,10 +47,10 @@ class TestDataServiceEdgeCases:
     def test_init_with_explicit_dataset(self, data_config: DataConfig):
         """Test initialization with explicit dataset parameter."""
         # Arrange & Act
-        service = DataService(data_config, dataset="schwab-us-equity-1d-adjusted")
+        service = DataService(data_config, dataset="algoseek-us-equity-1d-unadjusted")
 
         # Assert
-        assert service.dataset == "schwab-us-equity-1d-adjusted"
+        assert service.dataset == "algoseek-us-equity-1d-unadjusted"
         assert service.config == data_config
 
     def test_init_with_custom_resolver(self, data_config: DataConfig):
@@ -218,7 +218,7 @@ class TestDataServiceErrorHandling:
         service = DataService(data_config)
 
         # Act - data_source param currently unused (reserved for future)
-        symbols = service.list_available_symbols(data_source="schwab")
+        symbols = service.list_available_symbols(data_source="algoseek")
 
         # Assert - Should return list of symbols
         assert isinstance(symbols, list)
@@ -371,7 +371,7 @@ class TestDataServiceInferDataset:
     def test_infer_dataset_by_provider_fallback(self, bar_schema: BarSchemaConfig):
         """Test dataset inference falls back to provider matching."""
         # Arrange
-        selector = DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
+        selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
         config = DataConfig(
             mode="adjusted",
             bar_schema=bar_schema,
@@ -381,7 +381,7 @@ class TestDataServiceInferDataset:
 
         # Act & Assert
         assert service.dataset is not None
-        assert "schwab" in service.dataset.lower()
+        assert "algoseek" in service.dataset.lower()
 
     def test_infer_dataset_returns_none_for_unknown(self, bar_schema: BarSchemaConfig):
         """Test dataset inference returns None for unknown provider."""

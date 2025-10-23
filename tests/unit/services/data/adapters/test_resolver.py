@@ -25,22 +25,22 @@ data_sources:
     adapter: algoseekOHLC
     root_path: "data/sample"
 
-  schwab-us-equity-1d-adjusted:
-    provider: schwab
-    asset_class: equity
-    data_type: ohlcv
-    frequency: 1d
-    region: US
-    adjustment_mode: adjusted
-    adapter: schwabOHLC
-    cache_root: "data/cache"
-
   binance-crypto-1m:
     provider: binance
     asset_class: crypto
     data_type: ohlcv
     frequency: 1m
     adapter: binance_api
+
+  polygon-us-equity-1d:
+    provider: polygon
+    asset_class: equity
+    data_type: ohlcv
+    frequency: 1d
+    region: US
+    adjustment_mode: adjusted
+    adapter: polygonOHLC
+    cache_root: "data/cache"
 """
     config_path = tmp_path / "data_sources.yaml"
     config_path.write_text(config_content)
@@ -59,16 +59,16 @@ class TestResolverBySelectorMatching:
     def test_match_by_provider(self, temp_config: Path, instrument: Instrument) -> None:
         """Test matching by provider only."""
         resolver = DataSourceResolver(str(temp_config))
-        selector = DataSourceSelector(provider="schwab")
+        selector = DataSourceSelector(provider="polygon")
 
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()
             resolver.resolve_by_selector(selector, instrument)
 
-            # Should match schwab source
+            # Should match polygon source
             assert mock_create.called
             call_args = mock_create.call_args[0]
-            assert call_args[0] == "schwab-us-equity-1d-adjusted"  # source_name
+            assert call_args[0] == "polygon-us-equity-1d"  # source_name
 
     def test_match_by_asset_class(self, temp_config: Path, instrument: Instrument) -> None:
         """Test matching by asset class only."""
@@ -97,10 +97,10 @@ class TestResolverBySelectorMatching:
             mock_create.return_value = MagicMock()
             resolver.resolve_by_selector(selector, instrument)
 
-            # Should match either algoseek or schwab
+            # Should match either algoseek or polygon
             assert mock_create.called
             call_args = mock_create.call_args[0]
-            assert call_args[0] in ["algoseek-us-equity-1d-unadjusted", "schwab-us-equity-1d-adjusted"]
+            assert call_args[0] in ["algoseek-us-equity-1d-unadjusted", "polygon-us-equity-1d"]
 
     def test_match_by_provider_and_asset_class(self, temp_config: Path, instrument: Instrument) -> None:
         """Test matching by provider and asset class."""
@@ -142,10 +142,10 @@ class TestResolverBySelectorMatching:
             mock_create.return_value = MagicMock()
             resolver.resolve_by_selector(selector, instrument)
 
-            # Should match either algoseek or schwab
+            # Should match either algoseek or polygon
             assert mock_create.called
             call_args = mock_create.call_args[0]
-            assert call_args[0] in ["algoseek-us-equity-1d-unadjusted", "schwab-us-equity-1d-adjusted"]
+            assert call_args[0] in ["algoseek-us-equity-1d-unadjusted", "polygon-us-equity-1d"]
 
     def test_match_by_frequency(self, temp_config: Path, instrument: Instrument) -> None:
         """Test matching by frequency."""
@@ -169,15 +169,15 @@ class TestResolverBySelectorFallback:
         """Test that fallback provider is tried when primary fails."""
         resolver = DataSourceResolver(str(temp_config))
         selector = DataSourceSelector(
-            provider="schwab",
+            provider="polygon",
             asset_class=AssetClass.EQUITY,
             fallback_providers=["algoseek"],
         )
 
         with patch.object(resolver, "_create_adapter") as mock_create:
-            # First call (schwab) raises error, second call (algoseek) succeeds
+            # First call (polygon) raises error, second call (algoseek) succeeds
             mock_create.side_effect = [
-                Exception("Schwab API error"),
+                Exception("Polygon API error"),
                 MagicMock(),  # Algoseek succeeds
             ]
 
@@ -220,7 +220,7 @@ class TestResolverBySelectorFallback:
         """Test that fallback is not tried when primary succeeds."""
         resolver = DataSourceResolver(str(temp_config))
         selector = DataSourceSelector(
-            provider="schwab",
+            provider="polygon",
             asset_class=AssetClass.EQUITY,
             fallback_providers=["algoseek"],
         )
@@ -232,7 +232,7 @@ class TestResolverBySelectorFallback:
             # Should only call primary
             assert mock_create.call_count == 1
             call_args = mock_create.call_args[0]
-            assert call_args[0] == "schwab-us-equity-1d-adjusted"
+            assert call_args[0] == "polygon-us-equity-1d"
 
     def test_multiple_fallbacks(self, temp_config: Path, instrument: Instrument) -> None:
         """Test multiple fallback providers."""
@@ -240,14 +240,14 @@ class TestResolverBySelectorFallback:
         selector = DataSourceSelector(
             provider="nonexistent",
             asset_class=AssetClass.EQUITY,
-            fallback_providers=["schwab", "algoseek"],
+            fallback_providers=["polygon", "algoseek"],
         )
 
         with patch.object(resolver, "_create_adapter") as mock_create:
-            # Primary fails (nonexistent not in config), schwab succeeds
+            # Primary fails (nonexistent not in config), polygon succeeds
             mock_create.return_value = MagicMock()
 
-            # This will fail on primary (no match), then try schwab
+            # This will fail on primary (no match), then try polygon
             with pytest.raises(ValueError):
                 # Primary won't match, so will raise before trying fallbacks
                 resolver.resolve_by_selector(selector, instrument)
@@ -259,7 +259,7 @@ class TestResolverMultipleMatches:
     def test_logs_multiple_matches(self, temp_config: Path, instrument: Instrument) -> None:
         """Test that multiple matches are logged."""
         resolver = DataSourceResolver(str(temp_config))
-        # This will match both algoseek and schwab
+        # This will match both algoseek and polygon
         selector = DataSourceSelector(asset_class=AssetClass.EQUITY)
 
         with patch.object(resolver, "_create_adapter") as mock_create:
@@ -286,7 +286,7 @@ class TestResolverMultipleMatches:
             assert mock_create.called
             call_args = mock_create.call_args[0]
             # First match could be either depending on dict order
-            assert call_args[0] in ["algoseek-us-equity-1d-unadjusted", "schwab-us-equity-1d-adjusted"]
+            assert call_args[0] in ["algoseek-us-equity-1d-unadjusted", "polygon-us-equity-1d"]
 
 
 class TestResolverLegacy:
@@ -350,7 +350,7 @@ class TestConfigLoading:
         """Test loading valid configuration."""
         resolver = DataSourceResolver(str(temp_config))
         assert "algoseek-us-equity-1d-unadjusted" in resolver.sources
-        assert "schwab-us-equity-1d-adjusted" in resolver.sources
+        assert "polygon-us-equity-1d" in resolver.sources
 
     def test_load_invalid_yaml_structure(self, tmp_path: Path) -> None:
         """Test error with invalid YAML structure."""
@@ -483,11 +483,11 @@ class TestAdapterClassLoading:
         adapter_class = resolver._get_adapter_class("algoseekOHLC")
         assert adapter_class.__name__ == "AlgoseekOHLCVendorAdapter"
 
-    def test_load_known_adapter_schwab(self, temp_config: Path) -> None:
-        """Test loading schwabOHLC adapter."""
+    def test_load_known_adapter_polygon(self, temp_config: Path) -> None:
+        """Test loading polygonOHLC adapter."""
         resolver = DataSourceResolver(str(temp_config))
-        adapter_class = resolver._get_adapter_class("schwabOHLC")
-        assert adapter_class.__name__ == "SchwabOHLCAdapter"
+        adapter_class = resolver._get_adapter_class("polygonOHLC")
+        assert adapter_class.__name__ == "PolygonOHLCAdapter"
 
     def test_load_unknown_adapter(self, temp_config: Path) -> None:
         """Test error when loading unknown adapter."""
@@ -518,12 +518,12 @@ class TestResolveByDataset:
 
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()
-            resolver.resolve_by_dataset("schwab-us-equity-1d-adjusted", instrument)
+            resolver.resolve_by_dataset("polygon-us-equity-1d", instrument)
 
             # Should call _create_adapter with correct params
             assert mock_create.called
             call_args = mock_create.call_args[0]
-            assert call_args[0] == "schwab-us-equity-1d-adjusted"  # dataset name
+            assert call_args[0] == "polygon-us-equity-1d"  # dataset name
             assert call_args[2] == instrument
 
     def test_resolve_nonexistent_dataset(self, temp_config: Path, instrument: Instrument) -> None:
@@ -542,7 +542,7 @@ class TestResolveByDataset:
 
         error_msg = str(exc_info.value)
         assert "algoseek-us-equity-1d-unadjusted" in error_msg
-        assert "schwab-us-equity-1d-adjusted" in error_msg
+        assert "polygon-us-equity-1d" in error_msg
 
 
 class TestUtilityMethods:
@@ -555,17 +555,17 @@ class TestUtilityMethods:
 
         assert isinstance(sources, list)
         assert "algoseek-us-equity-1d-unadjusted" in sources
-        assert "schwab-us-equity-1d-adjusted" in sources
+        assert "polygon-us-equity-1d" in sources
         assert "binance-crypto-1m" in sources
         assert len(sources) == 3
 
     def test_get_source_config_existing(self, temp_config: Path) -> None:
         """Test getting configuration for existing source."""
         resolver = DataSourceResolver(str(temp_config))
-        config = resolver.get_source_config("schwab-us-equity-1d-adjusted")
+        config = resolver.get_source_config("polygon-us-equity-1d")
 
-        assert config["provider"] == "schwab"
-        assert config["adapter"] == "schwabOHLC"
+        assert config["provider"] == "polygon"
+        assert config["adapter"] == "polygonOHLC"
         assert config["asset_class"] == "equity"
 
     def test_get_source_config_nonexistent(self, temp_config: Path) -> None:
@@ -599,7 +599,7 @@ class TestDeprecatedResolveMethod:
     def test_resolve_with_metadata_data_source(self, temp_config: Path) -> None:
         """Test resolve() with data_source in metadata (backward compat)."""
         resolver = DataSourceResolver(str(temp_config))
-        instrument = Instrument(symbol="AAPL", metadata={"data_source": "schwab-us-equity-1d-adjusted"})
+        instrument = Instrument(symbol="AAPL", metadata={"data_source": "polygon-us-equity-1d"})
 
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()
@@ -617,17 +617,17 @@ class TestDeprecatedResolveMethod:
     def test_resolve_with_provider_name_fallback(self, temp_config: Path) -> None:
         """Test resolve() with provider name fallback."""
         resolver = DataSourceResolver(str(temp_config))
-        # Use just "schwab" as provider name - should match schwab-us-equity-1d-adjusted
-        instrument = Instrument(symbol="AAPL", metadata={"data_source": "schwab"})
+        # Use just "polygon" as provider name - should match polygon-us-equity-1d
+        instrument = Instrument(symbol="AAPL", metadata={"data_source": "polygon"})
 
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()
             resolver.resolve(instrument)
 
-            # Should find schwab source by provider matching
+            # Should find polygon source by provider matching
             assert mock_create.called
             call_args = mock_create.call_args[0]
-            assert "schwab" in call_args[0]  # source name contains schwab
+            assert "polygon" in call_args[0]  # source name contains polygon
 
     def test_resolve_provider_multiple_matches_logs_warning(self, temp_config: Path) -> None:
         """Test that multiple provider matches logs warning."""
@@ -635,19 +635,19 @@ class TestDeprecatedResolveMethod:
         config_path = temp_config.parent / "multi_provider.yaml"
         config_path.write_text("""
 data_sources:
-  schwab-equity:
-    provider: schwab
-    adapter: schwabOHLC
+  polygon-equity:
+    provider: polygon
+    adapter: polygonOHLC
     asset_class: equity
 
-  schwab-options:
-    provider: schwab
-    adapter: schwabOHLC
+  polygon-options:
+    provider: polygon
+    adapter: polygonOHLC
     asset_class: options
 """)
 
         resolver = DataSourceResolver(str(config_path))
-        instrument = Instrument(symbol="AAPL", metadata={"data_source": "schwab"})
+        instrument = Instrument(symbol="AAPL", metadata={"data_source": "polygon"})
 
         with patch.object(resolver, "_create_adapter") as mock_create:
             mock_create.return_value = MagicMock()

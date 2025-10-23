@@ -57,14 +57,14 @@ def test_data_config_defaults():
         close="Close",
         volume="Volume",
     )
-    selector = DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
+    selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
     config = DataConfig(bar_schema=bar_schema, source_selector=selector)
 
     assert config.mode == "adjusted"
     assert config.frequency == "1d"
     assert config.timezone == "America/New_York"
     assert config.validation.ohlc_policy == "strict_raise"
-    assert config.source_selector.provider == "schwab"
+    assert config.source_selector.provider == "algoseek"
     assert config.source_selector.asset_class == AssetClass.EQUITY
 
 
@@ -122,10 +122,10 @@ def test_data_config_selector_with_provider():
         close="Close",
         volume="Volume",
     )
-    selector = DataSourceSelector(provider="schwab")
+    selector = DataSourceSelector(provider="algoseek")
     config = DataConfig(bar_schema=bar_schema, source_selector=selector)
 
-    assert config.source_selector.provider == "schwab"
+    assert config.source_selector.provider == "algoseek"
 
 
 def test_data_config_selector_with_asset_class():

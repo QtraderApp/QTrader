@@ -1,7 +1,7 @@
 """Unit tests for qtrader.data.dataset_updater module.
 
 Tests the generic dataset updater functionality for incremental cache updates
-across all data adapters (Schwab, Algoseek, etc.).
+across all data adapters (Algoseek, Binance, etc.).
 """
 
 from datetime import date
@@ -123,8 +123,8 @@ def temp_config(tmp_path: Path) -> Path:
     config_content = """
 data_sources:
   test-dataset-with-cache:
-    provider: schwab
-    adapter: schwabOHLC
+    provider: algoseek
+    adapter: algoseekOHLC
     cache_root: "{cache_dir}"
     universe_file: "{universe_file}"
 
@@ -197,7 +197,7 @@ class TestDatasetUpdaterInitialization:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset-with-cache": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": "/tmp/cache",
                 }
             }
@@ -209,7 +209,7 @@ class TestDatasetUpdaterInitialization:
             # Assert
             assert updater.dataset_name == "test-dataset-with-cache"
             assert updater.adapter_class == mock_adapter_with_update
-            mock_resolver._get_adapter_class.assert_called_once_with("schwabOHLC")
+            mock_resolver._get_adapter_class.assert_called_once_with("algoseekOHLC")
 
     def test_init_dataset_not_found(self, temp_config: Path):
         """Test initialization fails with nonexistent dataset."""
@@ -250,7 +250,7 @@ class TestDatasetUpdaterInitialization:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "universe_file": str(universe_file),
                 }
             }
@@ -277,7 +277,7 @@ class TestDatasetUpdaterCacheSupport:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": "/tmp/cache",
                 }
             }
@@ -299,7 +299,7 @@ class TestDatasetUpdaterCacheSupport:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "root_path": "/data",
                 }
             }
@@ -322,7 +322,7 @@ class TestDatasetUpdaterCacheSupport:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": cache_path,
                 }
             }
@@ -344,7 +344,7 @@ class TestDatasetUpdaterCacheSupport:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                 }
             }
             mock_resolver._get_adapter_class.return_value = mock_adapter_with_update
@@ -378,7 +378,7 @@ class TestDatasetUpdaterCacheScanning:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": str(cache_dir),
                 }
             }
@@ -404,7 +404,7 @@ class TestDatasetUpdaterCacheScanning:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": "/nonexistent/cache",
                 }
             }
@@ -433,7 +433,7 @@ class TestDatasetUpdaterCacheScanning:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": str(cache_dir),
                 }
             }
@@ -461,7 +461,7 @@ class TestDatasetUpdaterCacheScanning:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": str(cache_dir),
                 }
             }
@@ -486,7 +486,7 @@ class TestDatasetUpdaterCacheScanning:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": str(cache_dir),
                 }
             }
@@ -518,7 +518,7 @@ class TestDatasetUpdaterUpdateSymbol:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": str(cache_dir),
                 }
             }
@@ -556,7 +556,7 @@ class TestDatasetUpdaterUpdateSymbol:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": "/tmp/cache",
                 }
             }
@@ -602,7 +602,7 @@ class TestDatasetUpdaterUpdateMultiple:
                 mock_resolver = MagicMock()
                 mock_resolver.sources = {
                     "test-dataset": {
-                        "adapter": "schwabOHLC",
+                        "adapter": "algoseekOHLC",
                         "cache_root": str(cache_dir),
                     }
                 }
@@ -644,7 +644,7 @@ class TestDatasetUpdaterUpdateMultiple:
                 mock_resolver = MagicMock()
                 mock_resolver.sources = {
                     "test-dataset": {
-                        "adapter": "schwabOHLC",
+                        "adapter": "algoseekOHLC",
                         "cache_root": str(cache_dir),
                     }
                 }
@@ -673,7 +673,7 @@ class TestDatasetUpdaterUpdateMultiple:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": str(cache_dir),
                 }
             }
@@ -702,7 +702,7 @@ class TestDatasetUpdaterUniverseLoading:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "universe_file": str(universe_file),
                 }
             }
@@ -721,7 +721,7 @@ class TestDatasetUpdaterUniverseLoading:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "universe_file": "/nonexistent/universe.csv",
                 }
             }
@@ -740,7 +740,7 @@ class TestDatasetUpdaterUniverseLoading:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                 }
             }
             mock_resolver._get_adapter_class.return_value = mock_adapter_with_update
@@ -768,7 +768,7 @@ class TestDatasetUpdaterDryRun:
             mock_resolver = MagicMock()
             mock_resolver.sources = {
                 "test-dataset": {
-                    "adapter": "schwabOHLC",
+                    "adapter": "algoseekOHLC",
                     "cache_root": str(cache_dir),
                 }
             }

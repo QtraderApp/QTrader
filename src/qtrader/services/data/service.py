@@ -79,7 +79,7 @@ class DataService:
 
         Args:
             config: Data configuration
-            dataset: Dataset name from data_sources.yaml (e.g., "schwab-us-equity-1d-adjusted").
+            dataset: Dataset name from data_sources.yaml (e.g., "algoseek-us-equity-1d-unadjusted").
                     If None, will try to infer from config.source_selector (legacy behavior).
             resolver: Data source resolver (creates default if None)
             event_bus: Optional EventBus for publishing PriceBarEvent and CorporateActionEvent.
@@ -87,16 +87,16 @@ class DataService:
 
         Examples:
             >>> # Explicit dataset (RECOMMENDED)
-            >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted")
+            >>> service = DataService(config, dataset="algoseek-us-equity-1d-unadjusted")
             >>>
             >>> # With EventBus (event-driven mode)
             >>> from qtrader.events.event_bus import EventBus
             >>> bus = EventBus()
-            >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted", event_bus=bus)
+            >>> service = DataService(config, dataset="algoseek-us-equity-1d-unadjusted", event_bus=bus)
             >>>
             >>> # With custom resolver
             >>> resolver = DataSourceResolver("config/custom_sources.yaml")
-            >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted", resolver=resolver)
+            >>> service = DataService(config, dataset="algoseek-us-equity-1d-unadjusted", resolver=resolver)
             >>>
             >>> # Legacy mode (infers from source_selector)
             >>> service = DataService(config)  # Will log warning
@@ -156,7 +156,7 @@ class DataService:
             config_dict: Dict from backtest DataConfig.model_dump()
                         Expected keys: 'source', 'data_path', 'dataset'
             dataset: Dataset name from data_sources.yaml
-                    (e.g., "schwab-us-equity-1d-adjusted")
+                    (e.g., "algoseek-us-equity-1d-unadjusted")
             resolver: Optional DataSourceResolver instance
             event_bus: Optional EventBus for event-driven operation
 
@@ -168,7 +168,7 @@ class DataService:
             >>> backtest_config = BacktestConfig(...)
             >>> service = DataService.from_config(
             ...     config_dict=backtest_config.data.model_dump(),
-            ...     dataset="schwab-us-equity-1d-adjusted",
+            ...     dataset="algoseek-us-equity-1d-unadjusted",
             ...     event_bus=event_bus
             ... )
 
@@ -184,7 +184,7 @@ class DataService:
 
         # Infer asset class and mode from dataset name
         # Dataset format: {provider}-{asset_class}-{timeframe}-{mode}
-        # e.g., "schwab-us-equity-1d-adjusted" or "algoseek-us-equity-1d-ohlc"
+        # e.g., "algoseek-us-equity-1d-unadjusted" or "algoseek-us-equity-1d-ohlc"
 
         # Determine asset class (default to EQUITY)
         asset_class = AssetClass.EQUITY
@@ -608,7 +608,7 @@ class DataService:
             Instrument with symbol
 
         Examples:
-            >>> service = DataService(config, dataset="schwab-us-equity-1d-adjusted")
+            >>> service = DataService(config, dataset="algoseek-us-equity-1d-unadjusted")
             >>> instrument = service.get_instrument("AAPL")
             >>> print(instrument.symbol)  # 'AAPL'
         """

@@ -54,7 +54,7 @@ class TestBacktestEngineInit:
             initial_capital=Decimal("100000"),
             warmup_bars=20,
             universe=["AAPL", "MSFT"],
-            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+            data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
             strategies=[],
         )
 
@@ -102,7 +102,7 @@ class TestBacktestEngineFromConfig:
             initial_capital=Decimal("100000"),
             warmup_bars=20,
             universe=["AAPL", "MSFT"],
-            data=DataConfig(dataset="schwab-us-equity-1d-adjusted"),
+            data=DataConfig(dataset="algoseek-us-equity-1d-unadjusted"),
             strategies=[],
         )
 

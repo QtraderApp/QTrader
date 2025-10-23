@@ -7,12 +7,11 @@
 #   Source names should follow: <provider>-<region>-<asset>-<freq>[-variant]
 #   Examples:
 #     - algoseek-us-equity-1d-unadjusted
-#     - schwab-us-equity-1d-adjusted
 #     - binance-crypto-1m
 #     - algoseek-us-futures-1d-unadjusted
 #
 # METADATA FIELDS (for DataSourceSelector matching):
-#   - provider: Data provider name (algoseek, schwab, binance, etc.)
+#   - provider: Data provider name (algoseek, binance, etc.)
 #   - asset_class: equity, futures, options, crypto, forex, fixed_income
 #   - data_type: ohlcv, trades, quotes, greeks, fundamentals
 #   - frequency: Use format like 1m, 5m, 15m, 1h, 1d (not "daily", "hourly")
@@ -41,38 +40,3 @@ data_sources:
     mode: standard_adjusted
     path_template: "{root_path}/SecId={secid}/*.parquet"
     symbol_map: "data/equity_security_master_sample.csv"
-
-  # Schwab US Equity Daily Data (Adjusted)
-  schwab-us-equity-1d-adjusted:
-    # Source metadata (for DataSourceSelector matching)
-    provider: schwab
-    asset_class: equity
-    data_type: ohlcv
-    frequency: 1d
-    region: US
-    adjustment_mode: adjusted # Schwab only provides split-adjusted data
-
-    # Adapter configuration
-    adapter: schwabOHLC
-    cache_root: "data/us-equity-daily-adjusted-schwab"
-    universe_file: "data/us-equity-daily-adjusted-schwab/universe.csv" # Optional: symbols to maintain
-    mode: adjusted_only
-
-    # Caching strategy (NEW)
-    cache_strategy: "smart" # Options: "smart", "simple", "disabled"
-    enable_incremental_update: true
-    update_mode: "manual" # Options: "auto", "manual" (CLI controls when)
-
-    # OAuth credentials (required)
-    client_id: "${SCHWAB_API_KEY}"
-    client_secret: "${SCHWAB_API_SECRET}"
-
-    # OAuth configuration (optional)
-    redirect_uri: "${SCHWAB_REDIRECT_URI:-https://127.0.0.1:8182}"
-    # Token cache path - leave as null to use default: ~/.qtrader/schwab_tokens.json
-    # If you want to specify explicitly, use full path: /home/username/.qtrader/schwab_tokens.json
-    token_cache_path: null # Uses default: ~/.qtrader/schwab_tokens.json
-    manual_mode: false
-
-    # Rate limiting
-    requests_per_second: 10
