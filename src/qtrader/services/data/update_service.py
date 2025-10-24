@@ -56,6 +56,7 @@ class UpdateService:
         symbols: List[str],
         dry_run: bool = False,
         verbose: bool = False,
+        force_reprime: bool = False,
     ) -> Iterator[DatasetUpdateResult]:
         """
         Update multiple symbols with progress tracking.
@@ -64,11 +65,12 @@ class UpdateService:
             symbols: List of symbols to update
             dry_run: If True, only check what would be updated
             verbose: Enable detailed logging
+            force_reprime: If True, delete existing cache and re-prime from scratch
 
         Yields:
             DatasetUpdateResult for each symbol
         """
-        yield from self.updater.update_symbols(symbols, dry_run=dry_run, verbose=verbose)
+        yield from self.updater.update_symbols(symbols, dry_run=dry_run, verbose=verbose, force_reprime=force_reprime)
 
     def get_cache_metadata(self, symbol: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """

@@ -2,7 +2,7 @@
 Generic dataset updater.
 
 Provides adapter-agnostic functionality to update cached data from any
-source (Schwab, Algoseek, future providers). Scans cache directories,
+source (Algoseek, future providers). Scans cache directories,
 detects which symbols need updates, and calls adapter-specific update
 methods.
 
@@ -83,16 +83,50 @@ class DatasetUpdater:
     Generic dataset updater for any data source.
 
     Handles incremental updates of cached data across all supported adapters.
-    Works by:
-    1. Resolving dataset configuration from data_sources.yaml
-    2. Instantiating appropriate adapter
-    3. Scanning cache directory for symbols
-    4. Calling adapter's update_to_latest() if available
-    5. Falling back to full refetch if adapter doesn't support incremental
 
-    Example:
-        >>> # Update all symbols in Schwab dataset
-        >>> updater = DatasetUpdater("schwab-us-equity-1d-adjusted")
+    How It Works:
+    1. Resolves dataset configuration from data_sources.yaml
+    2. Instantiates appropriate adapter for each symbol
+    3. Scans cache directory for symbols (if cache_root configured)
+    4. For symbols without cache: Performs full backfill using prime_cache() (zero Python memory)
+    5. For symbols with cache: Calls update_to_latest() for incremental update
+
+    Persistence Model:
+    - Adapters with cache_root configured use efficient bulk caching
+    - Full backfill: prime_cache() uses DuckDB COPY (zero Python memory overhead)
+    - Incremental update: update_to_latest() appends only new bars to existing cache
+    - Cache is created explicitly via prime_cache() (no hidden auto-caching)
+    - Subsequent updates use update_to_latest() for efficiency
+
+    Adapter Requirements:
+    - REQUIRED: read_bars(start_date, end_date) - Stream bars (no auto-caching)
+    - REQUIRED: get_available_date_range() - Get min/max dates for backfill
+    - REQUIRED: get_timestamp(bar) - Extract timestamp for any bar type
+    - REQUIRED FOR CACHING: At least one of prime_cache() OR write_cache()
+    - REQUIRED FOR INCREMENTAL: update_to_latest(dry_run) - Adapter-specific cache merge logic
+
+    Caching Implementation:
+    - Adapters MUST implement at least one of: prime_cache() or write_cache()
+    - prime_cache() is preferred (efficient bulk copy, zero Python memory)
+    - write_cache() is a fallback (materializes bars in memory, slower)
+    - If adapter implements neither, cache creation will fail with clear error
+    - Streaming-only adapters should raise NotImplementedError from both methods
+
+    If adapter doesn't implement update_to_latest(), incremental updates will fail
+    with an error instructing the user to use force_reprime=True, since cache
+    merge logic is adapter-specific and cannot be implemented generically.
+
+    Cache Structure:
+    ```
+    cache_root/
+      ├── AAPL/
+      │   └── data.parquet
+      ├── MSFT/
+      │   └── data.parquet
+      └── ...
+    ```    Example:
+        >>> # Update all symbols in dataset
+        >>> updater = DatasetUpdater("algoseek-us-equity-1d-unadjusted")
         >>> results = list(updater.update_all(dry_run=False, verbose=True))
         >>>
         >>> # Update specific symbols
@@ -120,7 +154,7 @@ class DatasetUpdater:
 
         Args:
             dataset_name: Dataset identifier from data_sources.yaml
-                         (e.g., "schwab-us-equity-1d-adjusted")
+                         (e.g., "algoseek-us-equity-1d-unadjusted")
             config_path: Optional path to data_sources.yaml. If None, uses default.
 
         Raises:
@@ -141,11 +175,10 @@ class DatasetUpdater:
         # Get adapter class (but don't instantiate yet - we need symbol-specific instruments)
         self.adapter_class = self.resolver._get_adapter_class(adapter_name)
 
-        # Verify adapter class supports updates (has update_to_latest method)
-        if not hasattr(self.adapter_class, "update_to_latest"):
+        # Verify adapter class supports reading bars (basic requirement for data adapters)
+        if not hasattr(self.adapter_class, "read_bars"):
             raise ValueError(
-                f"Adapter '{adapter_name}' does not support incremental updates. "
-                f"Add update_to_latest() method to enable dataset updates."
+                f"Adapter '{adapter_name}' does not have read_bars() method. This is not a valid data adapter."
             )
 
         # Load universe file if configured
@@ -276,6 +309,7 @@ class DatasetUpdater:
         symbol: str,
         dry_run: bool = False,
         verbose: bool = False,
+        force_reprime: bool = False,
     ) -> DatasetUpdateResult:
         """
         Update a single symbol to latest available data.
@@ -287,17 +321,22 @@ class DatasetUpdater:
             symbol: Stock symbol to update
             dry_run: If True, only check what would be updated (no API calls)
             verbose: Enable detailed logging
+            force_reprime: If True, delete existing cache and re-prime from scratch.
+                          Useful when adapter lacks update_to_latest() support.
 
         Returns:
             Update result with bars added, date range, or error
 
         Example:
-            >>> updater = DatasetUpdater("schwab-us-equity-1d-adjusted")
+            >>> updater = DatasetUpdater("algoseek-us-equity-1d-unadjusted")
             >>> result = updater.update_symbol("AAPL", dry_run=False)
             >>> if result.success:
             ...     print(f"Added {result.bars_added} bars")
             ... else:
             ...     print(f"Error: {result.error}")
+            >>>
+            >>> # Force re-prime for adapter without incremental support
+            >>> result = updater.update_symbol("AAPL", force_reprime=True)
         """
         try:
             if verbose:
@@ -313,6 +352,29 @@ class DatasetUpdater:
 
             # Create adapter instance for this symbol
             adapter = self.resolver.resolve_by_dataset(self.dataset_name, instrument)
+
+            # Handle force_reprime: delete existing cache before proceeding
+            if force_reprime and self._symbol_has_cache(symbol):
+                if dry_run:
+                    logger.info(
+                        "dataset_updater.force_reprime_dry_run",
+                        symbol=symbol,
+                        message="Would delete cache and re-prime from scratch",
+                    )
+                else:
+                    cache_root = self._get_cache_root()
+                    if cache_root:
+                        import shutil
+
+                        symbol_cache_dir = cache_root / symbol
+                        if symbol_cache_dir.exists():
+                            shutil.rmtree(symbol_cache_dir)
+                            logger.info(
+                                "dataset_updater.cache_deleted",
+                                symbol=symbol,
+                                cache_dir=str(symbol_cache_dir),
+                                reason="force_reprime",
+                            )
 
             # Check if cache exists for this symbol
             cache_exists = self._symbol_has_cache(symbol)
@@ -370,12 +432,84 @@ class DatasetUpdater:
                         end_date=max_date,
                     )
 
-                # Fetch all bars from earliest to latest (this will cache them automatically)
-                bars = list(adapter.read_bars(min_date, max_date))
+                # Use adapter's prime_cache() for efficient bulk caching.
+                # This uses DuckDB COPY for zero Python memory overhead
+                # (much faster and more memory-efficient than streaming iteration).
+                try:
+                    bars_added = adapter.prime_cache(min_date, max_date)
+                    start_date = date.fromisoformat(min_date)
+                    end_date = date.fromisoformat(max_date)
+                except (AttributeError, NotImplementedError):
+                    # Adapter doesn't support prime_cache() - fall back to streaming
+                    # Try write_cache() as fallback, or fail gracefully if not supported
+                    if verbose:
+                        logger.warning(
+                            "dataset_updater.no_prime_cache_fallback",
+                            symbol=symbol,
+                            message="Adapter doesn't support prime_cache(). Falling back to streaming (slower).",
+                        )
 
-                bars_added = len(bars)
-                start_date = bars[0].timestamp.date() if bars else None
-                end_date = bars[-1].timestamp.date() if bars else None
+                    bars_to_cache = []
+                    first_bar = None
+                    last_bar = None
+
+                    for bar in adapter.read_bars(min_date, max_date):
+                        if first_bar is None:
+                            first_bar = bar
+                        last_bar = bar
+                        bars_to_cache.append(bar)
+
+                    bars_added = len(bars_to_cache)
+
+                    # Extract dates from first/last bars
+                    if first_bar is not None and last_bar is not None:
+                        first_ts = adapter.get_timestamp(first_bar)
+                        last_ts = adapter.get_timestamp(last_bar)
+                        start_date = first_ts.date()
+                        end_date = last_ts.date()
+
+                        # Persist bars to cache using adapter's write_cache() method
+                        try:
+                            adapter.write_cache(bars_to_cache)
+                            if verbose:
+                                logger.info(
+                                    "dataset_updater.cache_written_via_fallback",
+                                    symbol=symbol,
+                                    bars_count=len(bars_to_cache),
+                                )
+                        except (AttributeError, NotImplementedError) as e:
+                            # Adapter doesn't support write_cache either - caching not available
+                            error_msg = (
+                                f"Adapter {adapter.__class__.__name__} does not support caching. "
+                                f"Neither prime_cache() nor write_cache() are implemented. "
+                                f"For disk-based caching, implement at least one of these methods. "
+                                f"See protocol.py for details."
+                            )
+                            logger.error(
+                                "dataset_updater.no_cache_persistence",
+                                symbol=symbol,
+                                adapter=adapter.__class__.__name__,
+                                error=str(e),
+                            )
+                            return DatasetUpdateResult(
+                                symbol=symbol,
+                                success=False,
+                                error=error_msg,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "dataset_updater.cache_write_error",
+                                symbol=symbol,
+                                error=str(e),
+                            )
+                            return DatasetUpdateResult(
+                                symbol=symbol,
+                                success=False,
+                                error=f"Failed to write cache: {e}",
+                            )
+                    else:
+                        start_date = None
+                        end_date = None
 
                 if verbose:
                     logger.info(
@@ -393,19 +527,41 @@ class DatasetUpdater:
                         symbol=symbol,
                     )
 
-                # Call adapter's update method
-                # Adapters should return (bars_added, start_date, end_date)
-                result = adapter.update_to_latest(dry_run=dry_run)
+                # Check if adapter supports update_to_latest() method
+                if not hasattr(adapter, "update_to_latest"):
+                    # Adapter doesn't support incremental updates.
+                    # We cannot implement this in the updater because cache format and merge logic
+                    # are adapter-specific (parquet vs CSV vs SQLite, column names, partitioning, etc.).
+                    # The adapter must implement update_to_latest() to support incremental updates.
 
-                # Parse adapter result
-                # Expected format: (bars_added: int, start_date: date | None, end_date: date | None)
-                if isinstance(result, tuple) and len(result) == 3:
-                    bars_added, start_date, end_date = result
+                    logger.error(
+                        "dataset_updater.no_incremental_support",
+                        symbol=symbol,
+                        adapter=adapter.__class__.__name__,
+                        message=(
+                            "Adapter lacks update_to_latest() - cache merge logic is adapter-specific. "
+                            "Use force_reprime=True or implement update_to_latest() in adapter."
+                        ),
+                    )
+                    return DatasetUpdateResult(
+                        symbol=symbol,
+                        success=False,
+                        error=(f"Adapter lacks update_to_latest(). Use --force-reprime to re-download."),
+                    )
                 else:
-                    # Fallback for adapters that don't return structured result
-                    bars_added = result if isinstance(result, int) else 0
-                    start_date = None
-                    end_date = None
+                    # Call adapter's update method
+                    # Adapters should return (bars_added, start_date, end_date)
+                    result = adapter.update_to_latest(dry_run=dry_run)
+
+                    # Parse adapter result
+                    # Expected format: (bars_added: int, start_date: date | None, end_date: date | None)
+                    if isinstance(result, tuple) and len(result) == 3:
+                        bars_added, start_date, end_date = result
+                    else:
+                        # Fallback for adapters that don't return structured result
+                        bars_added = result if isinstance(result, int) else 0
+                        start_date = None
+                        end_date = None
 
             if verbose:
                 logger.info(
@@ -443,6 +599,7 @@ class DatasetUpdater:
         symbols: List[str],
         dry_run: bool = False,
         verbose: bool = False,
+        force_reprime: bool = False,
     ) -> Iterator[DatasetUpdateResult]:
         """
         Update multiple symbols.
@@ -453,12 +610,13 @@ class DatasetUpdater:
             symbols: List of symbols to update
             dry_run: If True, only check what would be updated
             verbose: Enable detailed logging
+            force_reprime: If True, delete existing caches and re-prime from scratch
 
         Yields:
             Update result for each symbol
 
         Example:
-            >>> updater = DatasetUpdater("schwab-us-equity-1d-adjusted")
+            >>> updater = DatasetUpdater("algoseek-us-equity-1d-unadjusted")
             >>> symbols = ["AAPL", "TSLA", "NVDA"]
             >>> for result in updater.update_symbols(symbols, verbose=True):
             ...     print(f"{result.symbol}: {result.bars_added} bars")
@@ -475,12 +633,14 @@ class DatasetUpdater:
                 symbol=symbol,
                 dry_run=dry_run,
                 verbose=verbose,
+                force_reprime=force_reprime,
             )
 
     def update_all(
         self,
         dry_run: bool = False,
         verbose: bool = False,
+        force_reprime: bool = False,
     ) -> Iterator[DatasetUpdateResult]:
         """
         Update all symbols in cache.
@@ -490,12 +650,13 @@ class DatasetUpdater:
         Args:
             dry_run: If True, only check what would be updated
             verbose: Enable detailed logging
+            force_reprime: If True, delete existing caches and re-prime from scratch
 
         Yields:
             Update result for each symbol
 
         Example:
-            >>> updater = DatasetUpdater("schwab-us-equity-1d-adjusted")
+            >>> updater = DatasetUpdater("algoseek-us-equity-1d-unadjusted")
             >>> results = list(updater.update_all(dry_run=False))
             >>> successful = [r for r in results if r.success]
             >>> print(f"Updated {len(successful)} symbols")
@@ -520,4 +681,5 @@ class DatasetUpdater:
             symbols=symbols,
             dry_run=dry_run,
             verbose=verbose,
+            force_reprime=force_reprime,
         )
