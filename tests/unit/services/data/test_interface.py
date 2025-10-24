@@ -5,35 +5,34 @@ Since Protocols are structural types, we verify they have correct signatures
 and can be satisfied by implementations.
 """
 
-from datetime import date
-from typing import Dict, List
+from datetime import date, datetime
+from typing import Any, Iterator, List, Optional, Tuple
 from unittest.mock import MagicMock
 
 from qtrader.services.data.interface import IDataAdapter, IDataService
-from qtrader.services.data.loaders.iterator import PriceSeriesIterator
-from qtrader.services.data.models import Instrument, PriceSeries
+from qtrader.services.data.models import Instrument
 
 
 class TestIDataServiceProtocol:
     """Test IDataService protocol structure."""
 
-    def test_protocol_has_load_symbol_method(self):
-        """Test IDataService has load_symbol method."""
+    def test_protocol_has_stream_bars_method(self):
+        """Test IDataService has stream_bars method."""
         # Arrange - Create a mock that satisfies the protocol
         mock_service = MagicMock(spec=IDataService)
 
         # Act - Verify method exists
-        assert hasattr(mock_service, "load_symbol")
-        assert callable(mock_service.load_symbol)
+        assert hasattr(mock_service, "stream_bars")
+        assert callable(mock_service.stream_bars)
 
-    def test_protocol_has_load_universe_method(self):
-        """Test IDataService has load_universe method."""
+    def test_protocol_has_stream_universe_method(self):
+        """Test IDataService has stream_universe method."""
         # Arrange
         mock_service = MagicMock(spec=IDataService)
 
         # Act & Assert
-        assert hasattr(mock_service, "load_universe")
-        assert callable(mock_service.load_universe)
+        assert hasattr(mock_service, "stream_universe")
+        assert callable(mock_service.stream_universe)
 
     def test_protocol_has_get_instrument_method(self):
         """Test IDataService has get_instrument method."""
@@ -53,16 +52,33 @@ class TestIDataServiceProtocol:
         assert hasattr(mock_service, "list_available_symbols")
         assert callable(mock_service.list_available_symbols)
 
+    def test_protocol_has_get_corporate_actions_method(self):
+        """Test IDataService has get_corporate_actions method."""
+        # Arrange
+        mock_service = MagicMock(spec=IDataService)
+
+        # Act & Assert
+        assert hasattr(mock_service, "get_corporate_actions")
+        assert callable(mock_service.get_corporate_actions)
+
     def test_mock_implementation_satisfies_protocol(self):
         """Test a mock implementation satisfies IDataService protocol."""
 
         # Arrange - Create a mock that implements all required methods
         class MockDataService:
-            def load_symbol(self, symbol: str, start_date: date, end_date: date, *, data_source=None):
-                return MagicMock(spec=PriceSeriesIterator)
+            def stream_bars(self, symbol: str, start_date: date, end_date: date, *, is_warmup: bool = False):
+                pass
 
-            def load_universe(self, symbols: List[str], start_date: date, end_date: date, *, data_source=None):
-                return {}
+            def stream_universe(
+                self,
+                symbols: List[str],
+                start_date: date,
+                end_date: date,
+                *,
+                is_warmup: bool = False,
+                strict: bool = False,
+            ):
+                pass
 
             def get_instrument(self, symbol: str):
                 return Instrument(symbol=symbol)
@@ -70,56 +86,63 @@ class TestIDataServiceProtocol:
             def list_available_symbols(self, data_source=None):
                 return []
 
+            def get_corporate_actions(
+                self, symbol: str, start_date: date, end_date: date, *, publish_events: bool = True
+            ):
+                return []
+
         # Act
         service = MockDataService()
 
         # Assert - Should be able to call all methods
-        assert callable(service.load_symbol)
-        assert callable(service.load_universe)
+        assert callable(service.stream_bars)
+        assert callable(service.stream_universe)
         assert callable(service.get_instrument)
         assert callable(service.list_available_symbols)
+        assert callable(service.get_corporate_actions)
 
-    def test_load_symbol_signature_requirements(self):
-        """Test load_symbol has correct signature requirements."""
+    def test_stream_bars_signature_requirements(self):
+        """Test stream_bars has correct signature requirements."""
 
         # This test documents the expected signature
         class TestService:
-            def load_symbol(
+            def stream_bars(
                 self,
                 symbol: str,
                 start_date: date,
                 end_date: date,
                 *,
-                data_source: str | None = None,
-            ) -> PriceSeriesIterator:
-                return MagicMock(spec=PriceSeriesIterator)
+                is_warmup: bool = False,
+            ) -> None:
+                pass
 
         service = TestService()
-        result = service.load_symbol("AAPL", date(2020, 1, 1), date(2020, 12, 31))
+        result = service.stream_bars("AAPL", date(2020, 1, 1), date(2020, 12, 31))
 
-        # Should return PriceSeriesIterator
-        assert result is not None
+        # Should return None (publishes events via event bus)
+        assert result is None
 
-    def test_load_universe_signature_requirements(self):
-        """Test load_universe has correct signature requirements."""
+    def test_stream_universe_signature_requirements(self):
+        """Test stream_universe has correct signature requirements."""
 
         # This test documents the expected signature
         class TestService:
-            def load_universe(
+            def stream_universe(
                 self,
                 symbols: List[str],
                 start_date: date,
                 end_date: date,
                 *,
-                data_source: str | None = None,
-            ) -> Dict[str, PriceSeriesIterator]:
-                return {}
+                is_warmup: bool = False,
+                strict: bool = False,
+            ) -> None:
+                pass
 
         service = TestService()
-        result = service.load_universe(["AAPL"], date(2020, 1, 1), date(2020, 12, 31))
+        result = service.stream_universe(["AAPL"], date(2020, 1, 1), date(2020, 12, 31))
 
-        # Should return dict
-        assert isinstance(result, dict)
+        # Should return None (publishes events via event bus)
+        assert result is None
 
 
 class TestIDataAdapterProtocol:
@@ -134,91 +157,127 @@ class TestIDataAdapterProtocol:
         assert hasattr(mock_adapter, "read_bars")
         assert callable(mock_adapter.read_bars)
 
-    def test_protocol_has_to_canonical_series_method(self):
-        """Test IDataAdapter has to_canonical_series method."""
+    def test_protocol_has_to_price_bar_event_method(self):
+        """Test IDataAdapter has to_price_bar_event method."""
         # Arrange
         mock_adapter = MagicMock(spec=IDataAdapter)
 
         # Act & Assert
-        assert hasattr(mock_adapter, "to_canonical_series")
-        assert callable(mock_adapter.to_canonical_series)
+        assert hasattr(mock_adapter, "to_price_bar_event")
+        assert callable(mock_adapter.to_price_bar_event)
+
+    def test_protocol_has_to_corporate_action_event_method(self):
+        """Test IDataAdapter has to_corporate_action_event method."""
+        # Arrange
+        mock_adapter = MagicMock(spec=IDataAdapter)
+
+        # Act & Assert
+        assert hasattr(mock_adapter, "to_corporate_action_event")
+        assert callable(mock_adapter.to_corporate_action_event)
+
+    def test_protocol_has_get_timestamp_method(self):
+        """Test IDataAdapter has get_timestamp method."""
+        # Arrange
+        mock_adapter = MagicMock(spec=IDataAdapter)
+
+        # Act & Assert
+        assert hasattr(mock_adapter, "get_timestamp")
+        assert callable(mock_adapter.get_timestamp)
+
+    def test_protocol_has_get_available_date_range_method(self):
+        """Test IDataAdapter has get_available_date_range method."""
+        # Arrange
+        mock_adapter = MagicMock(spec=IDataAdapter)
+
+        # Act & Assert
+        assert hasattr(mock_adapter, "get_available_date_range")
+        assert callable(mock_adapter.get_available_date_range)
+
+    def test_protocol_has_prime_cache_method(self):
+        """Test IDataAdapter has prime_cache method."""
+        # Arrange
+        mock_adapter = MagicMock(spec=IDataAdapter)
+
+        # Act & Assert
+        assert hasattr(mock_adapter, "prime_cache")
+        assert callable(mock_adapter.prime_cache)
 
     def test_mock_implementation_satisfies_protocol(self):
         """Test a mock implementation satisfies IDataAdapter protocol."""
 
         # Arrange
         class MockDataAdapter:
-            def read_bars(self, start_date: str, end_date: str):
-                return []
+            def read_bars(self, start_date: str, end_date: str) -> Iterator[Any]:
+                return iter([])
 
-            def to_canonical_series(self, bars: List):
-                return {
-                    "unadjusted": MagicMock(spec=PriceSeries),
-                    "adjusted": MagicMock(spec=PriceSeries),
-                    "total_return": MagicMock(spec=PriceSeries),
-                }
+            def to_price_bar_event(self, bar: Any):
+                return MagicMock()
+
+            def to_corporate_action_event(self, bar: Any, prev_bar: Optional[Any] = None):
+                return None
+
+            def get_timestamp(self, bar: Any) -> datetime:
+                return datetime.now()
+
+            def get_available_date_range(self) -> Tuple[Optional[str], Optional[str]]:
+                return None, None
+
+            def prime_cache(self, start_date: str, end_date: str) -> int:
+                return 0
 
         # Act
         adapter = MockDataAdapter()
 
         # Assert - Should be able to call all methods
         assert callable(adapter.read_bars)
-        assert callable(adapter.to_canonical_series)
+        assert callable(adapter.to_price_bar_event)
+        assert callable(adapter.to_corporate_action_event)
+        assert callable(adapter.get_timestamp)
+        assert callable(adapter.get_available_date_range)
+        assert callable(adapter.prime_cache)
 
     def test_read_bars_signature_requirements(self):
         """Test read_bars has correct signature requirements."""
 
         # This test documents the expected signature
         class TestAdapter:
-            def read_bars(self, start_date: str, end_date: str) -> List:
-                return []
+            def read_bars(self, start_date: str, end_date: str) -> Iterator[Any]:
+                return iter([])
 
         adapter = TestAdapter()
         result = adapter.read_bars("2020-01-01", "2020-12-31")
 
-        # Should return list
-        assert isinstance(result, list)
+        # Should return iterator
+        assert hasattr(result, "__iter__")
 
-    def test_to_canonical_series_signature_requirements(self):
-        """Test to_canonical_series has correct signature requirements."""
+    def test_prime_cache_signature_requirements(self):
+        """Test prime_cache has correct signature requirements."""
 
         # This test documents the expected signature
         class TestAdapter:
-            def to_canonical_series(self, bars: List) -> Dict[str, PriceSeries]:
-                return {
-                    "unadjusted": MagicMock(spec=PriceSeries),
-                    "adjusted": MagicMock(spec=PriceSeries),
-                    "total_return": MagicMock(spec=PriceSeries),
-                }
+            def prime_cache(self, start_date: str, end_date: str) -> int:
+                return 100
 
         adapter = TestAdapter()
-        result = adapter.to_canonical_series([])
+        result = adapter.prime_cache("2020-01-01", "2020-12-31")
 
-        # Should return dict with required keys
-        assert isinstance(result, dict)
-        assert "unadjusted" in result
-        assert "adjusted" in result
-        assert "total_return" in result
+        # Should return int (number of bars written)
+        assert isinstance(result, int)
 
-    def test_canonical_series_must_have_all_modes(self):
-        """Test canonical series requires all three adjustment modes."""
-        # This test documents the contract
-        required_modes = {"unadjusted", "adjusted", "total_return"}
+    def test_get_available_date_range_signature_requirements(self):
+        """Test get_available_date_range has correct signature requirements."""
 
+        # This test documents the expected signature
         class TestAdapter:
-            def to_canonical_series(self, bars: List) -> Dict[str, PriceSeries]:
-                # Must return all three modes
-                return {
-                    "unadjusted": MagicMock(spec=PriceSeries),
-                    "adjusted": MagicMock(spec=PriceSeries),
-                    "total_return": MagicMock(spec=PriceSeries),
-                }
+            def get_available_date_range(self) -> Tuple[Optional[str], Optional[str]]:
+                return "2020-01-01", "2024-12-31"
 
         adapter = TestAdapter()
-        result = adapter.to_canonical_series([])
+        result = adapter.get_available_date_range()
 
-        # All modes must be present
-        assert set(result.keys()) == required_modes
+        # Should return tuple of two optional strings
+        assert isinstance(result, tuple)
+        assert len(result) == 2
 
 
 class TestProtocolUsagePatterns:
@@ -228,33 +287,27 @@ class TestProtocolUsagePatterns:
         """Test IDataService can be easily mocked for testing."""
         # Arrange - Mock service for testing
         mock_service = MagicMock(spec=IDataService)
-        mock_iterator = MagicMock(spec=PriceSeriesIterator)
-        mock_service.load_symbol.return_value = mock_iterator
 
-        # Act - Use in test scenario
-        result = mock_service.load_symbol("AAPL", date(2020, 1, 1), date(2020, 12, 31))
+        # Act - Use in test scenario (stream_bars returns None, publishes events)
+        result = mock_service.stream_bars("AAPL", date(2020, 1, 1), date(2020, 12, 31))
 
         # Assert
-        assert result == mock_iterator
-        mock_service.load_symbol.assert_called_once_with("AAPL", date(2020, 1, 1), date(2020, 12, 31))
+        assert result is None
+        mock_service.stream_bars.assert_called_once_with("AAPL", date(2020, 1, 1), date(2020, 12, 31))
 
     def test_adapter_can_be_mocked_for_testing(self):
         """Test IDataAdapter can be easily mocked for testing."""
         # Arrange
         mock_adapter = MagicMock(spec=IDataAdapter)
-        mock_series = {
-            "unadjusted": MagicMock(spec=PriceSeries),
-            "adjusted": MagicMock(spec=PriceSeries),
-            "total_return": MagicMock(spec=PriceSeries),
-        }
-        mock_adapter.to_canonical_series.return_value = mock_series
+        mock_event = MagicMock()
+        mock_adapter.to_price_bar_event.return_value = mock_event
 
         # Act
-        result = mock_adapter.to_canonical_series([])
+        result = mock_adapter.to_price_bar_event(MagicMock())
 
         # Assert
-        assert result == mock_series
-        mock_adapter.to_canonical_series.assert_called_once_with([])
+        assert result == mock_event
+        assert mock_adapter.to_price_bar_event.called
 
     def test_service_protocol_enables_dependency_injection(self):
         """Test IDataService enables dependency injection pattern."""
@@ -264,45 +317,61 @@ class TestProtocolUsagePatterns:
             def __init__(self, data_service):  # Type: IDataService
                 self.data_service = data_service
 
-            def load_data(self, symbol: str):
-                return self.data_service.load_symbol(symbol, date(2020, 1, 1), date(2020, 12, 31))
+            def stream_data(self, symbol: str):
+                return self.data_service.stream_bars(symbol, date(2020, 1, 1), date(2020, 12, 31))
 
         # Act - Inject mock service
         mock_service = MagicMock(spec=IDataService)
-        mock_iterator = MagicMock(spec=PriceSeriesIterator)
-        mock_service.load_symbol.return_value = mock_iterator
+        mock_service.stream_bars.return_value = None
 
         strategy = SimpleStrategy(mock_service)
-        result = strategy.load_data("AAPL")
+        result = strategy.stream_data("AAPL")
 
         # Assert - Strategy works with protocol
-        assert result == mock_iterator
+        assert result is None
+        mock_service.stream_bars.assert_called_once()
 
     def test_adapter_protocol_enables_vendor_abstraction(self):
         """Test IDataAdapter enables vendor-specific implementations."""
         # This test demonstrates how different vendors can implement the protocol
 
         class MockAlgoseekAdapter:
-            def read_bars(self, start_date: str, end_date: str):
-                return [{"algoseek_specific": "data"}]
+            def read_bars(self, start_date: str, end_date: str) -> Iterator[Any]:
+                return iter([{"algoseek_specific": "data"}])
 
-            def to_canonical_series(self, bars: List):
-                return {
-                    "unadjusted": MagicMock(spec=PriceSeries),
-                    "adjusted": MagicMock(spec=PriceSeries),
-                    "total_return": MagicMock(spec=PriceSeries),
-                }
+            def to_price_bar_event(self, bar: Any):
+                return MagicMock()
+
+            def to_corporate_action_event(self, bar: Any, prev_bar: Optional[Any] = None):
+                return None
+
+            def get_timestamp(self, bar: Any) -> datetime:
+                return datetime.now()
+
+            def get_available_date_range(self) -> Tuple[Optional[str], Optional[str]]:
+                return "2020-01-01", "2024-12-31"
+
+            def prime_cache(self, start_date: str, end_date: str) -> int:
+                return 100
 
         class MockBinanceAdapter:
-            def read_bars(self, start_date: str, end_date: str):
-                return [{"binance_specific": "data"}]
+            def read_bars(self, start_date: str, end_date: str) -> Iterator[Any]:
+                return iter([{"binance_specific": "data"}])
 
-            def to_canonical_series(self, bars: List):
-                return {
-                    "unadjusted": MagicMock(spec=PriceSeries),
-                    "adjusted": MagicMock(spec=PriceSeries),
-                    "total_return": MagicMock(spec=PriceSeries),
-                }
+            def to_price_bar_event(self, bar: Any):
+                return MagicMock()
+
+            def to_corporate_action_event(self, bar: Any, prev_bar: Optional[Any] = None):
+                return None
+
+            def get_timestamp(self, bar: Any) -> datetime:
+                return datetime.now()
+
+            def get_available_date_range(self) -> Tuple[Optional[str], Optional[str]]:
+                return "2020-01-01", "2024-12-31"
+
+            def prime_cache(self, start_date: str, end_date: str) -> int:
+                return 100
 
         # Both adapters satisfy the protocol
         algoseek = MockAlgoseekAdapter()
@@ -311,12 +380,14 @@ class TestProtocolUsagePatterns:
         # Both can be used interchangeably
         for adapter in [algoseek, binance]:
             bars = adapter.read_bars("2020-01-01", "2020-12-31")
-            assert isinstance(bars, list)
+            # read_bars() returns an iterator, not a list
+            assert hasattr(bars, "__iter__")
 
-            series = adapter.to_canonical_series(bars)
-            assert "unadjusted" in series
-            assert "adjusted" in series
-            assert "total_return" in series
+            # Convert first bar to event
+            bar_list = list(bars)
+            if bar_list:
+                event = adapter.to_price_bar_event(bar_list[0])
+                assert event is not None
 
 
 class TestProtocolDocumentation:
@@ -332,16 +403,20 @@ class TestProtocolDocumentation:
         """Test IDataAdapter has documentation."""
         assert IDataAdapter.__doc__ is not None
         assert len(IDataAdapter.__doc__) > 0
-        assert "Adapter interface" in IDataAdapter.__doc__
 
     def test_protocol_methods_have_docstrings(self):
         """Test protocol methods have documentation."""
         # IDataService methods
-        assert IDataService.load_symbol.__doc__ is not None
-        assert IDataService.load_universe.__doc__ is not None
+        assert IDataService.stream_bars.__doc__ is not None
+        assert IDataService.stream_universe.__doc__ is not None
         assert IDataService.get_instrument.__doc__ is not None
         assert IDataService.list_available_symbols.__doc__ is not None
+        assert IDataService.get_corporate_actions.__doc__ is not None
 
         # IDataAdapter methods
         assert IDataAdapter.read_bars.__doc__ is not None
-        assert IDataAdapter.to_canonical_series.__doc__ is not None
+        assert IDataAdapter.to_price_bar_event.__doc__ is not None
+        assert IDataAdapter.to_corporate_action_event.__doc__ is not None
+        assert IDataAdapter.get_timestamp.__doc__ is not None
+        assert IDataAdapter.get_available_date_range.__doc__ is not None
+        assert IDataAdapter.prime_cache.__doc__ is not None
