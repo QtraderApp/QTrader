@@ -23,11 +23,11 @@ from zoneinfo import ZoneInfo
 import duckdb
 import pandas as pd
 
+from qtrader.events.events import CorporateActionEvent, PriceBarEvent
 from qtrader.services.data.adapters.models.algoseek import AlgoseekBar
 from qtrader.system import LoggerFactory
 
 if TYPE_CHECKING:
-    from qtrader.events.events import CorporateActionEvent, PriceBarEvent
     from qtrader.services.data.models import Instrument
 
 logger = LoggerFactory.get_logger()

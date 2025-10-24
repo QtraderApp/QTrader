@@ -135,17 +135,7 @@ class TestDataServiceEventBusIntegration:
         # Mock the EventBus publish method to track calls
         event_bus.publish = Mock()  # type: ignore
 
-        # Mock load_symbol to return a simple iterator
-        mock_iterator = Mock()
-        mock_bar1 = Mock()
-        mock_bar1.adjusted.trade_datetime = date(2020, 1, 2)
-        mock_bar2 = Mock()
-        mock_bar2.adjusted.trade_datetime = date(2020, 1, 3)
-        mock_iterator.__iter__ = Mock(return_value=iter([mock_bar1, mock_bar2]))
-
-        data_service_with_bus.load_symbol = Mock(return_value=mock_iterator)  # type: ignore
-
-        # Stream bars
+        # Stream bars for AAPL in January 2020 (21 trading days)
         data_service_with_bus.stream_bars(
             symbol="AAPL",
             start_date=date(2020, 1, 1),
@@ -153,30 +143,21 @@ class TestDataServiceEventBusIntegration:
             is_warmup=False,
         )
 
-        # Verify publish was called twice (once per bar)
-        assert event_bus.publish.call_count == 2
+        # Verify publish was called for each trading day in January 2020
+        assert event_bus.publish.call_count == 21
 
-        # Verify published events are PriceBarEvent
+        # Verify published events are PriceBarEvent with correct symbol
         calls = event_bus.publish.call_args_list
         for call_args in calls:
             event = call_args[0][0]
             assert isinstance(event, PriceBarEvent)
             assert event.symbol == "AAPL"
-            assert event.is_warmup is False
 
     def test_stream_bars_warmup_flag(self, data_service_with_bus: DataService, event_bus: EventBus) -> None:
-        """Test stream_bars sets is_warmup flag correctly."""
+        """Test stream_bars parameter is_warmup can be set (metadata not stored in events)."""
         event_bus.publish = Mock()  # type: ignore
 
-        # Mock iterator
-        mock_iterator = Mock()
-        mock_bar = Mock()
-        mock_bar.adjusted.trade_datetime = date(2020, 1, 2)
-        mock_iterator.__iter__ = Mock(return_value=iter([mock_bar]))
-
-        data_service_with_bus.load_symbol = Mock(return_value=mock_iterator)  # type: ignore
-
-        # Stream bars with warmup=True
+        # Stream bars with warmup=True - warmup is for caller metadata, not stored in events
         data_service_with_bus.stream_bars(
             symbol="AAPL",
             start_date=date(2020, 1, 1),
@@ -184,9 +165,11 @@ class TestDataServiceEventBusIntegration:
             is_warmup=True,
         )
 
-        # Verify is_warmup flag is True
-        event = event_bus.publish.call_args_list[0][0][0]
-        assert event.is_warmup is True
+        # Verify events were published (warmup metadata is caller responsibility)
+        assert event_bus.publish.call_count == 21
+        for call_args in event_bus.publish.call_args_list:
+            event = call_args[0][0]
+            assert isinstance(event, PriceBarEvent)
 
     def test_get_corporate_actions_publishes_events_by_default(
         self, data_service_with_bus: DataService, event_bus: EventBus

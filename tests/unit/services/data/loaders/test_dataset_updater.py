@@ -224,12 +224,19 @@ class TestDatasetUpdaterInitialization:
 
             DatasetUpdater("nonexistent", str(temp_config))
 
-    def test_init_adapter_no_update_support(self, temp_config: Path, mock_adapter_no_update):
-        """Test initialization fails when adapter lacks update support."""
-        # Arrange & Act & Assert
+    def test_init_adapter_no_read_bars_method(self, temp_config: Path):
+        """Test initialization fails when adapter lacks read_bars method."""
+        # Arrange
+        mock_adapter_no_read_bars = MagicMock()
+        mock_adapter_no_read_bars.__name__ = "MockAdapterNoReadBars"
+        # Remove read_bars to simulate invalid adapter
+        if hasattr(mock_adapter_no_read_bars, "read_bars"):
+            delattr(mock_adapter_no_read_bars, "read_bars")
+
+        # Act & Assert
         with (
             patch("qtrader.services.data.loaders.dataset_updater.DataSourceResolver") as mock_resolver_class,
-            pytest.raises(ValueError, match="does not support incremental updates"),
+            pytest.raises(ValueError, match="does not have read_bars"),
         ):
             mock_resolver = MagicMock()
             mock_resolver.sources = {
@@ -237,7 +244,7 @@ class TestDatasetUpdaterInitialization:
                     "adapter": "testAdapter",
                 }
             }
-            mock_resolver._get_adapter_class.return_value = mock_adapter_no_update
+            mock_resolver._get_adapter_class.return_value = mock_adapter_no_read_bars
             mock_resolver_class.return_value = mock_resolver
 
             DatasetUpdater("test-dataset", str(temp_config))
