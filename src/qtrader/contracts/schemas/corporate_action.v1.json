@@ -1,0 +1,241 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "contracts.schemas.bar.v1.json.corporate_action.v1.json",
+    "title": "Corporate Action Event",
+    "description": "Represents a corporate action (split, dividend, merger, etc.) affecting a security. Used by ledger/portfolio systems to update positions, cost basis, and lot tracking.",
+    "type": "object",
+    "properties": {
+        "symbol": {
+            "type": "string",
+            "description": "The security identifier (ticker, ISIN, CUSIP, etc.) affected by the corporate action."
+        },
+        "asset_class": {
+            "type": "string",
+            "enum": [
+                "equity",
+                "equity_option",
+                "future",
+                "future_option",
+                "fx",
+                "crypto"
+            ],
+            "description": "The asset class of the security."
+        },
+        "action_type": {
+            "type": "string",
+            "enum": [
+                "split",
+                "reverse_split",
+                "dividend",
+                "special_dividend",
+                "rights_issue",
+                "merger",
+                "spinoff",
+                "symbol_change",
+                "delisting"
+            ],
+            "description": "The type of corporate action."
+        },
+        "announcement_date": {
+            "type": "string",
+            "format": "date",
+            "description": "ISO 8601 date when the corporate action was announced (YYYY-MM-DD)."
+        },
+        "ex_date": {
+            "type": "string",
+            "format": "date",
+            "description": "ISO 8601 ex-date: the first trading day when the security trades without the benefit of the corporate action (e.g., without dividend rights)."
+        },
+        "record_date": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "format": "date"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ISO 8601 record date: holders as of this date are entitled to the action. Null if not applicable."
+        },
+        "payment_date": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "format": "date"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ISO 8601 payment/distribution date when dividends are paid or splits take effect. Null if not applicable."
+        },
+        "effective_date": {
+            "type": "string",
+            "format": "date",
+            "description": "ISO 8601 effective date when the action takes effect for position/price adjustments."
+        },
+        "split_ratio": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For splits: the multiplicative factor (e.g., '4.0' for 4-for-1 split, '0.5' for 1-for-2 reverse split). Null if not a split."
+        },
+        "split_from": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For splits: the 'from' side of the ratio (e.g., 1 in '1-for-4'). Null if not a split."
+        },
+        "split_to": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For splits: the 'to' side of the ratio (e.g., 4 in '1-for-4'). Null if not a split."
+        },
+        "dividend_amount": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For dividends: the cash amount per share (as decimal string). Null if not a dividend."
+        },
+        "dividend_currency": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For dividends: ISO 4217 currency code (e.g., 'USD'). Null if not a dividend."
+        },
+        "dividend_type": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "enum": [
+                        "ordinary",
+                        "qualified",
+                        "special",
+                        "capital_return",
+                        "stock"
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For dividends: the dividend classification. Null if not a dividend."
+        },
+        "price_adjustment_factor": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Multiplicative factor to adjust historical prices (e.g., for splits). Null if no price adjustment."
+        },
+        "volume_adjustment_factor": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Multiplicative factor to adjust historical volumes (e.g., for splits). Null if no volume adjustment."
+        },
+        "new_symbol": {
+            "oneOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For symbol changes or mergers: the new symbol. Null if not applicable."
+        },
+        "source": {
+            "type": "string",
+            "description": "Source of the corporate action data (e.g., 'algoseek', 'edgar', 'manual')."
+        },
+        "source_reference": {
+            "oneOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "External reference (URL, filing ID, etc.) for the corporate action. Null if unavailable."
+        },
+        "notes": {
+            "oneOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Free-form notes about the corporate action. Null if none."
+        },
+        "trace_id": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional distributed tracing identifier for debugging."
+        }
+    },
+    "required": [
+        "symbol",
+        "asset_class",
+        "action_type",
+        "announcement_date",
+        "ex_date",
+        "effective_date",
+        "source"
+    ],
+    "additionalProperties": false
+}

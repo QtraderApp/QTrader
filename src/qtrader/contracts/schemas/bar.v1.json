@@ -1,0 +1,171 @@
+{
+    "$id": "contracts.schemas.bar.v1.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "OHLCV Bar v1",
+    "type": "object",
+    "required": [
+        "symbol",
+        "asset_class",
+        "interval",
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+    ],
+    "properties": {
+        "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Canonical instrument identifier (e.g., AAPL, BTC-USD, FIGI/SecId if you prefer)."
+        },
+        "asset_class": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Asset class (e.g., equity, crypto, forex)."
+        },
+        "interval": {
+            "type": "string",
+            "enum": [
+                "1s",
+                "5s",
+                "10s",
+                "15s",
+                "30s",
+                "1m",
+                "2m",
+                "5m",
+                "10m",
+                "15m",
+                "30m",
+                "1h",
+                "4h",
+                "1d"
+            ],
+            "description": "Bar periodicity."
+        },
+        "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Bar open timestamp (inclusive, UTC RFC3339)."
+        },
+        "open": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Decimal as string."
+        },
+        "high": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Decimal as string."
+        },
+        "low": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Decimal as string."
+        },
+        "close": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Decimal as string."
+        },
+        "volume": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                {
+                    "type": "string",
+                    "pattern": "^\\d+$"
+                }
+            ],
+            "description": "Trade volume (units or lots). Allow big int as string."
+        },
+        "vwap": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Optional VWAP as decimal string."
+        },
+        "turnover": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Quote currency notional, decimal string."
+        },
+        "trade_count": {
+            "type": "integer",
+            "minimum": 0
+        },
+        "adjusted": {
+            "type": "boolean",
+            "default": false,
+            "description": "True if prices are adjusted."
+        },
+        "cumulative_price_factor": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Cumulative multiplicative factor to convert unadjusted price to adjusted price. Product of all historical splits/dividends up to this bar. Default '1' if no adjustments."
+        },
+        "cumulative_volume_factor": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Cumulative multiplicative factor for volume adjustments. Default '1' if no adjustments."
+        },
+        "price_adjustment_factor": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Per-bar instantaneous price adjustment factor applied at this specific bar (e.g., split occurs on this date). Null when no adjustment at this bar."
+        },
+        "volume_adjustment_factor": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional per-bar instantaneous volume adjustment factor applied at this specific bar. Null when no adjustment."
+        },
+        "adjustment_reason": {
+            "oneOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable reason for the per-bar adjustment (e.g., 'Subdiv', 'CashDiv'). Null when no adjustment."
+        },
+        "price_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3,
+            "description": "ISO 4217, e.g., USD."
+        },
+        "price_scale": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional fixed-point scale if applicable."
+        },
+        "source": {
+            "type": "string",
+            "description": "Producer id/service name."
+        },
+        "trace_id": {
+            "type": "string",
+            "description": "For distributed tracing."
+        }
+    },
+    "additionalProperties": false
+}

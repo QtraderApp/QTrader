@@ -1,0 +1,30 @@
+{
+    "event_id": "550e8400-e29b-41d4-a716-446655440002",
+    "event_type": "ohlcv_bar",
+    "event_version": 1,
+    "occurred_at": "2020-08-31T20:00:00Z",
+    "correlation_id": "data-import-aapl-2020-08",
+    "causation_id": null,
+    "source_service": "data_service",
+    "payload": {
+        "symbol": "AAPL",
+        "asset_class": "equity",
+        "interval": "1d",
+        "timestamp": "2020-08-31T00:00:00Z",
+        "open": "127.67",
+        "high": "131.0",
+        "low": "126.25",
+        "close": "129.04",
+        "volume": "210249674",
+        "adjusted": false,
+        "cumulative_price_factor": "32.402197151180104",
+        "cumulative_volume_factor": "27.99999999999997",
+        "price_adjustment_factor": "0.25",
+        "volume_adjustment_factor": "4.0",
+        "adjustment_reason": "Subdiv",
+        "price_currency": "USD",
+        "price_scale": 2,
+        "source": "algoseek-us-equity-1d-unadjusted",
+        "trace_id": "6c4f5e1b3e6a4d1fb9f2c1a0a9e3d812"
+    }
+}
