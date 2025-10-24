@@ -30,7 +30,7 @@ def example_price_bar_event():
         interval="1d",
         timestamp="2024-01-01T00:00:00Z",
         open=Decimal("150.00"),  # Accepts Decimal
-        high="155.00",  # Also accepts string (auto-converted)
+        high=Decimal("155.00"),  # Type-safe Decimal
         low=Decimal("149.00"),
         close=Decimal("154.50"),
         volume=1_000_000,
@@ -146,13 +146,14 @@ def example_validation_error():
             print(f"  → Pydantic validation error (field-level)")
 
     try:
-        # Invalid decimal format
+        # Invalid decimal format - this will be caught by Pydantic validation
+        invalid_price = "not-a-number"
         PriceBarEvent(
             symbol="AAPL",
             asset_class="equity",
             interval="1d",
             timestamp="2024-01-01T00:00:00Z",
-            open="not-a-number",  # Invalid
+            open=Decimal(invalid_price),  # Will raise ValueError/InvalidOperation
             high=Decimal("155.00"),
             low=Decimal("149.00"),
             close=Decimal("154.50"),
@@ -164,7 +165,7 @@ def example_validation_error():
         )
     except Exception as e:
         print(f"✗ Invalid decimal: {type(e).__name__}")
-        print(f"  → Pydantic caught invalid input before schema validation")
+        print(f"  → Decimal conversion failed before event creation")
 
 
 def example_timezone_handling():
