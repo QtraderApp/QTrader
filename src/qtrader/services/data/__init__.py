@@ -1,15 +1,13 @@
-"""Data service for loading and streaming price data.
+"""Data service for streaming price data.
 
 This module provides the DataService implementation which coordinates
-data loading from vendor adapters and provides clean streaming access
-to price data for backtesting and analysis.
+data streaming from vendor adapters and publishes events via EventBus.
 """
 
-from qtrader.services.data.interface import IDataAdapter, IDataService
+from qtrader.services.data.interface import IDataService
 from qtrader.services.data.service import DataService
 
 __all__ = [
     "IDataService",
-    "IDataAdapter",
     "DataService",
 ]

@@ -5,12 +5,11 @@ pattern. Each service is independently testable and communicates via Protocol
 interfaces using dependency injection.
 """
 
-from qtrader.services.data import DataService, IDataAdapter, IDataService
+from qtrader.services.data import DataService, IDataService
 from qtrader.services.data.update_service import UpdateService
 
 __all__: list[str] = [
     "DataService",
     "IDataService",
-    "IDataAdapter",
     "UpdateService",
 ]
