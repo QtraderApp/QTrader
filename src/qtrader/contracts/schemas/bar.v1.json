@@ -48,7 +48,23 @@
         "timestamp": {
             "type": "string",
             "format": "date-time",
-            "description": "Bar open timestamp (inclusive, UTC RFC3339)."
+            "description": "Bar open timestamp (inclusive, UTC RFC3339 with Z suffix). Always required."
+        },
+        "timestamp_local": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "format": "date-time",
+            "description": "Bar open timestamp in local exchange/session time (RFC3339 with offset, e.g., 2024-03-10T09:30:00-05:00 for NYSE). Optional - only include if local session semantics are relevant (e.g., equity markets with trading hours). Omit for 24/7 markets like crypto."
+        },
+        "timezone": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^[A-Za-z]+(/[A-Za-z_]+)+$",
+            "description": "IANA timezone identifier for the primary trading venue (e.g., 'America/New_York' for NYSE, 'Asia/Tokyo' for TSE). Optional - helps consumers understand local context and recompute local time if needed."
         },
         "open": {
             "type": "string",
@@ -163,7 +179,10 @@
             "description": "Producer id/service name."
         },
         "trace_id": {
-            "type": "string",
+            "type": [
+                "string",
+                "null"
+            ],
             "description": "For distributed tracing."
         }
     },
