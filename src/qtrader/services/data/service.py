@@ -1,23 +1,22 @@
 """Data service implementation.
 
 Provides concrete implementation of IDataService that coordinates
-data loading from vendor adapters using DataLoader and DataSourceResolver.
+data streaming from vendor adapters via EventBus.
 """
 
 import heapq
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 
 from qtrader.events.event_bus import IEventBus
-from qtrader.events.events import PriceBarEvent
 from qtrader.services.data.adapters.resolver import DataSourceResolver
+from qtrader.services.data.config import BarSchemaConfig
 from qtrader.services.data.config import DataConfig
-from qtrader.services.data.loaders.iterator import PriceSeriesIterator
-from qtrader.services.data.loaders.loader import DataLoader
+from qtrader.services.data.config import DataConfig as ServiceDataConfig
 from qtrader.services.data.models import Instrument
+from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 
 logger = structlog.get_logger()
 
@@ -26,53 +25,59 @@ class DataService:
     """
     Concrete implementation of data service.
 
-    Delegates to DataLoader and adapters for actual data loading.
+    Streams market data events via adapters and EventBus.
     Provides clean interface for consumers (strategies, backtests).
 
     Attributes:
         config: Data configuration
         resolver: Data source resolver for adapter lookup
-        loader: DataLoader for coordinating data loading
+        dataset: Dataset name (e.g., "algoseek-us-equity-1d-unadjusted") - REQUIRED
         _instrument_cache: Cache of Instrument objects by symbol
+        _event_bus: EventBus for publishing PriceBarEvent and CorporateActionEvent
 
     Examples:
-        >>> # Initialize with config
+        >>> # Initialize with config, dataset, and EventBus
         >>> from qtrader.config import AssetClass, DataSourceSelector
+        >>> from qtrader.events.event_bus import EventBus
         >>> selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
         >>> config = DataConfig(
-        ...     mode="adjusted",
+        ...     mode="unadjusted",
         ...     bar_schema=bar_schema,
         ...     source_selector=selector
         ... )
-        >>> service = DataService(config)
+        >>> bus = EventBus()
+        >>> service = DataService(
+        ...     config=config,
+        ...     dataset="algoseek-us-equity-1d-unadjusted",
+        ...     event_bus=bus
+        ... )
         >>>
-        >>> # Load single symbol
-        >>> iterator = service.load_symbol(
+        >>> # Stream single symbol (emits PriceBarEvent and CorporateActionEvent)
+        >>> service.stream_bars(
         ...     "AAPL",
         ...     date(2020, 1, 1),
         ...     date(2020, 12, 31)
         ... )
-        >>> for multi_bar in iterator:
-        ...     print(multi_bar.adjusted.close)
         >>>
-        >>> # Load universe
-        >>> iterators = service.load_universe(
+        >>> # Stream multiple symbols with time synchronization
+        >>> service.stream_universe(
         ...     ["AAPL", "MSFT", "GOOGL"],
         ...     date(2020, 1, 1),
         ...     date(2020, 12, 31)
         ... )
 
     Notes:
-        - Wraps existing DataLoader for backward compatibility
-        - Adds clean interface for future service consumers
+        - Event-driven architecture: publishes to EventBus
+        - Dataset parameter is REQUIRED (no legacy inference)
+        - Metadata comes from data_sources.yaml, not dataset name parsing
+        - Handles data source resolution and adapter selection via resolver
         - Caches instrument metadata for performance
-        - Handles data source resolution and adapter selection
     """
 
     def __init__(
         self,
         config: DataConfig,
-        dataset: Optional[str] = None,
+        dataset: str,
         resolver: Optional[DataSourceResolver] = None,
         event_bus: Optional[IEventBus] = None,
     ):
@@ -82,15 +87,11 @@ class DataService:
         Args:
             config: Data configuration
             dataset: Dataset name from data_sources.yaml (e.g., "algoseek-us-equity-1d-unadjusted").
-                    If None, will try to infer from config.source_selector (legacy behavior).
             resolver: Data source resolver (creates default if None)
             event_bus: Optional EventBus for publishing PriceBarEvent and CorporateActionEvent.
                       If None, DataService operates in non-event mode (pull-based).
 
         Examples:
-            >>> # Explicit dataset (RECOMMENDED)
-            >>> service = DataService(config, dataset="algoseek-us-equity-1d-unadjusted")
-            >>>
             >>> # With EventBus (event-driven mode)
             >>> from qtrader.events.event_bus import EventBus
             >>> bus = EventBus()
@@ -99,45 +100,26 @@ class DataService:
             >>> # With custom resolver
             >>> resolver = DataSourceResolver("config/custom_sources.yaml")
             >>> service = DataService(config, dataset="algoseek-us-equity-1d-unadjusted", resolver=resolver)
-            >>>
-            >>> # Legacy mode (infers from source_selector)
-            >>> service = DataService(config)  # Will log warning
         """
         self.config = config
         self.resolver = resolver or DataSourceResolver()
         self._event_bus = event_bus
-
-        # Store explicit dataset if provided
         self.dataset = dataset
 
-        if not self.dataset:
-            logger.warning(
-                "DataService initialized without explicit dataset. "
-                "This is deprecated. Pass dataset parameter explicitly. "
-                "Attempting to infer from config.source_selector..."
+        # Validate dataset exists
+        if self.dataset not in self.resolver.sources:
+            available = list(self.resolver.sources.keys())
+            raise ValueError(
+                f"Dataset '{self.dataset}' not found in data_sources.yaml. Available datasets: {available}"
             )
-            # Try to infer from source_selector (legacy)
-            if hasattr(config, "source_selector") and config.source_selector:
-                # Try to find matching dataset
-                self.dataset = self._infer_dataset_from_selector(config.source_selector)
-            else:
-                logger.error("Cannot infer dataset - no dataset parameter and no source_selector in config")
-
-        # Create DataLoader with dict config (includes adapter config)
-        # DataLoader now accepts both DataConfig and dict
-        config_dict = {
-            "adapter": self._build_adapter_config(),
-        }
-        self.loader = DataLoader(config_dict)
 
         # Cache for instrument objects
         self._instrument_cache: Dict[str, Instrument] = {}
 
-        # DEBUG: Internal initialization details
         logger.debug(
             "data_service.initialized",
+            dataset=dataset,
             mode=config.mode,
-            source=config.source_selector.to_tag(),
         )
 
     @classmethod
@@ -151,12 +133,11 @@ class DataService:
         """
         Factory method to create DataService from backtest configuration.
 
-        This bridges the gap between backtest DataConfig (simple source + path)
-        and the service-level DataConfig (complex with source_selector, mode, etc.).
+        Uses dataset metadata from data_sources.yaml as the source of truth.
+        No inference or parsing of dataset names - all metadata comes from config.
 
         Args:
-            config_dict: Dict from backtest DataConfig.model_dump()
-                        Expected keys: 'source', 'data_path', 'dataset'
+            config_dict: Dict from backtest DataConfig.model_dump() (currently unused, reserved)
             dataset: Dataset name from data_sources.yaml
                     (e.g., "algoseek-us-equity-1d-unadjusted")
             resolver: Optional DataSourceResolver instance
@@ -164,6 +145,9 @@ class DataService:
 
         Returns:
             Configured DataService instance
+
+        Raises:
+            KeyError: If dataset not found in data_sources.yaml
 
         Examples:
             >>> from qtrader.backtest.config import BacktestConfig
@@ -175,49 +159,51 @@ class DataService:
             ... )
 
         Note:
-            This method creates a service-level DataConfig internally by inferring
-            the proper source_selector and mode from the dataset name.
+            Dataset metadata (provider, asset_class, adjusted, etc.) comes from
+            data_sources.yaml, not from parsing the dataset name. This ensures
+            consistency and allows flexible naming.
         """
-        from qtrader.services.data.config import BarSchemaConfig
-        from qtrader.services.data.config import DataConfig as ServiceDataConfig
-        from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
+        # Create resolver if not provided
+        if resolver is None:
+            resolver = DataSourceResolver()
 
-        # Extract provider from dataset name
-        # Dataset format: {provider}-{asset_class}-{timeframe}-{mode}
-        # e.g., "algoseek-us-equity-1d-unadjusted"
-        parts = dataset.split("-")
-        if len(parts) < 2:
-            raise ValueError(
-                f"Invalid dataset name format: '{dataset}'. "
-                "Expected format: <provider>-<asset>-<freq>[-variant] "
-                "(e.g., 'algoseek-us-equity-1d-unadjusted')"
-            )
+        # Get dataset metadata from resolver (source of truth)
+        if dataset not in resolver.sources:
+            available = list(resolver.sources.keys())
+            raise ValueError(f"Dataset '{dataset}' not found in data_sources.yaml. Available datasets: {available}")
 
-        source = parts[0]  # First part is always provider (algoseek, binance, etc.)
+        source_config = resolver.sources[dataset]
 
-        # Infer asset class and mode from dataset name
-        # Dataset format: {provider}-{asset_class}-{timeframe}-{mode}
-        # e.g., "algoseek-us-equity-1d-unadjusted" or "algoseek-us-equity-1d-ohlc"
+        # Extract metadata from dataset config
+        provider = source_config.get("provider", "unknown")
+        asset_class_str = source_config.get("asset_class", "equity")
+        is_adjusted = source_config.get("adjusted", False)
 
-        # Determine asset class (default to EQUITY)
-        asset_class = AssetClass.EQUITY
-        if "equity" in dataset.lower():
+        # Map asset_class string to enum
+        asset_class = AssetClass.EQUITY  # default
+        if asset_class_str == "equity":
             asset_class = AssetClass.EQUITY
-        elif "option" in dataset.lower():
+        elif asset_class_str == "options":
             asset_class = AssetClass.OPTIONS
-        elif "future" in dataset.lower():
+        elif asset_class_str == "futures":
             asset_class = AssetClass.FUTURES
+        elif asset_class_str == "crypto":
+            asset_class = AssetClass.CRYPTO
+        elif asset_class_str == "forex":
+            asset_class = AssetClass.FOREX
+        elif asset_class_str == "fixed_income":
+            asset_class = AssetClass.FIXED_INCOME
 
-        # Determine mode (adjusted vs ohlc)
-        mode = "adjusted" if "adjusted" in dataset.lower() else "ohlc"
+        # Determine mode from adjusted flag (boolean from config)
+        mode = "adjusted" if is_adjusted else "unadjusted"
 
         # Create source selector
         source_selector = DataSourceSelector(
-            provider=source,
+            provider=provider,
             asset_class=asset_class,
         )
 
-        # Create minimal bar schema (will be overridden by resolver/loader)
+        # Create minimal bar schema
         bar_schema = BarSchemaConfig(
             ts="trade_datetime",
             symbol="symbol",
@@ -235,16 +221,13 @@ class DataService:
             bar_schema=bar_schema,
         )
 
-        # Create resolver if not provided
-        if resolver is None:
-            resolver = DataSourceResolver()
-
         logger.info(
             "data_service.from_config",
-            source=source,
             dataset=dataset,
-            mode=mode,
+            provider=provider,
             asset_class=asset_class.value,
+            adjusted=is_adjusted,
+            mode=mode,
         )
 
         return cls(
@@ -254,165 +237,28 @@ class DataService:
             event_bus=event_bus,
         )
 
-    def load_symbol(
-        self,
-        symbol: str,
-        start_date: date,
-        end_date: date,
-        *,
-        data_source: Optional[str] = None,
-    ) -> PriceSeriesIterator:
+    def _create_adapter(self, symbol: str):
         """
-        Load data for single symbol.
+        Create adapter for symbol using resolver.
 
         Args:
-            symbol: Ticker symbol (e.g., 'AAPL')
-            start_date: Start of date range
-            end_date: End of date range (inclusive)
-            data_source: Optional override for data source
+            symbol: Ticker symbol
 
         Returns:
-            Iterator yielding MultiBar instances
+            Configured adapter instance (type depends on dataset configuration)
 
         Raises:
-            ValueError: If symbol not found or invalid date range
-            FileNotFoundError: If data files missing
-
-        Examples:
-            >>> iterator = service.load_symbol(
-            ...     "AAPL",
-            ...     date(2020, 1, 1),
-            ...     date(2020, 12, 31)
-            ... )
-            >>> first_bar = next(iterator)
-            >>> print(first_bar.adjusted.close)
+            ValueError: If adapter configuration missing or dataset not found
         """
-        if start_date > end_date:
-            raise ValueError(f"Invalid date range: {start_date} > {end_date}")
+        # Create minimal instrument (just symbol)
+        instrument = Instrument(symbol=symbol)
 
-        # DEBUG: Per-symbol loading details
-        logger.debug(
-            "data_service.load_symbol",
-            symbol=symbol,
-            start_date=start_date.isoformat(),
-            end_date=end_date.isoformat(),
-            data_source=data_source,
-        )
+        # Use resolver to create appropriate adapter for the dataset
+        if not self.dataset:
+            raise ValueError("Dataset not configured - cannot create adapter")
 
-        # Use DataLoader to load data
-        iterator = self.loader.load_data(
-            symbol,
-            start_date.isoformat(),
-            end_date.isoformat(),
-        )
-
-        logger.debug(
-            "data_service.load_symbol.complete",
-            symbol=symbol,
-        )
-
-        return iterator
-
-    def load_universe(
-        self,
-        symbols: List[str],
-        start_date: date,
-        end_date: date,
-        *,
-        data_source: Optional[str] = None,
-        strict: bool = False,
-    ) -> Dict[str, PriceSeriesIterator]:
-        """
-        Load data for multiple symbols.
-
-        Args:
-            symbols: List of ticker symbols
-            start_date: Start of date range
-            end_date: End of date range (inclusive)
-            data_source: Optional override for data source
-            strict: If True, raise ValueError if any symbol fails to load.
-                   If False (default), log warnings and continue with successful symbols.
-
-        Returns:
-            Dict mapping symbol → iterator (only successful symbols)
-
-        Raises:
-            ValueError: If any symbol not found and strict=True
-
-        Examples:
-            >>> # Lenient mode (default) - continues with successful symbols
-            >>> iterators = service.load_universe(
-            ...     ["AAPL", "INVALID", "MSFT"],
-            ...     date(2020, 1, 1),
-            ...     date(2020, 12, 31)
-            ... )
-            >>> # Returns {"AAPL": ..., "MSFT": ...}, logs warning for INVALID
-            >>>
-            >>> # Strict mode - fails fast on any error
-            >>> iterators = service.load_universe(
-            ...     ["AAPL", "INVALID", "MSFT"],
-            ...     date(2020, 1, 1),
-            ...     date(2020, 12, 31),
-            ...     strict=True
-            ... )
-            >>> # Raises ValueError immediately when INVALID fails
-        """
-        if start_date > end_date:
-            raise ValueError(f"Invalid date range: {start_date} > {end_date}")
-
-        # DEBUG: Universe loading details
-        logger.debug(
-            "data_service.load_universe",
-            symbol_count=len(symbols),
-            start_date=start_date.isoformat(),
-            end_date=end_date.isoformat(),
-            data_source=data_source,
-        )
-
-        # Load each symbol independently
-        iterators: Dict[str, PriceSeriesIterator] = {}
-        failed_symbols: List[str] = []
-
-        for symbol in symbols:
-            try:
-                iterator = self.load_symbol(
-                    symbol,
-                    start_date,
-                    end_date,
-                    data_source=data_source,
-                )
-                iterators[symbol] = iterator
-            except (ValueError, FileNotFoundError) as e:
-                logger.warning(
-                    "data_service.load_universe.symbol_failed",
-                    symbol=symbol,
-                    error=str(e),
-                )
-                failed_symbols.append(symbol)
-
-        if failed_symbols:
-            if strict:
-                # Strict mode: raise on any failure
-                raise ValueError(
-                    f"Failed to load {len(failed_symbols)} symbol(s) in strict mode: {failed_symbols}. "
-                    f"Successfully loaded {len(iterators)} symbols."
-                )
-            else:
-                # Lenient mode: continue with successful symbols
-                logger.warning(
-                    "data_service.load_universe.partial_success",
-                    failed_count=len(failed_symbols),
-                    failed_symbols=failed_symbols,
-                )
-
-        # INFO: High-level summary for users
-        logger.info(
-            "data_service.load_universe.complete",
-            success_count=len(iterators),
-            failed_count=len(failed_symbols),
-        )
-
-        return iterators
+        adapter = self.resolver.resolve_by_dataset(self.dataset, instrument)
+        return adapter
 
     def stream_bars(
         self,
@@ -427,6 +273,10 @@ class DataService:
 
         This method combines loading and event publishing for a single symbol.
         Requires EventBus to be configured during initialization.
+
+        REFACTORED: Now directly streams from adapter without intermediate
+        MultiBar/PriceSeries transformation. Emits unadjusted PriceBarEvent
+        and CorporateActionEvent.
 
         Args:
             symbol: Ticker symbol (e.g., 'AAPL')
@@ -448,7 +298,7 @@ class DataService:
             >>> service.stream_bars("AAPL", date(2020, 1, 1), date(2020, 12, 31), is_warmup=False)
 
         Flow:
-            DataService loads bar → Publishes PriceBarEvent →
+            DataService loads bar → Publishes PriceBarEvent + CorporateActionEvent →
             PortfolioService updates prices →
             ExecutionService checks fills →
             StrategyService sees bar → Publishes SignalEvent
@@ -470,32 +320,25 @@ class DataService:
             is_warmup=is_warmup,
         )
 
-        # Load data
-        iterator = self.load_symbol(symbol, start_date, end_date)
+        # Create adapter directly (bypass loader/series/iterator layers)
+        adapter = self._create_adapter(symbol)
 
-        # Stream bars as events
+        # Stream bars directly from adapter
         bar_count = 0
-        for multi_bar in iterator:
-            # Get adjusted bar for event publishing
-            bar = multi_bar.adjusted
+        prev_bar = None
 
-            # Publish event with individual OHLCV fields
-            event = PriceBarEvent(
-                symbol=symbol,
-                interval="1d",  # Lowercase per schema
-                timestamp=bar.trade_datetime.isoformat(),
-                open=Decimal(str(bar.open)),
-                high=Decimal(str(bar.high)),
-                low=Decimal(str(bar.low)),
-                close=Decimal(str(bar.close)),
-                volume=bar.volume,
-                adjusted=True,  # Using adjusted mode
-                cumulative_price_factor=Decimal("1.0"),  # TODO: Get from data source
-                cumulative_volume_factor=Decimal("1.0"),  # TODO: Get from data source
-                source=self.config.source_selector.provider or "unknown",
-            )
-            self._event_bus.publish(event)
+        for bar in adapter.read_bars(start_date.isoformat(), end_date.isoformat()):
+            # Publish price bar event (unadjusted)
+            price_event = adapter.to_price_bar_event(bar)
+            self._event_bus.publish(price_event)
             bar_count += 1
+
+            # Publish corporate action event (if any)
+            corp_event = adapter.to_corporate_action_event(bar, prev_bar)
+            if corp_event:
+                self._event_bus.publish(corp_event)
+
+            prev_bar = bar
 
         logger.info(
             "data_service.stream_bars.complete",
@@ -518,6 +361,10 @@ class DataService:
 
         Synchronizes iterators to publish all bars for a given timestamp together
         before moving to next timestamp. This ensures proper event ordering.
+
+        REFACTORED: Now directly streams from adapters without intermediate
+        MultiBar/PriceSeries transformation. Emits unadjusted PriceBarEvent
+        and CorporateActionEvent.
 
         Args:
             symbols: List of ticker symbols
@@ -573,70 +420,84 @@ class DataService:
             is_warmup=is_warmup,
         )
 
-        # Load iterators for all symbols
-        iterators = self.load_universe(symbols, start_date, end_date, strict=strict)
+        # Create adapters for all symbols
 
-        # Initialize heap with first bar from each symbol's iterator
-        # Heap entries: (timestamp, symbol, multi_bar, iterator)
-        # Note: Using Any for iterator type to avoid mypy issues with iter() conversion
-        heap: List[Tuple[datetime, str, Any, Any]] = []
+        adapters: Dict[str, Any] = {}
+        failed_symbols: List[str] = []
 
-        for symbol, iterator in iterators.items():
+        for symbol in symbols:
+            try:
+                adapter = self._create_adapter(symbol)
+                adapters[symbol] = adapter
+            except (ValueError, FileNotFoundError) as e:
+                logger.warning("data_service.stream_universe.adapter_failed", symbol=symbol, error=str(e))
+                failed_symbols.append(symbol)
+
+        if failed_symbols and strict:
+            raise ValueError(
+                f"Failed to create adapters for {len(failed_symbols)} symbol(s) in strict mode: {failed_symbols}"
+            )
+
+        # Initialize heap with first bar from each symbol's adapter
+        # Heap entries: (timestamp, symbol, bar, bar_iterator, prev_bar)
+        heap: List[Tuple[datetime, str, Any, Any, Optional[Any]]] = []
+
+        for symbol, adapter in adapters.items():
             try:
                 # Create iterator once and reuse it
-                it = iter(iterator)
+                it = iter(adapter.read_bars(start_date.isoformat(), end_date.isoformat()))
                 first_bar = next(it)
-                ts = first_bar.adjusted.trade_datetime
-                heapq.heappush(heap, (ts, symbol, first_bar, it))
+                ts = adapter.get_timestamp(first_bar)
+                heapq.heappush(heap, (ts, symbol, first_bar, it, None))
             except StopIteration:
                 # Symbol has no data in range
                 logger.debug("data_service.stream_universe.no_data", symbol=symbol)
+                continue
+            except Exception as e:
+                logger.warning("data_service.stream_universe.read_failed", symbol=symbol, error=str(e))
                 continue
 
         # Stream bars incrementally using heap-merge
         total_bars = 0
         unique_timestamps = 0
         current_timestamp = None
-        bars_at_current_ts: Dict[str, Any] = {}
+        bars_at_current_ts: Dict[str, Tuple[Any, Optional[Any]]] = {}
 
         while heap:
             # Get next bar (earliest timestamp)
-            ts, symbol, multi_bar, iterator = heapq.heappop(heap)
+            ts, symbol, bar, bar_iterator, prev_bar = heapq.heappop(heap)
 
             # If we've moved to a new timestamp, publish all bars from previous timestamp
             if current_timestamp is not None and ts != current_timestamp:
                 # Publish all bars at current_timestamp in sorted symbol order
                 for sym in sorted(bars_at_current_ts.keys()):
-                    bar = bars_at_current_ts[sym].adjusted
-                    event = PriceBarEvent(
-                        symbol=sym,
-                        interval="1d",
-                        timestamp=current_timestamp.isoformat(),
-                        open=Decimal(str(bar.open)),
-                        high=Decimal(str(bar.high)),
-                        low=Decimal(str(bar.low)),
-                        close=Decimal(str(bar.close)),
-                        volume=bar.volume,
-                        adjusted=True,
-                        cumulative_price_factor=Decimal("1.0"),
-                        cumulative_volume_factor=Decimal("1.0"),
-                        source=self.config.source_selector.provider or "unknown",
-                    )
-                    self._event_bus.publish(event)
+                    bar_data, prev_data = bars_at_current_ts[sym]
+
+                    # Get the adapter for this symbol to use mapping methods
+                    adapter = adapters[sym]
+
+                    # Publish price bar event
+                    price_event = adapter.to_price_bar_event(bar_data)
+                    self._event_bus.publish(price_event)
                     total_bars += 1
+
+                    # Publish corporate action event (if any)
+                    corp_event = adapter.to_corporate_action_event(bar_data, prev_data)
+                    if corp_event:
+                        self._event_bus.publish(corp_event)
 
                 unique_timestamps += 1
                 bars_at_current_ts = {}
 
             # Collect bar for current timestamp
             current_timestamp = ts
-            bars_at_current_ts[symbol] = multi_bar
+            bars_at_current_ts[symbol] = (bar, prev_bar)
 
             # Try to get next bar from this symbol's iterator
             try:
-                next_bar = next(iterator)
-                next_ts = next_bar.adjusted.trade_datetime
-                heapq.heappush(heap, (next_ts, symbol, next_bar, iterator))
+                next_bar = next(bar_iterator)
+                next_ts = adapters[symbol].get_timestamp(next_bar)
+                heapq.heappush(heap, (next_ts, symbol, next_bar, bar_iterator, bar))
             except StopIteration:
                 # This symbol's iterator is exhausted
                 pass
@@ -644,30 +505,27 @@ class DataService:
         # Publish remaining bars from last timestamp
         if bars_at_current_ts and current_timestamp is not None:
             for sym in sorted(bars_at_current_ts.keys()):
-                bar = bars_at_current_ts[sym].adjusted
-                event = PriceBarEvent(
-                    symbol=sym,
-                    interval="1d",
-                    timestamp=current_timestamp.isoformat(),
-                    open=Decimal(str(bar.open)),
-                    high=Decimal(str(bar.high)),
-                    low=Decimal(str(bar.low)),
-                    close=Decimal(str(bar.close)),
-                    volume=bar.volume,
-                    adjusted=True,
-                    cumulative_price_factor=Decimal("1.0"),
-                    cumulative_volume_factor=Decimal("1.0"),
-                    source=self.config.source_selector.provider or "unknown",
-                )
-                self._event_bus.publish(event)
+                bar_data, prev_data = bars_at_current_ts[sym]
+
+                # Get the adapter for this symbol
+                adapter = adapters[sym]
+
+                # Publish price bar event
+                price_event = adapter.to_price_bar_event(bar_data)
+                self._event_bus.publish(price_event)
                 total_bars += 1
+
+                # Publish corporate action event (if any)
+                corp_event = adapter.to_corporate_action_event(bar_data, prev_data)
+                if corp_event:
+                    self._event_bus.publish(corp_event)
 
             unique_timestamps += 1
 
         # INFO: High-level streaming summary for users
         logger.info(
             "data_service.stream_universe.complete",
-            symbol_count=len(iterators),
+            symbol_count=len(adapters),
             total_bars=total_bars,
             unique_timestamps=unique_timestamps,
             is_warmup=is_warmup,
@@ -816,104 +674,28 @@ class DataService:
             )
             raise
 
-    def _infer_dataset_from_selector(self, selector) -> Optional[str]:
-        """
-        Try to infer dataset name from source_selector (legacy support).
-
-        Args:
-            selector: DataSourceSelector from config
-
-        Returns:
-            Dataset name if found, None otherwise
-        """
-        try:
-            # Try to find matching dataset
-            for source_name, source_config in self.resolver.sources.items():
-                if selector.matches(source_config):
-                    logger.info(
-                        "data_service.inferred_dataset",
-                        dataset=source_name,
-                        selector=selector.to_tag(),
-                    )
-                    return source_name
-
-            # If no match, try provider name
-            provider = selector.provider
-            if provider:
-                # Look for dataset with matching provider
-                for source_name, source_config in self.resolver.sources.items():
-                    if source_config.get("provider") == provider:
-                        logger.info(
-                            "data_service.inferred_dataset_by_provider",
-                            dataset=source_name,
-                            provider=provider,
-                        )
-                        return source_name
-        except Exception as e:
-            logger.error(
-                "data_service.dataset_inference_failed",
-                error=str(e),
-            )
-
-        return None
-
     def _build_adapter_config(self) -> Dict:
         """
-        Build adapter configuration dict from DataConfig.
+        Build adapter configuration dict from dataset.
 
         Returns:
             Configuration dict for adapter initialization
 
-        Notes:
-            - Converts Pydantic config to dict format expected by adapters
-            - Looks up adapter settings using source_selector
-            - This is a temporary bridge until Phase 2
+        Raises:
+            ValueError: If dataset not configured or not found
         """
-        # Use source_selector to find matching source
+        if not self.dataset:
+            raise ValueError("Dataset not configured - cannot build adapter config")
+
         try:
-            # Find matching source by selector criteria
-            matching_sources = []
-            for source_name, source_config in self.resolver.sources.items():
-                if self.config.source_selector.matches(source_config):
-                    matching_sources.append((source_name, source_config))
-
-            if matching_sources:
-                # Use first match
-                source_name, adapter_config = matching_sources[0]
-                logger.debug(
-                    "data_service.adapter_config_resolved",
-                    source_name=source_name,
-                    selector=self.config.source_selector.to_tag(),
-                )
-                return adapter_config.copy()
-
-            # If no match by selector, try backward compatibility with provider name
-            provider = self.config.source_selector.provider
-            if provider:
-                for source_name, source_config in self.resolver.sources.items():
-                    if source_config.get("provider") == provider:
-                        logger.debug(
-                            "data_service.adapter_config_resolved_by_provider",
-                            source_name=source_name,
-                            provider=provider,
-                        )
-                        return source_config.copy()
-        except Exception as e:
-            logger.warning(
-                "data_service.adapter_config_lookup_failed",
-                error=str(e),
-                selector=self.config.source_selector.to_tag(),
+            config = self.resolver.get_source_config(self.dataset)
+            logger.debug(
+                "data_service.adapter_config_resolved",
+                dataset=self.dataset,
             )
-
-        # Fallback to basic config
-        logger.warning(
-            "data_service.using_fallback_adapter_config",
-            selector=self.config.source_selector.to_tag(),
-        )
-        return {
-            "adapter": "algoseekOHLC",
-            "root_path": "data/us-equity-daily-ohlc-standard-adjusted-secid-all-parquet-sample",
-        }
+            return config.copy()
+        except KeyError:
+            raise ValueError(f"Dataset not found in data_sources.yaml: {self.dataset}")
 
     def get_corporate_actions(
         self,
@@ -968,14 +750,8 @@ class DataService:
             publish_events=publish_events and self._event_bus is not None,
         )
 
-        # Get instrument and create adapter
-        instrument = self.get_instrument(symbol)
-        adapter_config = self._build_adapter_config()
-
-        # Import adapter dynamically (AlgoseekOHLCVendorAdapter)
-        from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
-
-        adapter = AlgoseekOHLCVendorAdapter(adapter_config, instrument)
+        # Create adapter for this symbol using resolver
+        adapter = self._create_adapter(symbol)
 
         # Check if adapter supports corporate actions
         if not hasattr(adapter, "get_corporate_actions"):
