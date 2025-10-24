@@ -2,16 +2,6 @@
 # Copy this file to .envrc and fill in your actual values
 # If using direnv, it will automatically load these when you cd into the project
 
-# Schwab API Credentials
-# Get these from https://developer.schwab.com
-export SCHWAB_API_KEY="your_api_key_here"
-export SCHWAB_API_SECRET="your_api_secret_here"
-
-# Schwab OAuth Redirect URI
-# Must match the redirect URI configured in your Schwab app
-# Default: https://127.0.0.1:8182
-export SCHWAB_REDIRECT_URI="https://127.0.0.1:8182"
-
 # Optional: Python Environment
 # Uncomment if using virtual environment
 # export VIRTUAL_ENV="/path/to/venv"

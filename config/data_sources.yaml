@@ -13,10 +13,14 @@
 # METADATA FIELDS (for DataSourceSelector matching):
 #   - provider: Data provider name (algoseek, binance, etc.)
 #   - asset_class: equity, futures, options, crypto, forex, fixed_income
-#   - data_type: ohlcv, trades, quotes, greeks, fundamentals
+#   - data_type: ohlcv, trades, quotes
 #   - frequency: Use format like 1m, 5m, 15m, 1h, 1d (not "daily", "hourly")
+#   - adapter: Adapter type (algoseekOHLC, etc.) - REQUIRED
 #   - region: US, EU, ASIA, etc. (optional)
-#   - adjustment_mode: unadjusted, adjusted, split_adjusted (optional)
+#   - adjusted: true/false - whether data is adjusted (optional, default false)
+#   - timezone: IANA timezone like "America/New_York" (optional)
+#   - price_currency: 3-letter currency code like "USD" (optional)
+#   - price_scale: Number of decimal places for prices (optional)
 #
 # Configuration precedence:
 #   1. Explicit path provided to DataSourceResolver
@@ -32,7 +36,10 @@ data_sources:
     data_type: ohlcv
     frequency: 1d
     region: US
-    adjustment_mode: unadjusted # Algoseek provides unadjusted data
+    adjusted: false # this dataset provides unadjusted data
+    timezone: America/New_York # NYSE/NASDAQ timezone
+    price_currency: USD
+    price_scale: 2 # 2 decimal places for USD
 
     # Adapter configuration
     adapter: algoseekOHLC
@@ -40,3 +47,6 @@ data_sources:
     mode: standard_adjusted
     path_template: "{root_path}/SecId={secid}/*.parquet"
     symbol_map: "data/equity_security_master_sample.csv"
+
+    # Cache configuration (optional - enables incremental updates)
+    cache_root: "data/cache/algoseek-us-equity-1d-unadjusted"
