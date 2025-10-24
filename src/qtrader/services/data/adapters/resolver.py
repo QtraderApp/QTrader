@@ -6,6 +6,7 @@ external configuration (data_sources.yaml). Enables environment-specific
 configuration without changing strategy code.
 """
 
+import inspect
 import os
 from pathlib import Path
 from typing import Any, Dict
@@ -56,6 +57,32 @@ class DataSourceResolver:
         >>> config = DataConfig(bar_schema=bar_schema)
         >>> bars = adapter.read_bars(config)
     """
+
+    # Registry of available adapters: maps adapter name to fully qualified class path
+    #
+    # This is the single source of truth for all supported adapters. When adding a new
+    # adapter, add it here to make it available to both the resolver and validator.
+    #
+    # TODO: Consider auto-discovery via entry points for third-party adapters:
+    #   [project.entry_points."qtrader.adapters"]
+    #   myCustomAdapter = "my_package.adapters:MyAdapter"
+    #
+    # Current adapters:
+    # - algoseekOHLC: Algoseek parquet-based OHLC data (disk-cached)
+    #
+    # To add a new adapter:
+    # 1. Implement IDataAdapter protocol (see adapters/protocol.py)
+    # 2. Add entry to ADAPTER_REGISTRY below
+    # 3. Add corresponding data source config to data_sources.yaml
+    # 4. Validator will automatically recognize the new adapter
+    #
+    ADAPTER_REGISTRY = {
+        "algoseekOHLC": "qtrader.services.data.adapters.algoseek.AlgoseekOHLCVendorAdapter",
+        # Add more adapters here:
+        # "binanceOHLC": "qtrader.services.data.adapters.binance.BinanceOHLCAdapter",
+        # "schwabOHLC": "qtrader.services.data.adapters.schwab.SchwabOHLCAdapter",
+        # "postgresOHLC": "qtrader.services.data.adapters.postgres.PostgresOHLCAdapter",
+    }
 
     def __init__(self, config_path: str | None = None):
         """
@@ -182,18 +209,12 @@ class DataSourceResolver:
         if adapter_name in self._adapter_cache:
             return self._adapter_cache[adapter_name]
 
-        # Map adapter names to classes
-        adapter_map = {
-            "algoseekOHLC": "qtrader.services.data.adapters.algoseek.AlgoseekOHLCVendorAdapter",
-            "schwabOHLC": "qtrader.services.data.adapters.schwab.SchwabOHLCAdapter",
-            # Add more adapters as needed
-        }
-
-        if adapter_name not in adapter_map:
-            raise ValueError(f"Unknown adapter: {adapter_name}. Available: {list(adapter_map.keys())}")
+        # Use the class-level adapter registry
+        if adapter_name not in self.ADAPTER_REGISTRY:
+            raise ValueError(f"Unknown adapter: {adapter_name}. Available: {list(self.ADAPTER_REGISTRY.keys())}")
 
         # Dynamic import
-        module_path, class_name = adapter_map[adapter_name].rsplit(".", 1)
+        module_path, class_name = self.ADAPTER_REGISTRY[adapter_name].rsplit(".", 1)
         module = __import__(module_path, fromlist=[class_name])
         adapter_class: type = getattr(module, class_name)
 
@@ -220,13 +241,13 @@ class DataSourceResolver:
 
         Examples:
             >>> # Match by provider
-            >>> selector = DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
+            >>> selector = DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
             >>> adapter = resolver.resolve_by_selector(selector, instrument)
             >>>
             >>> # Match any equity source with fallback
             >>> selector = DataSourceSelector(
             ...     asset_class=AssetClass.EQUITY,
-            ...     fallback_providers=["schwab", "algoseek"]
+            ...     fallback_providers=["algoseek"]
             ... )
             >>> adapter = resolver.resolve_by_selector(selector, instrument)
         """
@@ -313,8 +334,16 @@ class DataSourceResolver:
         adapter_name = config.pop("adapter")
         adapter_class = self._get_adapter_class(adapter_name)
 
+        # Check if adapter supports dataset_name parameter using signature inspection
+        sig = inspect.signature(adapter_class)
+        supports_dataset_name = "dataset_name" in sig.parameters
+
         # Instantiate adapter with config and instrument
-        adapter = adapter_class(config, instrument)
+        if supports_dataset_name:
+            adapter = adapter_class(config, instrument, dataset_name=source_name)
+        else:
+            # Adapter doesn't support dataset_name parameter
+            adapter = adapter_class(config, instrument)
 
         logger.info(
             "resolver.adapter_created",
@@ -394,14 +423,14 @@ class DataSourceResolver:
                     "Instrument is missing 'data_source'. "
                     "New Instrument API only has (symbol, frequency, metadata). "
                     "Use resolve_by_dataset(dataset, instrument) instead. "
-                    "Example: resolver.resolve_by_dataset('schwab-us-equity-1d-adjusted', Instrument('AAPL'))"
+                    "Example: resolver.resolve_by_dataset('algoseek-us-equity-1d-unadjusted', Instrument('AAPL'))"
                 )
         except AttributeError:
             raise AttributeError(
                 "Instrument is missing 'data_source'. "
                 "New Instrument API only has (symbol, frequency, metadata). "
                 "Use resolve_by_dataset(dataset, instrument) instead. "
-                "Example: resolver.resolve_by_dataset('schwab-us-equity-1d-adjusted', Instrument('AAPL'))"
+                "Example: resolver.resolve_by_dataset('algoseek-us-equity-1d-unadjusted', Instrument('AAPL'))"
             )
 
         if source_name not in self.sources:
