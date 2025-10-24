@@ -123,7 +123,7 @@ def example_validation_error():
 
     try:
         # Missing required fields
-        PriceBarEvent(  # type: ignore[call-arg]
+        PriceBarEvent(
             symbol="AAPL",
             asset_class="equity",
             interval="1d",
@@ -133,7 +133,7 @@ def example_validation_error():
             low=Decimal("149.00"),
             close=Decimal("154.50"),
             # Missing: volume, cumulative_price_factor, cumulative_volume_factor, source
-        )
+        )  # pyright: ignore[reportCallIssue]
     except Exception as e:
         print(f"✗ Validation failed: {type(e).__name__}")
         error_msg = str(e)
