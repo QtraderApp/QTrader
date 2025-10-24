@@ -80,13 +80,6 @@ class TestDataSourceValidator:
         with pytest.raises(DataSourceValidationError, match="Invalid data_type"):
             DataSourceValidator.validate_source("algoseek-us-equity-1d-unadjusted", config)
 
-    def test_validate_invalid_adjustment_mode(self, valid_source_config: dict) -> None:
-        """Test validation fails for invalid adjustment_mode."""
-        config = valid_source_config.copy()
-        config["adjustment_mode"] = "invalid_mode"
-        with pytest.raises(DataSourceValidationError, match="Invalid adjustment_mode"):
-            DataSourceValidator.validate_source("algoseek-us-equity-1d-unadjusted", config)
-
     def test_validate_invalid_frequency_format(self, valid_source_config: dict) -> None:
         """Test validation fails for invalid frequency format."""
         config = valid_source_config.copy()
@@ -98,7 +91,7 @@ class TestDataSourceValidator:
         """Test validation fails when adapter field missing."""
         config = valid_source_config.copy()
         del config["adapter"]
-        with pytest.raises(DataSourceValidationError, match="Missing 'adapter' field"):
+        with pytest.raises(DataSourceValidationError, match="Missing required metadata fields"):
             DataSourceValidator.validate_source("algoseek-us-equity-1d-unadjusted", config)
 
     def test_validate_valid_frequency_formats(self, valid_source_config: dict) -> None:

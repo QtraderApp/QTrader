@@ -155,7 +155,9 @@ class TestUpdateSymbols:
             results = list(service.update_symbols(symbols, dry_run=False, verbose=True))
 
             # Assert
-            mock_updater.update_symbols.assert_called_once_with(symbols, dry_run=False, verbose=True)
+            mock_updater.update_symbols.assert_called_once_with(
+                symbols, dry_run=False, verbose=True, force_reprime=False
+            )
             assert results == mock_results
 
     def test_update_symbols_dry_run(self):
@@ -172,7 +174,9 @@ class TestUpdateSymbols:
             list(service.update_symbols(["AAPL"], dry_run=True, verbose=False))
 
             # Assert
-            mock_updater.update_symbols.assert_called_once_with(["AAPL"], dry_run=True, verbose=False)
+            mock_updater.update_symbols.assert_called_once_with(
+                ["AAPL"], dry_run=True, verbose=False, force_reprime=False
+            )
 
     def test_update_symbols_verbose(self):
         """Test update_symbols passes verbose flag correctly."""
@@ -188,7 +192,9 @@ class TestUpdateSymbols:
             list(service.update_symbols(["AAPL"], dry_run=False, verbose=True))
 
             # Assert
-            mock_updater.update_symbols.assert_called_once_with(["AAPL"], dry_run=False, verbose=True)
+            mock_updater.update_symbols.assert_called_once_with(
+                ["AAPL"], dry_run=False, verbose=True, force_reprime=False
+            )
 
     def test_update_symbols_empty_list(self):
         """Test update_symbols handles empty symbol list."""

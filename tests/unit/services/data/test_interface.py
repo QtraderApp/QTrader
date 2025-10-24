@@ -287,6 +287,7 @@ class TestProtocolUsagePatterns:
         """Test IDataService can be easily mocked for testing."""
         # Arrange - Mock service for testing
         mock_service = MagicMock(spec=IDataService)
+        mock_service.stream_bars.return_value = None  # stream_bars returns None
 
         # Act - Use in test scenario (stream_bars returns None, publishes events)
         result = mock_service.stream_bars("AAPL", date(2020, 1, 1), date(2020, 12, 31))
