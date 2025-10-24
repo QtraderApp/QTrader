@@ -4,8 +4,9 @@ Provides concrete implementation of IDataService that coordinates
 data loading from vendor adapters using DataLoader and DataSourceResolver.
 """
 
+import heapq
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
 
@@ -180,7 +181,18 @@ class DataService:
         from qtrader.services.data.config import DataConfig as ServiceDataConfig
         from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 
-        source = config_dict.get("source", "schwab")
+        # Extract provider from dataset name
+        # Dataset format: {provider}-{asset_class}-{timeframe}-{mode}
+        # e.g., "algoseek-us-equity-1d-unadjusted"
+        parts = dataset.split("-")
+        if len(parts) < 2:
+            raise ValueError(
+                f"Invalid dataset name format: '{dataset}'. "
+                "Expected format: <provider>-<asset>-<freq>[-variant] "
+                "(e.g., 'algoseek-us-equity-1d-unadjusted')"
+            )
+
+        source = parts[0]  # First part is always provider (algoseek, binance, etc.)
 
         # Infer asset class and mode from dataset name
         # Dataset format: {provider}-{asset_class}-{timeframe}-{mode}
@@ -552,45 +564,79 @@ class DataService:
         # Load iterators for all symbols
         iterators = self.load_universe(symbols, start_date, end_date, strict=strict)
 
-        # Create dict to track active iterators
-        active_iterators = {symbol: iter(iterator) for symbol, iterator in iterators.items()}
+        # Initialize heap with first bar from each symbol's iterator
+        # Heap entries: (timestamp, symbol, multi_bar, iterator)
+        heap: List[Tuple[datetime, str, Any, Iterator]] = []
 
-        # Track bars by timestamp for synchronization
-        timestamp_bars: Dict[datetime, Dict[str, Any]] = {}
-
-        # Collect all bars from all iterators
-        for symbol, iterator in active_iterators.items():
+        for symbol, iterator in iterators.items():
             try:
-                for multi_bar in iterator:
-                    ts = multi_bar.adjusted.trade_datetime
-                    if ts not in timestamp_bars:
-                        timestamp_bars[ts] = {}
-                    timestamp_bars[ts][symbol] = multi_bar
+                first_bar = next(iter(iterator))
+                ts = first_bar.adjusted.trade_datetime
+                heapq.heappush(heap, (ts, symbol, first_bar, iter(iterator)))
             except StopIteration:
+                # Symbol has no data in range
+                logger.debug("data_service.stream_universe.no_data", symbol=symbol)
                 continue
 
-        # Publish bars in timestamp order
+        # Stream bars incrementally using heap-merge
         total_bars = 0
-        for ts in sorted(timestamp_bars.keys()):
-            bars_at_ts = timestamp_bars[ts]
+        unique_timestamps = 0
+        current_timestamp = None
+        bars_at_current_ts: Dict[str, Any] = {}
 
-            # Publish bar for each symbol at this timestamp
-            for symbol, multi_bar in sorted(bars_at_ts.items()):  # Sort for determinism
+        while heap:
+            # Get next bar (earliest timestamp)
+            ts, symbol, multi_bar, iterator = heapq.heappop(heap)
+
+            # If we've moved to a new timestamp, publish all bars from previous timestamp
+            if current_timestamp is not None and ts != current_timestamp:
+                # Publish all bars at current_timestamp in sorted symbol order
+                for sym in sorted(bars_at_current_ts.keys()):
+                    event = PriceBarEvent(
+                        symbol=sym,
+                        bar=bars_at_current_ts[sym].adjusted,
+                        timestamp=current_timestamp,
+                        is_warmup=is_warmup,
+                    )
+                    self._event_bus.publish(event)
+                    total_bars += 1
+
+                unique_timestamps += 1
+                bars_at_current_ts = {}
+
+            # Collect bar for current timestamp
+            current_timestamp = ts
+            bars_at_current_ts[symbol] = multi_bar
+
+            # Try to get next bar from this symbol's iterator
+            try:
+                next_bar = next(iterator)
+                next_ts = next_bar.adjusted.trade_datetime
+                heapq.heappush(heap, (next_ts, symbol, next_bar, iterator))
+            except StopIteration:
+                # This symbol's iterator is exhausted
+                pass
+
+        # Publish remaining bars from last timestamp
+        if bars_at_current_ts:
+            for sym in sorted(bars_at_current_ts.keys()):
                 event = PriceBarEvent(
-                    symbol=symbol,
-                    bar=multi_bar.adjusted,  # Use adjusted mode for strategies
-                    timestamp=ts,
+                    symbol=sym,
+                    bar=bars_at_current_ts[sym].adjusted,
+                    timestamp=current_timestamp,
                     is_warmup=is_warmup,
                 )
                 self._event_bus.publish(event)
                 total_bars += 1
 
+            unique_timestamps += 1
+
         # INFO: High-level streaming summary for users
         logger.info(
             "data_service.stream_universe.complete",
-            symbol_count=len(active_iterators),
+            symbol_count=len(iterators),
             total_bars=total_bars,
-            unique_timestamps=len(timestamp_bars),
+            unique_timestamps=unique_timestamps,
             is_warmup=is_warmup,
         )
 

@@ -40,7 +40,9 @@ class DataSelectionConfig(BaseModel):
     System-wide data handling preferences come from SystemConfig.DataServiceConfig.
     """
 
-    sources: list[DataSourceConfig] = Field(..., description="Data sources with their universes")
+    sources: list[DataSourceConfig] = Field(
+        ..., min_length=1, description="Data sources with their universes (at least one required)"
+    )
 
 
 class StrategyConfigItem(BaseModel):
@@ -140,6 +142,23 @@ class BacktestConfig(BaseModel):
         """Validate end_date is after start_date."""
         if "start_date" in info.data and v <= info.data["start_date"]:
             raise ValueError("end_date must be after start_date")
+        return v
+
+    @field_validator("data")
+    @classmethod
+    def validate_single_source(cls, v: DataSelectionConfig) -> DataSelectionConfig:
+        """Validate only one data source (multi-source support pending).
+
+        Current limitation: Engine only streams from sources[0], additional sources
+        are silently ignored. Enforce single source until multi-source streaming
+        is implemented.
+        """
+        if len(v.sources) > 1:
+            raise ValueError(
+                f"Multiple data sources not yet supported. "
+                f"Found {len(v.sources)} sources: {[s.name for s in v.sources]}. "
+                f"Use a single source that provides all required symbols."
+            )
         return v
 
     @field_validator("strategies")

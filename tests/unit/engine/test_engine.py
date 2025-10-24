@@ -219,10 +219,8 @@ class TestBacktestEngineFromConfig:
     @patch("qtrader.engine.engine.DataService")
     @patch("qtrader.engine.engine.EventBus")
     @patch("qtrader.engine.engine.SQLiteEventStore")
-    @patch("qtrader.engine.engine.asdict")
     def test_from_config_creates_engine(
         self,
-        mock_asdict,
         mock_sqlite_store,
         mock_event_bus_class,
         mock_data_service_class,
@@ -235,7 +233,6 @@ class TestBacktestEngineFromConfig:
         """Test from_config creates properly configured engine."""
         # Arrange
         mock_get_system_config.return_value = mock_system_config
-        mock_asdict.return_value = {"sources_config": "config/data_sources.yaml"}
         mock_event_bus = Mock()
         mock_event_bus_class.return_value = mock_event_bus
         mock_data_service = Mock()
@@ -260,10 +257,8 @@ class TestBacktestEngineFromConfig:
     @patch("qtrader.engine.engine.DataService")
     @patch("qtrader.engine.engine.EventBus")
     @patch("qtrader.engine.engine.SQLiteEventStore")
-    @patch("qtrader.engine.engine.asdict")
     def test_from_config_creates_results_directory(
         self,
-        mock_asdict,
         mock_sqlite_store,
         mock_event_bus_class,
         mock_data_service_class,
@@ -276,7 +271,6 @@ class TestBacktestEngineFromConfig:
         """Test from_config creates results directory."""
         # Arrange
         mock_get_system_config.return_value = mock_system_config
-        mock_asdict.return_value = {"sources_config": "config/data_sources.yaml"}
         mock_event_bus_class.return_value = Mock()
         mock_data_service_class.from_config.return_value = Mock()
         mock_sqlite_store.return_value = Mock()
@@ -297,10 +291,8 @@ class TestBacktestEngineFromConfig:
     @patch("qtrader.engine.engine.DataService")
     @patch("qtrader.engine.engine.EventBus")
     @patch("qtrader.engine.engine.SQLiteEventStore")
-    @patch("qtrader.engine.engine.asdict")
     def test_from_config_fallback_to_memory_store_on_error(
         self,
-        mock_asdict,
         mock_sqlite_store,
         mock_event_bus_class,
         mock_data_service_class,
@@ -313,7 +305,6 @@ class TestBacktestEngineFromConfig:
         """Test from_config falls back to InMemoryEventStore on SQLite error."""
         # Arrange
         mock_get_system_config.return_value = mock_system_config
-        mock_asdict.return_value = {"sources_config": "config/data_sources.yaml"}
         mock_event_bus_class.return_value = Mock()
         mock_data_service_class.from_config.return_value = Mock()
         mock_sqlite_store.side_effect = Exception("SQLite initialization failed")
@@ -334,10 +325,8 @@ class TestBacktestEngineFromConfig:
     @patch("qtrader.engine.engine.DataService")
     @patch("qtrader.engine.engine.EventBus")
     @patch("qtrader.engine.engine.InMemoryEventStore")
-    @patch("qtrader.engine.engine.asdict")
     def test_from_config_uses_first_data_source(
         self,
-        mock_asdict,
         mock_memory_store,
         mock_event_bus_class,
         mock_data_service_class,
@@ -346,7 +335,7 @@ class TestBacktestEngineFromConfig:
         mock_system_config,
         tmp_path: Path,
     ) -> None:
-        """Test from_config uses first data source for DataService initialization."""
+        """Test from_config uses data source for DataService initialization."""
         # Arrange
         config = BacktestConfig(
             start_date=datetime(2020, 1, 1),
@@ -354,8 +343,7 @@ class TestBacktestEngineFromConfig:
             initial_equity=Decimal("100000"),
             data=DataSelectionConfig(
                 sources=[
-                    DataSourceConfig(name="source1", universe=["AAPL"]),
-                    DataSourceConfig(name="source2", universe=["MSFT"]),
+                    DataSourceConfig(name="source1", universe=["AAPL", "MSFT"]),
                 ]
             ),
             strategies=[
@@ -370,7 +358,6 @@ class TestBacktestEngineFromConfig:
         )
 
         mock_get_system_config.return_value = mock_system_config
-        mock_asdict.return_value = {"sources_config": "config/data_sources.yaml"}
         mock_event_bus_class.return_value = Mock()
         mock_data_service_class.from_config.return_value = Mock()
         mock_memory_store.return_value = Mock()
@@ -443,10 +430,10 @@ class TestBacktestEngineRun:
         sample_backtest_config: BacktestConfig,
         mock_event_bus: EventBus,
     ) -> None:
-        """Test run loads symbols from first data source."""
+        """Test run loads symbols from first data source using stream_universe."""
         # Arrange
         mock_data_service = Mock()
-        mock_data_service.load_symbol = Mock(return_value=iter([Mock(), Mock()]))
+        mock_data_service.stream_universe = Mock()
         engine = BacktestEngine(
             config=sample_backtest_config,
             event_bus=mock_event_bus,
@@ -457,18 +444,22 @@ class TestBacktestEngineRun:
         engine.run()
 
         # Assert
-        # Should be called once for each symbol in first source (AAPL, MSFT)
-        assert mock_data_service.load_symbol.call_count == 2
+        # Should be called once with all symbols from first source
+        mock_data_service.stream_universe.assert_called_once()
+        call_args = mock_data_service.stream_universe.call_args
+        assert set(call_args.kwargs["symbols"]) == {"AAPL", "MSFT"}
+        assert call_args.kwargs["is_warmup"] is False
+        assert call_args.kwargs["strict"] is False
 
     def test_run_handles_symbol_load_failure_gracefully(
         self,
         sample_backtest_config: BacktestConfig,
         mock_event_bus: EventBus,
     ) -> None:
-        """Test run continues when symbol load fails."""
+        """Test run handles data stream failures gracefully."""
         # Arrange
         mock_data_service = Mock()
-        mock_data_service.load_symbol = Mock(side_effect=Exception("Load failed"))
+        mock_data_service.stream_universe = Mock(side_effect=Exception("Stream failed"))
         engine = BacktestEngine(
             config=sample_backtest_config,
             event_bus=mock_event_bus,
@@ -476,9 +467,9 @@ class TestBacktestEngineRun:
         )
 
         # Act & Assert
-        # Should not raise exception, just log warning
-        result = engine.run()
-        assert isinstance(result, BacktestResult)
+        # Should raise RuntimeError wrapping the original exception
+        with pytest.raises(RuntimeError, match="Backtest execution failed"):
+            engine.run()
 
     def test_run_tracks_bar_count(
         self,
@@ -619,4 +610,7 @@ class TestBacktestEngineIntegration:
         engine.run()
 
         # Assert
-        assert mock_data_service.load_symbol.call_count == 4  # All 4 symbols
+        # Should call stream_universe once with all 4 symbols
+        mock_data_service.stream_universe.assert_called_once()
+        call_args = mock_data_service.stream_universe.call_args
+        assert set(call_args.kwargs["symbols"]) == {"AAPL", "MSFT", "GOOGL", "TSLA"}

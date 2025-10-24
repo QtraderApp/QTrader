@@ -162,16 +162,16 @@ class TestDataSelectionConfig:
         assert config.sources[0].name == "source1"
         assert config.sources[1].name == "source2"
 
-    def test_empty_sources_allowed(self) -> None:
-        """Test empty sources list is allowed (will be validated at runtime)."""
+    def test_empty_sources_raises_validation_error(self) -> None:
+        """Test empty sources list raises validation error (min_length=1)."""
         # Arrange
         config_dict = {"sources": []}
 
-        # Act - empty sources is allowed by pydantic, runtime validation happens elsewhere
-        config = DataSelectionConfig(**config_dict)
+        # Act & Assert - empty sources should raise validation error
+        with pytest.raises(ValidationError) as exc_info:
+            DataSelectionConfig(**config_dict)
 
-        # Assert
-        assert config.sources == []
+        assert "at least 1 item" in str(exc_info.value)
 
 
 # ============================================================================
@@ -275,12 +275,11 @@ class TestBacktestConfig:
         assert config.risk_policy.name == "naive"
 
     def test_all_symbols_property(self, valid_backtest_config: dict[str, Any]) -> None:
-        """Test all_symbols property aggregates symbols from all sources."""
+        """Test all_symbols property returns symbols from single source."""
         # Arrange
         config_dict = valid_backtest_config.copy()
         config_dict["data"]["sources"] = [
-            {"name": "source1", "universe": ["AAPL", "MSFT"]},
-            {"name": "source2", "universe": ["GOOGL", "AAPL"]},  # AAPL duplicate
+            {"name": "source1", "universe": ["AAPL", "MSFT", "GOOGL"]},
         ]
 
         # Act
@@ -288,6 +287,23 @@ class TestBacktestConfig:
 
         # Assert
         assert config.all_symbols == {"AAPL", "MSFT", "GOOGL"}
+
+    def test_multiple_sources_raises_validation_error(self, valid_backtest_config: dict[str, Any]) -> None:
+        """Test multiple data sources raises validation error."""
+        # Arrange
+        config_dict = valid_backtest_config.copy()
+        config_dict["data"]["sources"] = [
+            {"name": "source1", "universe": ["AAPL", "MSFT"]},
+            {"name": "source2", "universe": ["GOOGL", "AAPL"]},
+        ]
+
+        # Act & Assert
+        with pytest.raises(ValidationError) as exc_info:
+            BacktestConfig(**config_dict)
+
+        assert "Multiple data sources not yet supported" in str(exc_info.value)
+        assert "source1" in str(exc_info.value)
+        assert "source2" in str(exc_info.value)
 
     def test_date_validation_end_before_start_raises_error(self, valid_backtest_config: dict[str, Any]) -> None:
         """Test end_date before start_date raises validation error."""

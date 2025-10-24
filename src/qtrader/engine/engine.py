@@ -7,7 +7,7 @@ Other services suspended until refactored.
 Pure event-driven orchestrator that coordinates services via EventBus.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -34,48 +34,65 @@ class BacktestResult:
 
 class BacktestEngine:
     """
-    Minimal event-driven backtesting orchestrator.
+    Event-driven backtesting orchestrator.
 
-    Current Phase: DataService only
-    ================================
-    Responsibilities:
-    - Load configuration
-    - Create EventBus and EventStore
-    - Initialize DataService
-    - Stream historical data (publish PriceBarEvent)
-    - Track basic metrics
+    Architecture: Phase 1 - DataService Foundation
+    ==============================================
+    This is a minimal but complete implementation focusing on the data layer.
+    The engine coordinates data streaming and event publishing via EventBus,
+    with full event persistence through EventStore.
 
-    Suspended Services (to be added incrementally):
-    - PortfolioService
-    - ExecutionService
-    - RiskService
-    - StrategyService
+    Current Capabilities:
+    - Load and validate backtest configuration
+    - Create and manage EventBus with EventStore persistence
+    - Initialize DataService with proper dataset configuration
+    - Stream historical data with timestamp synchronization
+    - Track execution metrics (bars processed, duration)
 
-    Event Flow (Current):
-    =====================
-    1. Load data sources from config
-    2. Stream bars for each symbol/timestamp
-    3. Publish PriceBarEvent for each bar
-    4. EventStore persists all events
-    5. Return basic results (bars processed, duration)
+    Intentional Limitations:
+    - No portfolio tracking (PortfolioService suspended)
+    - No order execution simulation (ExecutionService suspended)
+    - No risk management (RiskService suspended)
+    - No strategy signals (StrategyService suspended)
 
-    Future Event Flow (After Service Refactoring):
+    These services will be incrementally reintegrated following the
+    lego architecture pattern once refactoring is complete.
+
+    Event Flow (Current Phase):
+    ===========================
+    For each timestamp T across all symbols:
+        1. DataService publishes PriceBarEvent(symbol=A, timestamp=T)
+        2. DataService publishes PriceBarEvent(symbol=B, timestamp=T)
+        3. ...all symbols at T before advancing to T+1
+        4. EventStore persists all events
+
+    Future Event Flow (After Service Integration):
     ==============================================
     For each timestamp T:
         Phase 1: MarketData
             - DataService publishes PriceBarEvent for ALL symbols at T
-            - Services update internal state
+            - Services update internal state (prices, positions)
 
         Phase 2: Valuation (barrier)
             - Engine publishes ValuationTriggerEvent(ts=T)
-            - Portfolio calculates equity, positions
+            - PortfolioService calculates equity, positions, valuations
 
         Phase 3: RiskEvaluation (barrier)
             - Engine publishes RiskEvaluationTriggerEvent(ts=T)
-            - Risk processes signals, creates orders
+            - RiskService processes signals from strategies
+            - RiskService creates sized orders within risk limits
 
         Phase 4: Execution (next cycle)
-            - Execution fills orders at T+1 prices
+            - ExecutionService fills orders at T+1 prices
+            - FillEvent updates portfolio positions
+
+    Resource Management:
+    ====================
+    The engine manages lifecycle of EventStore (SQLite or in-memory).
+    Call shutdown() to properly close resources, or use as context manager:
+
+        with BacktestEngine.from_config(config) as engine:
+            result = engine.run()
     """
 
     def __init__(
@@ -101,6 +118,7 @@ class BacktestEngine:
         self._data_service = data_service
         self._event_store = event_store
         self._results_dir = results_dir
+        self._bar_count = 0  # Initialize for tracking bars processed
 
         # Get all symbols from data sources
         all_symbols = config.all_symbols
@@ -162,7 +180,14 @@ class BacktestEngine:
         else:
             # Use data source names and date range
             source_names = [s.name for s in config.data.sources]
-            run_label = f"{source_names[0]}_{config.start_date:%Y%m%d}_{config.end_date:%Y%m%d}"
+            if len(source_names) == 1:
+                source_label = source_names[0]
+            elif len(source_names) <= 3:
+                source_label = "+".join(source_names)
+            else:
+                # For many sources, use count instead of names
+                source_label = f"{len(source_names)}_sources"
+            run_label = f"{source_label}_{config.start_date:%Y%m%d}_{config.end_date:%Y%m%d}"
 
         results_dir = results_base / run_label
         results_dir.mkdir(parents=True, exist_ok=True)
@@ -187,12 +212,21 @@ class BacktestEngine:
         event_bus.attach_store(event_store)
 
         # Create data service using factory method
-        # Use first data source for now (TODO: support multiple sources)
+        # Extract provider from dataset name (format: provider-asset-freq-variant)
+        # e.g., "algoseek-us-equity-1d-unadjusted" -> provider="algoseek"
         first_source = config.data.sources[0]
+        dataset = first_source.name
+
+        # Build config dict that from_config() expects
+        # Provider will be extracted from dataset name inside from_config()
+        config_dict = {
+            "dataset": dataset,
+        }
+
         # TODO: Align EventBus with IEventBus protocol to resolve type incompatibility
         data_service = DataService.from_config(
-            config_dict=asdict(system_config.data),
-            dataset=first_source.name,  # Use data source name as dataset
+            config_dict=config_dict,
+            dataset=dataset,
             event_bus=event_bus,  # type: ignore
         )
 
@@ -209,6 +243,38 @@ class BacktestEngine:
             event_store=event_store,
             results_dir=results_dir,
         )
+
+    def shutdown(self) -> None:
+        """
+        Clean up resources (close EventStore).
+
+        Call this method to properly close SQLite connections and release
+        file handles. Important for long-lived daemons or repeated runs.
+
+        Examples:
+            >>> engine = BacktestEngine.from_config(config)
+            >>> try:
+            ...     result = engine.run()
+            ... finally:
+            ...     engine.shutdown()
+        """
+        if self._event_store is not None:
+            try:
+                self._event_store.close()
+                logger.debug("backtest.engine.event_store_closed")
+            except Exception as e:
+                logger.warning(
+                    "backtest.engine.event_store_close_failed",
+                    error=str(e),
+                )
+
+    def __enter__(self) -> "BacktestEngine":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - ensures cleanup."""
+        self.shutdown()
 
     def run(self) -> BacktestResult:
         """
@@ -256,17 +322,19 @@ class BacktestEngine:
                 end_date=self.config.end_date,
             )
 
-            # Track bar count
+            # Reset bar count for this run
             self._bar_count = 0
 
             # Subscribe to price_bar events to count them
+            # Keep handler reference for cleanup
             def count_bars(event) -> None:
                 self._bar_count += 1
 
             self._event_bus.subscribe("bar", count_bars, priority=1000)
 
-            # Stream data from first data source
-            # TODO: Support multiple data sources when DataService is fully refactored
+            # Stream data from single configured source
+            # Note: BacktestConfig validation enforces single source until multi-source
+            # streaming is implemented (see config.py validate_single_source)
             first_source = self.config.data.sources[0]
             source_symbols = first_source.universe
 
@@ -278,36 +346,37 @@ class BacktestEngine:
                 end_date=self.config.end_date,
             )
 
-            # Load and stream data for each symbol
-            for symbol in source_symbols:
-                logger.debug(
-                    "backtest.loading_symbol",
-                    symbol=symbol,
-                    source=first_source.name,
+            # Use stream_universe to ensure all symbols publish bars at each timestamp
+            # before advancing (critical for cross-symbol strategies and risk barriers)
+            #
+            # MEMORY WARNING: Current DataService.stream_universe implementation loads
+            # all bars into a timestamp_bars dict before publishing (see service.py:575-582).
+            # For large universes or long date ranges, this can consume significant RAM.
+            #
+            # Estimated memory: ~500 bytes/bar * symbols * trading_days
+            # Example: 100 symbols * 252 days * 500 bytes = ~12.6 MB (manageable)
+            #          1000 symbols * 2520 days * 500 bytes = ~1.26 GB (high)
+            #
+            # TODO: Refactor DataService to use heap-merge streaming for incremental
+            #       publishing instead of buffering all bars in memory.
+            try:
+                self._data_service.stream_universe(
+                    symbols=list(source_symbols),
+                    start_date=self.config.start_date,
+                    end_date=self.config.end_date,
+                    is_warmup=False,
+                    strict=False,  # Continue if some symbols fail to load
                 )
-
-                # DataService will publish PriceBarEvent for each bar
-                # TODO: Use stream_universe once DataService is refactored
-                # For now, load data using existing methods
-                try:
-                    iterator = self._data_service.load_symbol(
-                        symbol=symbol,
-                        start_date=self.config.start_date,
-                        end_date=self.config.end_date,
-                    )
-
-                    # Iterate and publish (DataService should handle this)
-                    for multi_bar in iterator:
-                        # Event already published by DataService
-                        pass
-
-                except Exception as e:
-                    logger.warning(
-                        "backtest.symbol_load_failed",
-                        symbol=symbol,
-                        error=str(e),
-                    )
-                    continue
+            except Exception as e:
+                logger.error(
+                    "backtest.data_stream_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                raise
+            finally:
+                # Always unsubscribe to prevent handler accumulation on re-runs
+                self._event_bus.unsubscribe("bar", count_bars)
 
             logger.info(
                 "backtest.main_phase.complete",
