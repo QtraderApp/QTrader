@@ -2,46 +2,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "QTrader: raw-data",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "qtrader.cli",
-            "args": [
-                "raw-data",
-                "--symbol",
-                "AAPL",
-                "--start-date",
-                "2020-01-01",
-                "--end-date",
-                "2020-12-31",
-                "--source",
-                "algoseek"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
-        },
-        {
-            "name": "QTrader: Debug Current Strategy File",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "qtrader.cli",
-            "args": [
-                "backtest",
-                "--strategy-file",
-                "${file}"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            }
-        },
-        {
             "name": "Python: Current File",
             "type": "debugpy",
             "request": "launch",
