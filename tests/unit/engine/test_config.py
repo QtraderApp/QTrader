@@ -109,7 +109,7 @@ class TestDataSourceConfig:
 
         # Act & Assert
         with pytest.raises(ValidationError) as exc_info:
-            DataSourceConfig(**invalid_config)
+            DataSourceConfig(**invalid_config)  # type: ignore[arg-type]
         assert "universe" in str(exc_info.value)
 
     def test_empty_universe_allowed(self) -> None:
@@ -118,7 +118,7 @@ class TestDataSourceConfig:
         config_dict = {"name": "test-source", "universe": []}
 
         # Act
-        config = DataSourceConfig(**config_dict)
+        config = DataSourceConfig(**config_dict)  # type: ignore[arg-type]
 
         # Assert
         assert config.universe == []
@@ -138,7 +138,7 @@ class TestDataSelectionConfig:
         config_dict = {"sources": [valid_data_source_config]}
 
         # Act
-        config = DataSelectionConfig(**config_dict)
+        config = DataSelectionConfig(**config_dict)  # type: ignore[arg-type]
 
         # Assert
         assert len(config.sources) == 1
@@ -155,7 +155,7 @@ class TestDataSelectionConfig:
         }
 
         # Act
-        config = DataSelectionConfig(**config_dict)
+        config = DataSelectionConfig(**config_dict)  # type: ignore[arg-type]
 
         # Assert
         assert len(config.sources) == 2
@@ -165,7 +165,7 @@ class TestDataSelectionConfig:
     def test_empty_sources_raises_validation_error(self) -> None:
         """Test empty sources list raises validation error (min_length=1)."""
         # Arrange
-        config_dict = {"sources": []}
+        config_dict: dict[str, list[Any]] = {"sources": []}
 
         # Act & Assert - empty sources should raise validation error
         with pytest.raises(ValidationError) as exc_info:
@@ -203,7 +203,7 @@ class TestStrategyConfigItem:
         }
 
         # Act
-        config = StrategyConfigItem(**minimal_config)
+        config = StrategyConfigItem(**minimal_config)  # type: ignore[arg-type]
 
         # Assert
         assert config.config == {}
@@ -215,7 +215,7 @@ class TestStrategyConfigItem:
 
         # Act & Assert
         with pytest.raises(ValidationError) as exc_info:
-            StrategyConfigItem(**invalid_config)
+            StrategyConfigItem(**invalid_config)  # type: ignore[arg-type]
         assert "universe" in str(exc_info.value)
         assert "data_sources" in str(exc_info.value)
 
@@ -234,7 +234,7 @@ class TestRiskPolicyConfig:
         config_dict = {"name": "naive", "config": {"max_pct_position_size": 0.30}}
 
         # Act
-        config = RiskPolicyConfig(**config_dict)
+        config = RiskPolicyConfig(**config_dict)  # type: ignore[arg-type]
 
         # Assert
         assert config.name == "naive"
@@ -246,7 +246,7 @@ class TestRiskPolicyConfig:
         minimal_config = {"name": "test_policy"}
 
         # Act
-        config = RiskPolicyConfig(**minimal_config)
+        config = RiskPolicyConfig(**minimal_config)  # type: ignore[arg-type]
 
         # Assert
         assert config.config == {}

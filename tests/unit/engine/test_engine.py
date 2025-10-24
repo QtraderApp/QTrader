@@ -504,7 +504,7 @@ class TestBacktestEngineRun:
     ) -> None:
         """Test run raises RuntimeError on critical failure."""
         # Arrange
-        mock_event_bus.subscribe = Mock(side_effect=Exception("Critical error"))
+        mock_event_bus.subscribe.side_effect = Exception("Critical error")  # type: ignore[attr-defined]
         engine = BacktestEngine(
             config=sample_backtest_config,
             event_bus=mock_event_bus,
