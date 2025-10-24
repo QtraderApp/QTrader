@@ -10,7 +10,6 @@ CONTRACT: DataService v1.0.0
 Published Data Models:
 - Bar: OHLCV price bar (single adjustment mode)
 - PriceSeries: Time series of bars (single adjustment mode)
-- MultiBar: Tri-mode price bar (unadjusted, adjusted, total_return)
 - Instrument: Tradable instrument specification
 - CorporateAction: Corporate action (split, dividend)
 
@@ -34,7 +33,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, ClassVar, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 # ============================================
 # Contract Version
@@ -136,7 +135,7 @@ class Bar(BaseModel):
     Vendor-agnostic representation of a single bar in one adjustment mode.
     All vendor-specific data must be transformed to this format by adapters.
 
-    Published By: DataService (in PriceBarEvent, via MultiBar)
+    Published By: DataService (in PriceBarEvent)
     Used By: Strategy, Execution, Portfolio, Analytics
 
     Adjustment Modes:
@@ -274,96 +273,6 @@ class PriceSeries(BaseModel):
         if self.mode not in self.VALID_MODES:
             raise ValueError(f"Invalid mode '{self.mode}'. Must be one of {self.VALID_MODES}")
         return self
-
-
-class MultiBar(BaseModel):
-    """
-    CONTRACT: Bar containing all adjustment modes.
-
-    Container providing access to the same bar in all three adjustment modes
-    simultaneously. Each component selects the mode that suits its purpose.
-
-    Published By: DataService (in PriceBarEvent)
-    Used By: Strategy (adjusted), Execution (unadjusted), Performance (total_return)
-
-    Attributes:
-        symbol: Ticker symbol
-        trade_datetime: Trading datetime (shared across all modes)
-        unadjusted: Raw prices as traded
-        adjusted: Split-adjusted prices
-        total_return: Split + dividend adjusted
-
-    Usage Pattern:
-        >>> # Strategy uses adjusted for indicators
-        >>> strategy_bar = multi_bar.adjusted
-        >>> sma = calculate_sma(strategy_bar.close)
-        >>>
-        >>> # Execution uses unadjusted for fills
-        >>> exec_bar = multi_bar.unadjusted
-        >>> fill_price = exec_bar.high
-        >>>
-        >>> # Performance uses total_return
-        >>> perf_bar = multi_bar.total_return
-        >>> return_pct = (perf_bar.close - entry) / entry
-
-    Examples:
-        >>> multi_bar = MultiBar(
-        ...     symbol="AAPL",
-        ...     trade_datetime=datetime(2024, 1, 2, 16, 0),
-        ...     unadjusted=unadj_bar,
-        ...     adjusted=adj_bar,
-        ...     total_return=tr_bar
-        ... )
-        >>>
-        >>> # Dynamic mode selection
-        >>> bar = multi_bar.get_bar(AdjustmentMode.ADJUSTED)
-
-    Notes:
-        - Immutable after creation (frozen=True)
-        - All three bars share same trade_datetime
-        - Use get_bar() for dynamic mode selection
-    """
-
-    symbol: str = Field(..., description="Ticker symbol")
-    trade_datetime: Any = Field(..., description="Trade datetime")
-    unadjusted: Bar = Field(..., description="Unadjusted prices")
-    adjusted: Bar = Field(..., description="Split-adjusted prices")
-    total_return: Bar = Field(..., description="Split + dividend adjusted")
-
-    model_config = {"frozen": True}
-
-    @field_validator("trade_datetime", mode="before")
-    @classmethod
-    def parse_trade_datetime(cls, v: Any) -> datetime:
-        """Parse trade_datetime from datetime or ISO string."""
-        if isinstance(v, datetime):
-            return v
-        elif isinstance(v, str):
-            return datetime.fromisoformat(v)
-        else:
-            raise ValueError(f"Cannot parse datetime from type {type(v)}: {v}")
-
-    def get_bar(self, mode: AdjustmentMode) -> Bar:
-        """
-        Get bar for specific adjustment mode.
-
-        Args:
-            mode: Adjustment mode
-
-        Returns:
-            Bar for requested mode
-
-        Raises:
-            ValueError: If mode is invalid
-        """
-        if mode == AdjustmentMode.UNADJUSTED:
-            return self.unadjusted
-        elif mode == AdjustmentMode.ADJUSTED:
-            return self.adjusted
-        elif mode == AdjustmentMode.TOTAL_RETURN:
-            return self.total_return
-        else:
-            raise ValueError(f"Invalid mode: {mode}")
 
 
 # ============================================
@@ -580,7 +489,6 @@ __all__ = [
     # Data Contract
     "Bar",
     "PriceSeries",
-    "MultiBar",
     "AdjustmentMode",
     "Instrument",
     "InstrumentType",
