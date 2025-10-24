@@ -88,12 +88,28 @@ class IEventBus(Protocol):
         """
         ...
 
+    @overload
     def subscribe(
         self,
         event_type: str,
         handler: Callable[[BaseEvent], None],
         priority: int = 0,
-    ) -> None:
+    ) -> "SubscriptionToken": ...
+
+    @overload
+    def subscribe(
+        self,
+        event_type: Type[EventT],
+        handler: Callable[[EventT], None],
+        priority: int = 0,
+    ) -> "SubscriptionToken": ...
+
+    def subscribe(
+        self,
+        event_type: Union[str, Type[BaseEvent]],
+        handler: Callable[[Any], None],
+        priority: int = 0,
+    ) -> "SubscriptionToken":
         """
         Subscribe to event type.
 
@@ -102,13 +118,25 @@ class IEventBus(Protocol):
 
         Args:
             event_type: Type of event to subscribe to (e.g., 'fill', 'price_bar')
+                       or event class type for type-safe subscription
             handler: Callback function to handle event
             priority: Handler priority (higher = called first, default=0)
 
+        Returns:
+            SubscriptionToken for context-managed unsubscription
+
         Example:
-            >>> def my_handler(event):
-            ...     print(f"Received: {event}")
-            >>> bus.subscribe("fill", my_handler, priority=10)
+            >>> # String-based subscription
+            >>> bus.subscribe("fill", handle_fill, priority=10)
+            >>>
+            >>> # Type-safe subscription
+            >>> bus.subscribe(FillEvent, handle_fill, priority=10)
+            >>>
+            >>> # Context manager for automatic cleanup
+            >>> with bus.subscribe(FillEvent, handle_fill):
+            ...     # Handler active in this block
+            ...     pass
+            >>> # Handler automatically unsubscribed
         """
         ...
 
