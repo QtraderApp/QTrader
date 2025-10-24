@@ -17,7 +17,9 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Callable, Protocol
 
-from qtrader.events.events import Event
+# TODO: Re-enable after EventStore is rebuilt for new event system
+# from qtrader.events.event_store import EventStore
+from qtrader.events.events import BaseEvent as Event
 from qtrader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
@@ -348,7 +350,7 @@ class EventBus:
 
         # Filter by time
         if since is not None:
-            events = [e for e in events if e.timestamp >= since]
+            events = [e for e in events if e.occurred_at >= since]
 
         # Limit results (take most recent)
         if limit is not None:
