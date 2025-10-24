@@ -39,7 +39,8 @@ class MockDataAdapter:
 
     def get_timestamp(self, bar: Any) -> datetime:
         """Extract timestamp from bar."""
-        return bar["timestamp"]
+        timestamp: datetime = bar["timestamp"]
+        return timestamp
 
     def get_available_date_range(self) -> Tuple[Optional[str], Optional[str]]:
         """Get available date range."""
@@ -84,7 +85,8 @@ class MinimalAdapter:
         return None
 
     def get_timestamp(self, bar: Any) -> datetime:
-        return bar["timestamp"]
+        timestamp: datetime = bar["timestamp"]
+        return timestamp
 
     def get_available_date_range(self) -> Tuple[Optional[str], Optional[str]]:
         return None, None
@@ -335,7 +337,8 @@ class TestGetTimestampMethod:
         class CustomTimestampAdapter(MinimalAdapter):
             def get_timestamp(self, bar: Any) -> datetime:
                 # Vendor uses "trade_dt" field
-                return bar["trade_dt"]
+                timestamp: datetime = bar["trade_dt"]
+                return timestamp
 
         adapter = CustomTimestampAdapter()
         expected = datetime(2024, 7, 20)
