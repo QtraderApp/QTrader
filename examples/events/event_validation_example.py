@@ -123,7 +123,7 @@ def example_validation_error():
 
     try:
         # Missing required fields
-        PriceBarEvent(
+        PriceBarEvent(  # type: ignore[call-arg]
             symbol="AAPL",
             asset_class="equity",
             interval="1d",
