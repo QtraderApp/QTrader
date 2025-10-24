@@ -29,11 +29,15 @@ class DataSourceConfig(BaseModel):
     universe: list[str] = Field(..., description="Symbols to load from this data source")
 
 
-class DataConfig(BaseModel):
-    """Data configuration for backtest run.
+class DataSelectionConfig(BaseModel):
+    """Data selection configuration for backtest run.
 
-    Specifies which data sources to use and what symbols to load from each.
+    Specifies WHAT data to load for this specific backtest:
+    - Which data sources to use
+    - Which symbols to load from each source
+
     Data source details (adapter, path, etc.) are defined in data_sources.yaml.
+    System-wide data handling preferences come from SystemConfig.DataServiceConfig.
     """
 
     sources: list[DataSourceConfig] = Field(..., description="Data sources with their universes")
@@ -118,7 +122,7 @@ class BacktestConfig(BaseModel):
     )
 
     # Data, strategies, and risk
-    data: DataConfig = Field(..., description="Data sources with per-source universes")
+    data: DataSelectionConfig = Field(..., description="Data sources with per-source universes")
     strategies: list[StrategyConfigItem] = Field(..., description="Strategy configurations")
     risk_policy: RiskPolicyConfig = Field(..., description="Risk policy (Portfolio Manager level)")
 

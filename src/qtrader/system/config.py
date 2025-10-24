@@ -1,35 +1,26 @@
 """
 System Configuration Management.
 
-Consolidated configuration for the entire QTrader system.
-Philosophy: "In real life, the system is one"
+Minimal configuration for QTrader engine focused on DataService.
+Configs are added incrementally as services are refactored.
 
-This module provides THE system configuration - a single source of truth
-for how QTrader operates. All backtests use this configuration for:
-- Commission models
-- Slippage models
-- Data sources
-- Risk limits
-- Portfolio accounting
-- Output settings
-- Logging
+Currently supports:
+- DataService configuration (HOW to handle data system-wide)
+- Event store / output directory
+- Logging configuration
 
-What varies per backtest (NOT here):
-- Start/end dates
-- Universe (symbols)
-- Initial capital
-- Which strategies to run
+Note: This is different from BacktestConfig.DataSelectionConfig which
+specifies WHAT data to load for a specific backtest run.
 
 Usage:
     >>> from qtrader.system import get_system_config
     >>> config = get_system_config()
-    >>> print(config.execution.commission.per_share)
-    0.0005
+    >>> print(config.data.sources_config)
+    config/data_sources.yaml
 """
 
 import os
 from dataclasses import dataclass, field
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -37,168 +28,31 @@ import yaml
 
 
 @dataclass
-class DataCacheConfig:
-    """Data caching configuration."""
+class DataServiceConfig:
+    """Data service configuration.
 
-    enabled: bool = False
-    cache_dir: str = ".cache/qtrader"
-    max_size_mb: int = 1000
-
-
-@dataclass
-class DataConfig:
-    """Data service configuration."""
+    System-wide configuration for HOW DataService handles data.
+    Specifies where to find data sources and basic data handling preferences.
+    """
 
     sources_config: str = "config/data_sources.yaml"
     default_mode: str = "adjusted"
     default_timezone: str = "America/New_York"
     price_decimals: int = 4
     validate_on_load: bool = True
-    cache: DataCacheConfig = field(default_factory=DataCacheConfig)
-
-
-@dataclass
-class CommissionConfig:
-    """Commission calculation configuration."""
-
-    model: str = "per_share"
-    per_share: float = 0.0005
-    minimum: float = 1.00
-    maximum: Optional[float] = None
-
-
-@dataclass
-class SlippageConfig:
-    """Slippage model configuration."""
-
-    model: str = "fixed"
-    slippage_bps: float = 5.0
-
-
-@dataclass
-class PortfolioConfig:
-    """Portfolio service configuration."""
-
-    initial_equity: Decimal = Decimal("100000.00")
-    lot_method_long: str = "fifo"
-    lot_method_short: str = "lifo"
-    max_ledger_entries: int = 10000
-    commission: CommissionConfig = field(default_factory=CommissionConfig)
-    slippage: SlippageConfig = field(default_factory=SlippageConfig)
-
-
-@dataclass
-class ExecutionSlippageConfig:
-    """Execution slippage configuration."""
-
-    market_order_bps: int = 5
-    limit_order_bps: int = 0
-    stop_order_bps: int = 5
-    moc_slip_bps: int = 5
-    mode: str = "conservative"
-
-
-@dataclass
-class ExecutionConfig:
-    """Execution service configuration."""
-
-    fill_policy: str = "conservative"
-    slippage: ExecutionSlippageConfig = field(default_factory=ExecutionSlippageConfig)
-    commission: CommissionConfig = field(default_factory=CommissionConfig)
-    queue_bars: int = 3
-    max_volume_participation: float = 0.10
-
-
-@dataclass
-class StrategyBudgetConfig:
-    """Strategy budget allocation."""
-
-    strategy_id: str
-    capital_weight: float
-
-
-@dataclass
-class SizingConfigData:
-    """Position sizing configuration."""
-
-    model: str = "fixed_fraction"
-    fraction: float = 0.20
-
-
-@dataclass
-class ConcentrationConfig:
-    """Concentration limit configuration."""
-
-    max_position_pct: float = 0.10
-
-
-@dataclass
-class LeverageConfig:
-    """Leverage limit configuration."""
-
-    max_gross: float = 1.0
-    max_net: float = 1.0
-
-
-@dataclass
-class RiskConfig:
-    """Risk service configuration."""
-
-    cash_buffer_pct: float = 0.02
-    budgets: list[StrategyBudgetConfig] = field(default_factory=list)
-    sizing: dict[str, SizingConfigData] = field(default_factory=dict)
-    concentration: ConcentrationConfig = field(default_factory=ConcentrationConfig)
-    leverage: LeverageConfig = field(default_factory=LeverageConfig)
-
-
-@dataclass
-class StrategyWarmupConfig:
-    """Strategy warmup configuration."""
-
-    skip_signals: bool = True
-
-
-@dataclass
-class StrategyConfig:
-    """Strategy service configuration."""
-
-    validate_on_load: bool = True
-    allow_concurrent: bool = True
-    warmup: StrategyWarmupConfig = field(default_factory=StrategyWarmupConfig)
-
-
-@dataclass
-class OutputFilesConfig:
-    """Output file generation configuration."""
-
-    metadata: bool = True
-    trades: bool = True
-    fills: bool = True
-    portfolio: bool = True
-    positions: bool = True
-    equity_curve: bool = True
-    metrics: bool = True
-
-
-@dataclass
-class OutputFormatsConfig:
-    """Output format configuration."""
-
-    json: bool = True
-    csv: bool = True
-    parquet: bool = False
 
 
 @dataclass
 class OutputConfig:
-    """Output and results configuration."""
+    """Output and results configuration.
+
+    Minimal config for event store persistence and results directory.
+    """
 
     default_results_dir: str = "output/backtests"
     use_timestamps: bool = True
     timestamp_format: str = "%Y%m%d_%H%M%S"
     organize_by_date: bool = False
-    generate_files: OutputFilesConfig = field(default_factory=OutputFilesConfig)
-    formats: OutputFormatsConfig = field(default_factory=OutputFormatsConfig)
 
 
 @dataclass
@@ -218,8 +72,6 @@ class LoggingConfig:
 
     def to_logger_config(self):
         """Convert to log_system.LoggingConfig for LoggerFactory."""
-        from pathlib import Path
-
         from qtrader.system.log_system import LoggingConfig as LogSystemConfig
 
         return LogSystemConfig(
@@ -237,96 +89,33 @@ class LoggingConfig:
 
 
 @dataclass
-class ReportingConfig:
-    """Reporting configuration."""
-
-    metrics: list[str] = field(
-        default_factory=lambda: [
-            "total_return",
-            "sharpe_ratio",
-            "max_drawdown",
-            "win_rate",
-            "profit_factor",
-            "avg_trade_duration",
-            "calmar_ratio",
-            "sortino_ratio",
-            "num_trades",
-            "avg_win",
-            "avg_loss",
-        ]
-    )
-    decimal_places: int = 4
-    include_trade_details: bool = True
-    formats: OutputFormatsConfig = field(default_factory=OutputFormatsConfig)
-
-
-@dataclass
-class DevelopmentConfig:
-    """Development and debug configuration."""
-
-    debug_mode: bool = False
-    profile: bool = False
-    strict_validation: bool = True
-    save_debug_snapshots: bool = False
-    debug_snapshot_interval: int = 100
-
-
-@dataclass
-class PreferencesConfig:
-    """User preference configuration."""
-
-    date_format: str = "%Y-%m-%d"
-    currency_symbol: str = "$"
-    thousands_separator: str = ","
-    decimal_separator: str = "."
-
-
-@dataclass
 class SystemConfig:
     """
-    Complete system configuration for QTrader.
+    Minimal system configuration for QTrader.
 
-    This is THE system - a single source of truth for how QTrader operates.
-    All backtests use this configuration to ensure consistent, fair comparisons.
+    Currently supports DataService-only engine refactor.
+    Additional service configs will be added incrementally.
 
-    Philosophy: "In real life, the system is one"
-    - ONE execution system with ONE commission model
-    - ONE data source configuration
-    - ONE risk management framework
-    - ONE portfolio accounting method
+    What's defined here (current):
+        - Data service configuration (HOW to handle data)
+        - Output/results directory
+        - Logging settings
 
-    What's defined here (system-level):
-        - Commission models
-        - Slippage models
-        - Data sources
-        - Risk limits
-        - Portfolio accounting
-        - Logging/output settings
-
-    What varies per backtest (NOT here):
-        - Start/end dates
-        - Universe (which symbols)
-        - Initial capital
-        - Which strategies to run
+    What will be added later (as services are refactored):
+        - Portfolio service config
+        - Execution service config
+        - Risk service config
+        - Strategy service config
 
     Example:
         >>> config = SystemConfig.load()
-        >>> print(config.execution.commission.per_share)
-        0.0005
-        >>> print(config.portfolio.lot_method_long)
-        fifo
+        >>> print(config.data.sources_config)
+        config/data_sources.yaml
     """
 
-    data: DataConfig = field(default_factory=DataConfig)
-    portfolio: PortfolioConfig = field(default_factory=PortfolioConfig)
-    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
-    risk: RiskConfig = field(default_factory=RiskConfig)
-    strategy: StrategyConfig = field(default_factory=StrategyConfig)
+    data: DataServiceConfig = field(default_factory=DataServiceConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
-    reporting: ReportingConfig = field(default_factory=ReportingConfig)
-    development: DevelopmentConfig = field(default_factory=DevelopmentConfig)
-    preferences: PreferencesConfig = field(default_factory=PreferencesConfig)
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "SystemConfig":
@@ -393,124 +182,23 @@ class SystemConfig:
     @classmethod
     def _from_dict(cls, config_dict: dict[str, Any]) -> "SystemConfig":
         """Build SystemConfig from nested dictionary."""
-        # Data
+        # Data service configuration
         data_dict = config_dict.get("data", {})
-        cache_dict = data_dict.get("cache", {})
-        data = DataConfig(
+        data = DataServiceConfig(
             sources_config=data_dict.get("sources_config", "config/data_sources.yaml"),
             default_mode=data_dict.get("default_mode", "adjusted"),
             default_timezone=data_dict.get("default_timezone", "America/New_York"),
             price_decimals=data_dict.get("price_decimals", 4),
             validate_on_load=data_dict.get("validate_on_load", True),
-            cache=DataCacheConfig(
-                enabled=cache_dict.get("enabled", False),
-                cache_dir=cache_dict.get("cache_dir", ".cache/qtrader"),
-                max_size_mb=cache_dict.get("max_size_mb", 1000),
-            ),
-        )
-
-        # Portfolio
-        portfolio_dict = config_dict.get("portfolio", {})
-        portfolio_commission_dict = portfolio_dict.get("commission", {})
-        portfolio_slippage_dict = portfolio_dict.get("slippage", {})
-        portfolio = PortfolioConfig(
-            initial_equity=Decimal(str(portfolio_dict.get("initial_equity", "100000.00"))),
-            lot_method_long=portfolio_dict.get("lot_method_long", "fifo"),
-            lot_method_short=portfolio_dict.get("lot_method_short", "lifo"),
-            max_ledger_entries=portfolio_dict.get("max_ledger_entries", 10000),
-            commission=CommissionConfig(
-                model=portfolio_commission_dict.get("model", "per_share"),
-                per_share=portfolio_commission_dict.get("per_share", 0.0005),
-                minimum=portfolio_commission_dict.get("minimum", 1.00),
-                maximum=portfolio_commission_dict.get("maximum"),
-            ),
-            slippage=SlippageConfig(
-                model=portfolio_slippage_dict.get("model", "fixed"),
-                slippage_bps=portfolio_slippage_dict.get("slippage_bps", 5.0),
-            ),
-        )
-
-        # Execution
-        execution_dict = config_dict.get("execution", {})
-        exec_slippage_dict = execution_dict.get("slippage", {})
-        exec_commission_dict = execution_dict.get("commission", {})
-        execution = ExecutionConfig(
-            fill_policy=execution_dict.get("fill_policy", "conservative"),
-            slippage=ExecutionSlippageConfig(
-                market_order_bps=exec_slippage_dict.get("market_order_bps", 5),
-                limit_order_bps=exec_slippage_dict.get("limit_order_bps", 0),
-                stop_order_bps=exec_slippage_dict.get("stop_order_bps", 5),
-                moc_slip_bps=exec_slippage_dict.get("moc_slip_bps", 5),
-                mode=exec_slippage_dict.get("mode", "conservative"),
-            ),
-            commission=CommissionConfig(
-                model=exec_commission_dict.get("model", "per_share"),
-                per_share=exec_commission_dict.get("per_share", 0.0005),
-                minimum=exec_commission_dict.get("minimum", 1.00),
-                maximum=exec_commission_dict.get("maximum"),
-            ),
-            queue_bars=execution_dict.get("queue_bars", 3),
-            max_volume_participation=execution_dict.get("max_volume_participation", 0.10),
-        )
-
-        # Risk
-        risk_dict = config_dict.get("risk", {})
-        budgets_list = risk_dict.get("budgets", [{"strategy_id": "default", "capital_weight": 1.0}])
-        budgets = [
-            StrategyBudgetConfig(strategy_id=b["strategy_id"], capital_weight=b["capital_weight"]) for b in budgets_list
-        ]
-        sizing_dict = risk_dict.get("sizing", {"default": {"model": "fixed_fraction", "fraction": 0.20}})
-        sizing = {
-            sid: SizingConfigData(model=cfg.get("model", "fixed_fraction"), fraction=cfg.get("fraction", 0.20))
-            for sid, cfg in sizing_dict.items()
-        }
-        concentration_dict = risk_dict.get("concentration", {})
-        leverage_dict = risk_dict.get("leverage", {})
-        risk = RiskConfig(
-            cash_buffer_pct=risk_dict.get("cash_buffer_pct", 0.02),
-            budgets=budgets,
-            sizing=sizing,
-            concentration=ConcentrationConfig(
-                max_position_pct=concentration_dict.get("max_position_pct", 0.10),
-            ),
-            leverage=LeverageConfig(
-                max_gross=leverage_dict.get("max_gross", 1.0),
-                max_net=leverage_dict.get("max_net", 1.0),
-            ),
-        )
-
-        # Strategy
-        strategy_dict = config_dict.get("strategy", {})
-        warmup_dict = strategy_dict.get("warmup", {})
-        strategy = StrategyConfig(
-            validate_on_load=strategy_dict.get("validate_on_load", True),
-            allow_concurrent=strategy_dict.get("allow_concurrent", True),
-            warmup=StrategyWarmupConfig(skip_signals=warmup_dict.get("skip_signals", True)),
         )
 
         # Output
         output_dict = config_dict.get("output", {})
-        gen_files_dict = output_dict.get("generate_files", {})
-        output_formats_dict = output_dict.get("formats", {})
         output = OutputConfig(
             default_results_dir=output_dict.get("default_results_dir", "output/backtests"),
             use_timestamps=output_dict.get("use_timestamps", True),
             timestamp_format=output_dict.get("timestamp_format", "%Y%m%d_%H%M%S"),
             organize_by_date=output_dict.get("organize_by_date", False),
-            generate_files=OutputFilesConfig(
-                metadata=gen_files_dict.get("metadata", True),
-                trades=gen_files_dict.get("trades", True),
-                fills=gen_files_dict.get("fills", True),
-                portfolio=gen_files_dict.get("portfolio", True),
-                positions=gen_files_dict.get("positions", True),
-                equity_curve=gen_files_dict.get("equity_curve", True),
-                metrics=gen_files_dict.get("metrics", True),
-            ),
-            formats=OutputFormatsConfig(
-                json=output_formats_dict.get("json", True),
-                csv=output_formats_dict.get("csv", True),
-                parquet=output_formats_dict.get("parquet", False),
-            ),
         )
 
         # Logging
@@ -528,65 +216,10 @@ class SystemConfig:
             console_width=logging_dict.get("console_width", 0),
         )
 
-        # Reporting
-        reporting_dict = config_dict.get("reporting", {})
-        reporting_formats_dict = reporting_dict.get("formats", {})
-        reporting = ReportingConfig(
-            metrics=reporting_dict.get(
-                "metrics",
-                [
-                    "total_return",
-                    "sharpe_ratio",
-                    "max_drawdown",
-                    "win_rate",
-                    "profit_factor",
-                    "avg_trade_duration",
-                    "calmar_ratio",
-                    "sortino_ratio",
-                    "num_trades",
-                    "avg_win",
-                    "avg_loss",
-                ],
-            ),
-            decimal_places=reporting_dict.get("decimal_places", 4),
-            include_trade_details=reporting_dict.get("include_trade_details", True),
-            formats=OutputFormatsConfig(
-                json=reporting_formats_dict.get("json", True),
-                csv=reporting_formats_dict.get("csv", True),
-                parquet=reporting_formats_dict.get("parquet", False),
-            ),
-        )
-
-        # Development
-        dev_dict = config_dict.get("development", {})
-        development = DevelopmentConfig(
-            debug_mode=dev_dict.get("debug_mode", False),
-            profile=dev_dict.get("profile", False),
-            strict_validation=dev_dict.get("strict_validation", True),
-            save_debug_snapshots=dev_dict.get("save_debug_snapshots", False),
-            debug_snapshot_interval=dev_dict.get("debug_snapshot_interval", 100),
-        )
-
-        # Preferences
-        pref_dict = config_dict.get("preferences", {})
-        preferences = PreferencesConfig(
-            date_format=pref_dict.get("date_format", "%Y-%m-%d"),
-            currency_symbol=pref_dict.get("currency_symbol", "$"),
-            thousands_separator=pref_dict.get("thousands_separator", ","),
-            decimal_separator=pref_dict.get("decimal_separator", "."),
-        )
-
         return cls(
             data=data,
-            portfolio=portfolio,
-            execution=execution,
-            risk=risk,
-            strategy=strategy,
             output=output,
             logging=logging,
-            reporting=reporting,
-            development=development,
-            preferences=preferences,
         )
 
 
