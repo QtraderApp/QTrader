@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
-from qtrader.services.data.loaders.dataset_updater import DatasetUpdater, DatasetUpdateResult
+from qtrader.services.data.dataset_updater import DatasetUpdater, DatasetUpdateResult
 
 
 class UpdateService:

@@ -84,18 +84,17 @@ src/qtrader/services/data/
 ├── __init__.py                  # Public API exports
 ├── service.py                   # DataService - main interface
 ├── config.py                    # Configuration models
+├── dataset_updater.py           # Incremental update logic
+├── interface.py                 # Protocol definitions
 ├── models.py                    # Instrument and data models
 ├── source_selector.py           # Source selection logic
+├── source_validator.py          # Dataset configuration validator
 ├── update_service.py            # Update orchestration
-├── adapters/
-│   ├── __init__.py             # Adapter exports
-│   ├── protocol.py             # IDataAdapter protocol
-│   ├── resolver.py             # Dataset → Adapter resolution
-│   ├── algoseek.py             # Algoseek parquet adapter
-│   └── source_validator.py     # Dataset configuration validator
-└── loaders/
-    ├── __init__.py             # Loader exports
-    └── dataset_updater.py      # Incremental update logic
+└── adapters/
+    ├── __init__.py             # Adapter exports
+    ├── protocol.py             # IDataAdapter protocol
+    ├── resolver.py             # Dataset → Adapter resolution
+    └── algoseek.py             # Algoseek parquet adapter
 ```
 
 ______________________________________________________________________
@@ -498,7 +497,7 @@ ADAPTER_REGISTRY: ClassVar[dict[str, type[IDataAdapter]]] = {
 
 ______________________________________________________________________
 
-## Module: loaders/dataset_updater.py
+## Module: dataset_updater.py
 
 Incremental update logic for cached datasets.
 
@@ -509,7 +508,7 @@ Incremental update logic for cached datasets.
 Updates cached data to latest available.
 
 ```python
-from qtrader.services.data.loaders.dataset_updater import DatasetUpdater
+from qtrader.services.data.dataset_updater import DatasetUpdater
 
 updater = DatasetUpdater(
     dataset="algoseek-us-equity-1d-unadjusted",
@@ -832,7 +831,7 @@ ______________________________________________________________________
 ### Incremental Updates
 
 ```python
-from qtrader.services.data.loaders.dataset_updater import DatasetUpdater
+from qtrader.services.data.dataset_updater import DatasetUpdater
 
 updater = DatasetUpdater(
     dataset="algoseek-us-equity-1d-unadjusted",
@@ -997,7 +996,7 @@ except KeyError as e:
 ### Update Failures
 
 ```python
-from qtrader.services.data.loaders.dataset_updater import DatasetUpdater
+from qtrader.services.data.dataset_updater import DatasetUpdater
 
 updater = DatasetUpdater("algoseek-us-equity-1d-unadjusted", "AAPL")
 
@@ -1268,7 +1267,7 @@ ______________________________________________________________________
 - `DataSourceResolver` - Dataset → Adapter resolution
 - `AlgoseekParquetAdapter` - Algoseek implementation
 
-**Loaders**:
+**Update Management**:
 
 - `DatasetUpdater` - Incremental update logic
 - `UpdateService` - Multi-symbol orchestration
