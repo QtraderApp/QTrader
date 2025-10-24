@@ -1,8 +1,5 @@
-"""Data loading and iteration infrastructure."""
+"""Data loading infrastructure."""
 
-from qtrader.services.data.loaders.bar_merger import BarMerger
-from qtrader.services.data.loaders.iterator import PriceSeriesIterator
-from qtrader.services.data.loaders.loader import DataLoader
-from qtrader.services.data.models import MultiBar
+from qtrader.services.data.loaders.dataset_updater import DatasetUpdater
 
-__all__ = ["BarMerger", "PriceSeriesIterator", "DataLoader", "MultiBar"]
+__all__ = ["DatasetUpdater"]
