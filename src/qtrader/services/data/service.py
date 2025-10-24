@@ -6,7 +6,8 @@ data loading from vendor adapters using DataLoader and DataSourceResolver.
 
 import heapq
 from datetime import date, datetime
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 
@@ -475,12 +476,23 @@ class DataService:
         # Stream bars as events
         bar_count = 0
         for multi_bar in iterator:
-            # Publish event with adjusted bar (canonical mode for strategies)
+            # Get adjusted bar for event publishing
+            bar = multi_bar.adjusted
+
+            # Publish event with individual OHLCV fields
             event = PriceBarEvent(
                 symbol=symbol,
-                bar=multi_bar.adjusted,  # Use adjusted mode for strategies
-                timestamp=multi_bar.adjusted.trade_datetime,
-                is_warmup=is_warmup,
+                interval="1d",  # Lowercase per schema
+                timestamp=bar.trade_datetime.isoformat(),
+                open=Decimal(str(bar.open)),
+                high=Decimal(str(bar.high)),
+                low=Decimal(str(bar.low)),
+                close=Decimal(str(bar.close)),
+                volume=bar.volume,
+                adjusted=True,  # Using adjusted mode
+                cumulative_price_factor=Decimal("1.0"),  # TODO: Get from data source
+                cumulative_volume_factor=Decimal("1.0"),  # TODO: Get from data source
+                source=self.config.source_selector.provider or "unknown",
             )
             self._event_bus.publish(event)
             bar_count += 1
@@ -566,13 +578,16 @@ class DataService:
 
         # Initialize heap with first bar from each symbol's iterator
         # Heap entries: (timestamp, symbol, multi_bar, iterator)
-        heap: List[Tuple[datetime, str, Any, Iterator]] = []
+        # Note: Using Any for iterator type to avoid mypy issues with iter() conversion
+        heap: List[Tuple[datetime, str, Any, Any]] = []
 
         for symbol, iterator in iterators.items():
             try:
-                first_bar = next(iter(iterator))
+                # Create iterator once and reuse it
+                it = iter(iterator)
+                first_bar = next(it)
                 ts = first_bar.adjusted.trade_datetime
-                heapq.heappush(heap, (ts, symbol, first_bar, iter(iterator)))
+                heapq.heappush(heap, (ts, symbol, first_bar, it))
             except StopIteration:
                 # Symbol has no data in range
                 logger.debug("data_service.stream_universe.no_data", symbol=symbol)
@@ -592,11 +607,20 @@ class DataService:
             if current_timestamp is not None and ts != current_timestamp:
                 # Publish all bars at current_timestamp in sorted symbol order
                 for sym in sorted(bars_at_current_ts.keys()):
+                    bar = bars_at_current_ts[sym].adjusted
                     event = PriceBarEvent(
                         symbol=sym,
-                        bar=bars_at_current_ts[sym].adjusted,
-                        timestamp=current_timestamp,
-                        is_warmup=is_warmup,
+                        interval="1d",
+                        timestamp=current_timestamp.isoformat(),
+                        open=Decimal(str(bar.open)),
+                        high=Decimal(str(bar.high)),
+                        low=Decimal(str(bar.low)),
+                        close=Decimal(str(bar.close)),
+                        volume=bar.volume,
+                        adjusted=True,
+                        cumulative_price_factor=Decimal("1.0"),
+                        cumulative_volume_factor=Decimal("1.0"),
+                        source=self.config.source_selector.provider or "unknown",
                     )
                     self._event_bus.publish(event)
                     total_bars += 1
@@ -618,13 +642,22 @@ class DataService:
                 pass
 
         # Publish remaining bars from last timestamp
-        if bars_at_current_ts:
+        if bars_at_current_ts and current_timestamp is not None:
             for sym in sorted(bars_at_current_ts.keys()):
+                bar = bars_at_current_ts[sym].adjusted
                 event = PriceBarEvent(
                     symbol=sym,
-                    bar=bars_at_current_ts[sym].adjusted,
-                    timestamp=current_timestamp,
-                    is_warmup=is_warmup,
+                    interval="1d",
+                    timestamp=current_timestamp.isoformat(),
+                    open=Decimal(str(bar.open)),
+                    high=Decimal(str(bar.high)),
+                    low=Decimal(str(bar.low)),
+                    close=Decimal(str(bar.close)),
+                    volume=bar.volume,
+                    adjusted=True,
+                    cumulative_price_factor=Decimal("1.0"),
+                    cumulative_volume_factor=Decimal("1.0"),
+                    source=self.config.source_selector.provider or "unknown",
                 )
                 self._event_bus.publish(event)
                 total_bars += 1
