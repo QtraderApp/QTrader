@@ -193,14 +193,25 @@ class BacktestEngine:
         results_dir.mkdir(parents=True, exist_ok=True)
 
         event_store: EventStore
-        store_path = results_dir / "events.sqlite"
+        store_filename = output_cfg.event_store.filename
+        store_path = results_dir / store_filename
+
+        # Create event store based on configured backend
+        backend_type = output_cfg.event_store.backend
         try:
-            event_store = SQLiteEventStore(store_path)
-            logger.info(
-                "backtest.engine.event_store_initialized",
-                backend="SQLiteEventStore",
-                path=str(store_path),
-            )
+            if backend_type == "sqlite":
+                event_store = SQLiteEventStore(store_path)
+                logger.info(
+                    "backtest.engine.event_store_initialized",
+                    backend="SQLiteEventStore",
+                    path=str(store_path),
+                )
+            else:  # memory
+                event_store = InMemoryEventStore()
+                logger.info(
+                    "backtest.engine.event_store_initialized",
+                    backend="InMemoryEventStore",
+                )
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.warning(
                 "backtest.engine.event_store_fallback",

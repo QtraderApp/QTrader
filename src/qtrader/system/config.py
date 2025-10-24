@@ -43,6 +43,14 @@ class DataServiceConfig:
 
 
 @dataclass
+class EventStoreConfig:
+    """Event store configuration."""
+
+    backend: Literal["sqlite", "memory"] = "sqlite"
+    filename: str = "events.sqlite"
+
+
+@dataclass
 class OutputConfig:
     """Output and results configuration.
 
@@ -53,6 +61,7 @@ class OutputConfig:
     use_timestamps: bool = True
     timestamp_format: str = "%Y%m%d_%H%M%S"
     organize_by_date: bool = False
+    event_store: EventStoreConfig = field(default_factory=EventStoreConfig)
 
 
 @dataclass

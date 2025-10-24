@@ -108,7 +108,21 @@ strategy:
 # ============================================================
 # Output & Results Configuration
 # ============================================================
-# to be implemented
+output:
+  # Base directory for backtest results
+  default_results_dir: "output/backtests"
+
+  # Event store configuration
+  event_store:
+    backend: "sqlite" # Options: sqlite, memory
+    filename: "events.sqlite"
+
+  # Organize results by date
+  organize_by_date: true # Creates YYYY/MM/DD subdirectories
+
+  # Use timestamps in directory names
+  use_timestamps: true
+  timestamp_format: "%Y%m%d_%H%M%S" # Format: 20241024_142153
 
 # ============================================================
 # Logging Configuration
