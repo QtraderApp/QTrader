@@ -8,7 +8,7 @@ ______________________________________________________________________
 
 ## Overview
 
-The engine package provides the core backtesting orchestration infrastructure for QTrader. It coordinates all services via EventBus in a pure event-driven architecture without direct service calls or state manipulation.
+The engine package provides the core backtesting orchestration infrastructure for QTrader. It coordinates all services via EventBus in a event-driven architecture
 
 **Current Phase**: Phase 1 focuses on establishing the data layer foundation with full event persistence, providing a minimal but complete implementation that can be incrementally extended.
 
