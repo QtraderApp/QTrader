@@ -36,13 +36,13 @@ class DataSourceSelector:
 
     Examples:
         # Specific provider
-        DataSourceSelector(provider="schwab", asset_class=AssetClass.EQUITY)
+        DataSourceSelector(provider="algoseek", asset_class=AssetClass.EQUITY)
 
         # Any provider with fallback
         DataSourceSelector(
             asset_class=AssetClass.EQUITY,
             frequency="1d",
-            fallback_providers=["schwab", "algoseek"]
+            fallback_providers=["algoseek"]
         )
 
         # CME futures

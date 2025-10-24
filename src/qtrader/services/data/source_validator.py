@@ -1,10 +1,16 @@
 """Validation for data_sources.yaml configuration.
 
 Validates:
-- Source naming conventions
-- Required metadata fields
-- Metadata field values
+- Source naming conventions (lowercase-with-hyphens)
+- Required metadata fields (provider, asset_class, data_type, frequency, adapter)
+- Metadata field values (valid asset classes, data types, adapters)
+- Optional fields (adjusted, timezone, price_currency, price_scale)
 - Duplicate configurations
+
+Supported:
+- Adapters: Dynamically loaded from DataSourceResolver.ADAPTER_REGISTRY
+- Asset Classes: equity, futures, options, crypto, forex, fixed_income
+- Data Types: ohlcv, trades, quotes
 """
 
 import re
@@ -33,7 +39,7 @@ class DataSourceValidator:
     FREQUENCY_PATTERN = re.compile(r"^\d+[mhd]$")
 
     # Required metadata fields
-    REQUIRED_METADATA = ["provider", "asset_class", "data_type", "frequency"]
+    REQUIRED_METADATA = ["provider", "asset_class", "data_type", "frequency", "adapter"]
 
     # Valid values for metadata fields
     VALID_ASSET_CLASSES = [
@@ -44,8 +50,27 @@ class DataSourceValidator:
         "forex",
         "fixed_income",
     ]
-    VALID_DATA_TYPES = ["ohlcv", "trades", "quotes", "greeks", "fundamentals"]
-    VALID_ADJUSTMENT_MODES = ["unadjusted", "adjusted", "split_adjusted"]
+    VALID_DATA_TYPES = ["ohlcv", "trades", "quotes"]
+
+    @classmethod
+    def _get_valid_adapters(cls) -> List[str]:
+        """
+        Get list of valid adapters from the resolver registry.
+
+        This dynamically retrieves the supported adapters so the validator
+        doesn't need to be updated when new adapters are added.
+
+        Returns:
+            List of valid adapter names
+        """
+        try:
+            # Import here to avoid circular dependencies
+            from qtrader.services.data.adapters.resolver import DataSourceResolver
+
+            return list(DataSourceResolver.ADAPTER_REGISTRY.keys())
+        except ImportError:
+            # Fallback to hardcoded list if resolver not available
+            return ["algoseekOHLC"]
 
     @classmethod
     def validate_file(cls, config_path: str | Path) -> None:
@@ -128,21 +153,38 @@ class DataSourceValidator:
                     f"Invalid data_type: '{source_config['data_type']}'. Valid values: {cls.VALID_DATA_TYPES}"
                 )
 
-        if "adjustment_mode" in source_config:
-            if source_config["adjustment_mode"] not in cls.VALID_ADJUSTMENT_MODES:
-                errors.append(
-                    f"Invalid adjustment_mode: '{source_config['adjustment_mode']}'. "
-                    f"Valid values: {cls.VALID_ADJUSTMENT_MODES}"
-                )
+        if "adapter" in source_config:
+            valid_adapters = cls._get_valid_adapters()
+            if source_config["adapter"] not in valid_adapters:
+                errors.append(f"Invalid adapter: '{source_config['adapter']}'. Valid values: {valid_adapters}")
+
+        if "adjusted" in source_config:
+            if not isinstance(source_config["adjusted"], bool):
+                errors.append(f"Invalid adjusted field: must be boolean true/false, got '{source_config['adjusted']}'")
 
         if "frequency" in source_config:
             freq = source_config["frequency"]
             if not cls.FREQUENCY_PATTERN.match(str(freq)):
                 errors.append(f"Invalid frequency format: '{freq}'. Use format like: 1m, 5m, 15m, 1h, 1d")
 
-        # Check for adapter field
-        if "adapter" not in source_config:
-            errors.append("Missing 'adapter' field in configuration")
+        # Validate timezone if present (optional but should be valid if provided)
+        if "timezone" in source_config:
+            timezone = source_config["timezone"]
+            # Basic timezone validation - should look like "America/New_York" or "UTC"
+            if not isinstance(timezone, str) or not timezone:
+                errors.append(f"Invalid timezone: must be non-empty string")
+
+        # Validate price_currency if present (optional)
+        if "price_currency" in source_config:
+            currency = source_config["price_currency"]
+            if not isinstance(currency, str) or len(currency) != 3:
+                errors.append(f"Invalid price_currency: must be 3-letter currency code like 'USD'")
+
+        # Validate price_scale if present (optional)
+        if "price_scale" in source_config:
+            scale = source_config["price_scale"]
+            if not isinstance(scale, int) or scale < 0:
+                errors.append(f"Invalid price_scale: must be non-negative integer")
 
         if errors:
             raise DataSourceValidationError("; ".join(errors))
@@ -164,14 +206,14 @@ class DataSourceValidator:
         seen_configs: Dict[str, List[str]] = {}
 
         for source_name, source_config in sources.items():
-            # Create signature from metadata
+            # Create signature from metadata (excluding optional fields like timezone, currency)
             signature = (
                 source_config.get("provider", ""),
                 source_config.get("asset_class", ""),
                 source_config.get("data_type", ""),
                 source_config.get("frequency", ""),
                 source_config.get("region", ""),
-                source_config.get("adjustment_mode", ""),
+                source_config.get("adjusted", None),
             )
 
             # Convert to string for dict key
