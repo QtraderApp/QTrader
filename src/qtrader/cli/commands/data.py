@@ -14,10 +14,7 @@ from qtrader.cli.ui import (
     create_update_summary_table,
 )
 from qtrader.cli.ui.formatters import add_bar_data, add_cache_info_row, add_update_result_row
-from qtrader.services import DataService
 from qtrader.services.data.adapters.resolver import DataSourceResolver
-from qtrader.services.data.config import BarSchemaConfig, DataConfig
-from qtrader.services.data.source_selector import AssetClass, DataSourceSelector
 from qtrader.services.data.update_service import UpdateService
 
 
@@ -121,12 +118,12 @@ def list_datasets(verbose: bool):
 @click.option("--start-date", required=True, help="Start date (YYYY-MM-DD)")
 @click.option("--end-date", required=True, help="End date (YYYY-MM-DD)")
 @click.option(
-    "--source",
-    type=click.Choice(["algoseek", "schwab"], case_sensitive=False),
-    default="algoseek",
-    help="Data source",
+    "--dataset",
+    type=str,
+    required=True,
+    help="Dataset identifier (e.g., algoseek-us-equity-1d-unadjusted)",
 )
-def raw_data(symbol: str, start_date: str, end_date: str, source: str):
+def raw_data(symbol: str, start_date: str, end_date: str, dataset: str):
     """
     Browse raw unadjusted historical data bars interactively.
 
@@ -134,50 +131,32 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
     Press ENTER to display next bar, CTRL+C to exit.
 
     Example:
-        qtrader data raw --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31
-        qtrader data raw --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31 --source schwab
+        qtrader data raw --symbol AAPL --start-date 2020-01-01 --end-date 2020-01-31 --dataset algoseek-us-equity-1d-unadjusted
     """
     console = Console()
 
     try:
         # Parse and validate dates
         try:
-            start = datetime.strptime(start_date, "%Y-%m-%d").date()
-            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+            datetime.strptime(start_date, "%Y-%m-%d").date()
+            datetime.strptime(end_date, "%Y-%m-%d").date()
         except ValueError as e:
             console.print("[red]Error: Invalid date format. Use YYYY-MM-DD[/red]")
             console.print(f"[red]{e}[/red]")
             sys.exit(1)
 
-        # Configure bar schema (maps vendor columns to canonical fields)
-        bar_schema = BarSchemaConfig(
-            ts="trade_datetime",
-            symbol="symbol",
-            open="open",
-            high="high",
-            low="low",
-            close="close",
-            volume="volume",
-        )
+        # Load data directly from adapter
+        console.print(f"[cyan]Loading data for {symbol} from {dataset}...[/cyan]")
 
-        # Configure data service
-        selector = DataSourceSelector(
-            provider=source.lower(),
-            asset_class=AssetClass.EQUITY,
-        )
-        config = DataConfig(
-            mode="adjusted",
-            frequency="1d",
-            timezone="America/New_York",
-            source_selector=selector,
-            bar_schema=bar_schema,
-        )
+        from qtrader.services.data.models import Instrument
 
-        # Create service and load data
-        console.print(f"[cyan]Loading data for {symbol} from {source}...[/cyan]")
-        service = DataService(config)
-        iterator = service.load_symbol(symbol, start, end)
-        bars = list(iterator)
+        resolver = DataSourceResolver()
+        instrument = Instrument(symbol=symbol)
+        adapter = resolver.resolve_by_dataset(dataset, instrument)
+
+        # Read bars and convert to PriceBarEvents
+        raw_bars = adapter.read_bars(start_date, end_date)
+        bars = [adapter.to_price_bar_event(bar) for bar in raw_bars]
 
         if not bars:
             console.print(f"[yellow]No data found for {symbol} between {start_date} and {end_date}[/yellow]")
@@ -188,22 +167,19 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
         console.print("[dim]Press ENTER to view next bar, CTRL+C to exit[/dim]\n")
 
         # Display bars one by one
-        for idx, multi_bar in enumerate(bars, 1):
-            # Always use unadjusted (raw) data
-            bar = multi_bar.unadjusted
-
+        for idx, bar in enumerate(bars, 1):
             # Create table for this bar
             table = create_bar_table(symbol, idx, len(bars))
 
-            # Prepare bar data
+            # Prepare bar data from PriceBarEvent
             bar_data = {
-                "date": str(multi_bar.trade_datetime.date()),
-                "open": bar.open,
-                "high": bar.high,
-                "low": bar.low,
-                "close": bar.close,
+                "date": bar.timestamp.split("T")[0],  # Extract date from ISO timestamp
+                "open": float(bar.open),
+                "high": float(bar.high),
+                "low": float(bar.low),
+                "close": float(bar.close),
                 "volume": bar.volume,
-                "dividend": bar.dividend,
+                "dividend": 0.0,  # PriceBarEvent doesn't have dividend field directly
             }
 
             # Add data to table
@@ -241,7 +217,7 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
 @click.option(
     "--dataset",
     required=True,
-    help="Dataset identifier (e.g., schwab-us-equity-1d-adjusted)",
+    help="Dataset identifier (e.g., algoseek-us-equity-1d-adjusted)",
 )
 @click.option(
     "--symbols",
@@ -257,27 +233,30 @@ def raw_data(symbol: str, start_date: str, end_date: str, source: str):
     is_flag=True,
     help="Show detailed update progress",
 )
-def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
+@click.option(
+    "--force-reprime",
+    is_flag=True,
+    help="Delete existing cache and re-prime from scratch (useful for adapters without incremental support)",
+)
+def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool, force_reprime: bool):
     """
     Update cached data to latest available.
 
     Incrementally updates cached data by fetching only new bars since
     last update. Works with any dataset that supports incremental updates.
 
+    If adapter doesn't support incremental updates, use --force-reprime to
+    automatically delete cache and re-prime from scratch.
+
     If no symbols specified, updates all symbols found in cache.
 
     Examples:
-        # Update all symbols in Schwab dataset
-        qtrader data update --dataset schwab-us-equity-1d-adjusted
-
-        # Update specific symbols
-        qtrader data update --dataset schwab-us-equity-1d-adjusted --symbols AAPL,TSLA,NVDA
-
-        # Dry run (check what would be updated)
-        qtrader data update --dataset schwab-us-equity-1d-adjusted --dry-run --verbose
 
         # Update Algoseek dataset
         qtrader data update --dataset algoseek-us-equity-1d-adjusted
+
+        # Force re-prime for adapter without incremental support
+        qtrader data update --dataset my-custom-dataset --force-reprime
     """
     console = Console()
 
@@ -287,7 +266,11 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
 
         # Show mode
         mode_str = "[yellow]DRY RUN[/yellow]" if dry_run else "[green]UPDATING[/green]"
-        console.print(f"\n{mode_str} Dataset: [cyan]{dataset}[/cyan]\n")
+        reprime_str = " [yellow](FORCE RE-PRIME)[/yellow]" if force_reprime else ""
+        console.print(f"\n{mode_str}{reprime_str} Dataset: [cyan]{dataset}[/cyan]\n")
+
+        if force_reprime and not dry_run:
+            console.print("[yellow]⚠ Force re-prime: Will delete existing caches and re-download all data[/yellow]\n")
 
         # Create update service
         service = UpdateService(dataset)
@@ -309,7 +292,9 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
             task = progress.add_task("[cyan]Updating symbols...", total=len(symbols_to_update))
 
             # Update each symbol and show progress
-            for result in service.update_symbols(symbols_to_update, dry_run=dry_run, verbose=verbose):
+            for result in service.update_symbols(
+                symbols_to_update, dry_run=dry_run, verbose=verbose, force_reprime=force_reprime
+            ):
                 status_emoji = "✓" if result.success else "✗"
                 progress.update(task, description=f"[cyan]{status_emoji} {result.symbol}", advance=1)
                 results.append(result)
@@ -379,7 +364,7 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool):
 @click.option(
     "--dataset",
     required=True,
-    help="Dataset identifier (e.g., schwab-us-equity-1d-adjusted)",
+    help="Dataset identifier (e.g., algoseek-us-equity-1d-adjusted)",
 )
 def cache_info(dataset: str):
     """
@@ -388,7 +373,7 @@ def cache_info(dataset: str):
     Displays cached symbols, date ranges, and update status.
 
     Example:
-        qtrader data cache-info --dataset schwab-us-equity-1d-adjusted
+        qtrader data cache-info --dataset algoseek-us-equity-1d-adjusted
     """
     console = Console()
 
