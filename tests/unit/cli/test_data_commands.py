@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from qtrader.cli.commands.data import data_group
-from qtrader.contracts.data import Bar, MultiBar
+from qtrader.services.data.models import Bar, MultiBar
 
 
 class TestRawDataCommand:

@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from qtrader.contracts.data import Bar, MultiBar, PriceSeries
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
+from qtrader.services.data.models import Bar, MultiBar, PriceSeries
 
 
 @pytest.fixture

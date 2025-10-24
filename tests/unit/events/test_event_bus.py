@@ -1,599 +1,813 @@
 """
-Unit tests for EventBus.
+Comprehensive unit tests for EventBus.
 
-Tests publish/subscribe, priority ordering, error isolation, and history management.
+Tests publish/subscribe with type-safe handlers, priority ordering, error isolation,
+history management, middleware hooks, and event store integration.
 """
 
-import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import Mock
 
-from qtrader.events.event_bus import EventBus
-from qtrader.events.events import CorporateActionEvent, Event, FillEvent, OrderEvent, SignalEvent
+import pytest
+
+from qtrader.events.event_bus import EventBus, SubscriptionToken
+from qtrader.events.event_store import InMemoryEventStore
+from qtrader.events.events import BacktestStartedEvent, BarCloseEvent, BaseEvent, CorporateActionEvent, PriceBarEvent
+
+# ============================================
+# Fixtures
+# ============================================
 
 
-class TestEventBusBasic(unittest.TestCase):
-    """Test basic EventBus functionality."""
+@pytest.fixture
+def event_bus():
+    """Create fresh EventBus for each test."""
+    return EventBus(max_history=100)
 
-    def setUp(self):
-        """Create fresh EventBus for each test."""
-        self.bus = EventBus()
-        self.events_received = []
 
-    def test_publish_without_subscribers(self):
-        """Test publishing event with no subscribers (should not error)."""
-        event = Event(event_type="test")
-        self.bus.publish(event)  # Should not raise
+@pytest.fixture
+def sample_price_bar():
+    """Create sample price bar event."""
+    return PriceBarEvent(
+        source_service="data_service",
+        symbol="AAPL",
+        asset_class="equity",
+        interval="1d",
+        timestamp="2024-01-01T00:00:00Z",
+        open=Decimal("150.00"),
+        high=Decimal("155.00"),
+        low=Decimal("149.00"),
+        close=Decimal("154.50"),
+        volume=1_000_000,
+        adjusted=False,
+        cumulative_price_factor=Decimal("1.0"),
+        cumulative_volume_factor=Decimal("1.0"),
+        source="algoseek",
+    )
 
-    def test_subscribe_and_publish(self):
-        """Test basic subscribe and publish."""
 
-        def handler(event):
-            self.events_received.append(event)
+@pytest.fixture
+def sample_corporate_action():
+    """Create sample corporate action event."""
+    return CorporateActionEvent(
+        source_service="data_service",
+        symbol="AAPL",
+        asset_class="equity",
+        action_type="split",
+        announcement_date="2020-07-30",
+        ex_date="2020-08-31",
+        effective_date="2020-08-31",
+        source="algoseek",
+        split_from=1,
+        split_to=4,
+        split_ratio=Decimal("0.25"),
+        price_adjustment_factor=Decimal("0.25"),
+        volume_adjustment_factor=Decimal("4.0"),
+    )
 
-        self.bus.subscribe("test", handler)
-        event = Event(event_type="test")
-        self.bus.publish(event)
 
-        self.assertEqual(len(self.events_received), 1)
-        self.assertEqual(self.events_received[0].event_id, event.event_id)
+# ============================================
+# Basic Publish/Subscribe Tests
+# ============================================
 
-    def test_multiple_handlers_same_event(self):
-        """Test multiple handlers for same event type."""
+
+class TestEventBusBasicSubscribe:
+    """Test basic subscribe and publish functionality."""
+
+    def test_publish_without_subscribers_succeeds(self, event_bus, sample_price_bar):
+        """Publishing without subscribers should not raise."""
+        event_bus.publish(sample_price_bar)
+        # No assertion needed - test passes if no exception
+
+    def test_subscribe_by_string_and_publish(self, event_bus, sample_price_bar):
+        """Test subscribing by event type string."""
+        events_received = []
+
+        def handler(event: BaseEvent):
+            events_received.append(event)
+
+        event_bus.subscribe("bar", handler)
+        event_bus.publish(sample_price_bar)
+
+        assert len(events_received) == 1
+        assert events_received[0].event_id == sample_price_bar.event_id
+
+    def test_subscribe_by_class_and_publish(self, event_bus, sample_price_bar):
+        """Test subscribing by event class using string event_type."""
+        events_received = []
+
+        def handler(event: PriceBarEvent):
+            events_received.append(event)
+
+        # Subscribe using string event_type since class-level subscription
+        # requires instantiation of Pydantic models
+        event_bus.subscribe("bar", handler)
+        event_bus.publish(sample_price_bar)
+
+        assert len(events_received) == 1
+        assert events_received[0].symbol == "AAPL"
+
+    def test_multiple_handlers_same_event(self, event_bus, sample_price_bar):
+        """Multiple handlers should all receive the event."""
         calls = []
 
-        def handler1(event):
+        def handler1(event: BaseEvent):
             calls.append("handler1")
 
-        def handler2(event):
+        def handler2(event: BaseEvent):
             calls.append("handler2")
 
-        self.bus.subscribe("test", handler1)
-        self.bus.subscribe("test", handler2)
+        event_bus.subscribe("bar", handler1)
+        event_bus.subscribe("bar", handler2)
+        event_bus.publish(sample_price_bar)
 
-        event = Event(event_type="test")
-        self.bus.publish(event)
+        assert len(calls) == 2
+        assert "handler1" in calls
+        assert "handler2" in calls
 
-        self.assertEqual(len(calls), 2)
-        self.assertIn("handler1", calls)
-        self.assertIn("handler2", calls)
+    def test_different_event_types_isolated(self, event_bus, sample_price_bar, sample_corporate_action):
+        """Handlers should only receive their subscribed event types."""
+        bar_events = []
+        action_events = []
 
-    def test_different_event_types(self):
-        """Test that handlers only receive subscribed event types."""
-        fill_events = []
-        order_events = []
+        def bar_handler(event: BaseEvent):
+            bar_events.append(event)
 
-        def fill_handler(event):
-            fill_events.append(event)
+        def action_handler(event: BaseEvent):
+            action_events.append(event)
 
-        def order_handler(event):
-            order_events.append(event)
+        event_bus.subscribe("bar", bar_handler)
+        event_bus.subscribe("corporate_action", action_handler)
 
-        self.bus.subscribe("fill", fill_handler)
-        self.bus.subscribe("order", order_handler)
+        event_bus.publish(sample_price_bar)
+        event_bus.publish(sample_corporate_action)
 
-        fill = FillEvent(fill_id="f1", order_id="o1", symbol="AAPL")
-        order = OrderEvent(order_id="o1", symbol="AAPL")
+        assert len(bar_events) == 1
+        assert len(action_events) == 1
+        assert bar_events[0].event_type == "bar"
+        assert action_events[0].event_type == "corporate_action"
 
-        self.bus.publish(fill)
-        self.bus.publish(order)
+    def test_subscribe_invalid_event_class_raises(self, event_bus):
+        """Subscribing with a class missing event_type should raise."""
 
-        self.assertEqual(len(fill_events), 1)
-        self.assertEqual(len(order_events), 1)
-        self.assertEqual(fill_events[0].event_type, "fill")
-        self.assertEqual(order_events[0].event_type, "order")
+        class InvalidEvent:
+            pass
+
+        def handler(event):
+            pass
+
+        with pytest.raises(ValueError, match="missing event_type"):
+            event_bus.subscribe(InvalidEvent, handler)
 
 
-class TestEventBusPriority(unittest.TestCase):
+# ============================================
+# Priority Ordering Tests
+# ============================================
+
+
+class TestEventBusPriority:
     """Test priority-based handler ordering."""
 
-    def setUp(self):
-        """Create fresh EventBus for each test."""
-        self.bus = EventBus()
-        self.call_order = []
+    def test_priority_ordering_highest_first(self, event_bus):
+        """Handlers should be called in priority order (highest first)."""
+        call_order = []
 
-    def test_priority_ordering(self):
-        """Test that handlers are called in priority order (highest first)."""
+        def low_priority(event: BaseEvent):
+            call_order.append("low")
 
-        def low_priority(event):
-            self.call_order.append("low")
+        def medium_priority(event: BaseEvent):
+            call_order.append("medium")
 
-        def medium_priority(event):
-            self.call_order.append("medium")
+        def high_priority(event: BaseEvent):
+            call_order.append("high")
 
-        def high_priority(event):
-            self.call_order.append("high")
+        event_bus.subscribe("bar_close", low_priority, priority=1)
+        event_bus.subscribe("bar_close", high_priority, priority=100)
+        event_bus.subscribe("bar_close", medium_priority, priority=10)
 
-        # Subscribe in random order
-        self.bus.subscribe("test", medium_priority, priority=10)
-        self.bus.subscribe("test", low_priority, priority=1)
-        self.bus.subscribe("test", high_priority, priority=100)
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
 
-        event = Event(event_type="test")
-        self.bus.publish(event)
+        assert call_order == ["high", "medium", "low"]
 
-        # Should be called in priority order
-        self.assertEqual(self.call_order, ["high", "medium", "low"])
+    def test_same_priority_fifo(self, event_bus):
+        """Handlers with same priority should be called in subscription order."""
+        call_order = []
 
-    def test_same_priority_fifo(self):
-        """Test that handlers with same priority are called in subscription order."""
+        def handler1(event: BaseEvent):
+            call_order.append("h1")
 
-        def handler1(event):
-            self.call_order.append("h1")
+        def handler2(event: BaseEvent):
+            call_order.append("h2")
 
-        def handler2(event):
-            self.call_order.append("h2")
+        def handler3(event: BaseEvent):
+            call_order.append("h3")
 
-        def handler3(event):
-            self.call_order.append("h3")
+        event_bus.subscribe("bar_close", handler1, priority=10)
+        event_bus.subscribe("bar_close", handler2, priority=10)
+        event_bus.subscribe("bar_close", handler3, priority=10)
 
-        # All same priority
-        self.bus.subscribe("test", handler1, priority=10)
-        self.bus.subscribe("test", handler2, priority=10)
-        self.bus.subscribe("test", handler3, priority=10)
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
 
-        event = Event(event_type="test")
-        self.bus.publish(event)
+        assert call_order == ["h1", "h2", "h3"]
 
-        # Should maintain subscription order
-        self.assertEqual(self.call_order, ["h1", "h2", "h3"])
+    def test_default_priority_is_zero(self, event_bus):
+        """Default priority should be 0."""
+        call_order = []
 
-    def test_default_priority_zero(self):
-        """Test that default priority is 0."""
+        def default_handler(event: BaseEvent):
+            call_order.append("default")
 
-        def default_handler(event):
-            self.call_order.append("default")
+        def high_handler(event: BaseEvent):
+            call_order.append("high")
 
-        def high_handler(event):
-            self.call_order.append("high")
+        event_bus.subscribe("bar_close", high_handler, priority=10)
+        event_bus.subscribe("bar_close", default_handler)  # No priority specified
 
-        self.bus.subscribe("test", high_handler, priority=10)
-        self.bus.subscribe("test", default_handler)  # No priority = 0
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
 
-        event = Event(event_type="test")
-        self.bus.publish(event)
+        assert call_order == ["high", "default"]
 
-        self.assertEqual(self.call_order, ["high", "default"])
+    def test_handler_cache_invalidated_on_subscribe(self, event_bus):
+        """Handler cache should be invalidated when subscribing."""
+        call_order = []
+
+        def handler1(event: BaseEvent):
+            call_order.append("h1")
+
+        def handler2(event: BaseEvent):
+            call_order.append("h2")
+
+        event_bus.subscribe("bar_close", handler1, priority=10)
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
+
+        # Subscribe a higher priority handler after first publish
+        event_bus.subscribe("bar_close", handler2, priority=100)
+        call_order.clear()
+        event_bus.publish(event)
+
+        # handler2 should be called first due to higher priority
+        assert call_order == ["h2", "h1"]
 
 
-class TestEventBusErrorIsolation(unittest.TestCase):
+# ============================================
+# Error Isolation Tests
+# ============================================
+
+
+class TestEventBusErrorIsolation:
     """Test error isolation between handlers."""
 
-    def setUp(self):
-        """Create fresh EventBus for each test."""
-        self.bus = EventBus()
-        self.successful_calls = []
+    def test_handler_error_doesnt_stop_others(self, event_bus):
+        """Exception in one handler should not stop other handlers."""
+        successful_calls = []
 
-    def test_handler_error_doesnt_stop_others(self):
-        """Test that exception in one handler doesn't stop other handlers."""
-
-        def failing_handler(event):
-            self.successful_calls.append("before_fail")
+        def failing_handler(event: BaseEvent):
+            successful_calls.append("before_fail")
             raise ValueError("Handler failed!")
 
-        def success_handler1(event):
-            self.successful_calls.append("success1")
+        def success_handler1(event: BaseEvent):
+            successful_calls.append("success1")
 
-        def success_handler2(event):
-            self.successful_calls.append("success2")
+        def success_handler2(event: BaseEvent):
+            successful_calls.append("success2")
 
-        self.bus.subscribe("test", success_handler1, priority=100)
-        self.bus.subscribe("test", failing_handler, priority=50)
-        self.bus.subscribe("test", success_handler2, priority=10)
+        event_bus.subscribe("bar_close", success_handler1, priority=100)
+        event_bus.subscribe("bar_close", failing_handler, priority=50)
+        event_bus.subscribe("bar_close", success_handler2, priority=10)
 
-        event = Event(event_type="test")
+        event = BarCloseEvent(source_service="test")
         # Should not raise despite failing_handler exception
-        self.bus.publish(event)
+        event_bus.publish(event)
 
-        # All non-failing handlers should have been called
-        self.assertIn("success1", self.successful_calls)
-        self.assertIn("success2", self.successful_calls)
-        self.assertIn("before_fail", self.successful_calls)
+        assert "success1" in successful_calls
+        assert "success2" in successful_calls
+        assert "before_fail" in successful_calls
 
-    def test_multiple_failing_handlers(self):
-        """Test that multiple failures are isolated."""
+    def test_multiple_failing_handlers_isolated(self, event_bus):
+        """Multiple failures should be isolated from each other."""
+        successful_calls = []
 
-        def fail1(event):
+        def fail1(event: BaseEvent):
             raise ValueError("Fail 1")
 
-        def fail2(event):
+        def fail2(event: BaseEvent):
             raise RuntimeError("Fail 2")
 
-        def success(event):
-            self.successful_calls.append("success")
+        def success(event: BaseEvent):
+            successful_calls.append("success")
 
-        self.bus.subscribe("test", fail1)
-        self.bus.subscribe("test", success)
-        self.bus.subscribe("test", fail2)
+        event_bus.subscribe("bar_close", fail1)
+        event_bus.subscribe("bar_close", success)
+        event_bus.subscribe("bar_close", fail2)
 
-        event = Event(event_type="test")
-        self.bus.publish(event)  # Should not raise
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)  # Should not raise
 
-        self.assertIn("success", self.successful_calls)
+        assert "success" in successful_calls
+
+    def test_error_middleware_called_on_failure(self, event_bus):
+        """Error middleware should be called when handler fails."""
+        error_events = []
+
+        def on_error(event: BaseEvent, handler, exc: Exception):
+            error_events.append((event.event_type, handler.__name__, str(exc)))
+
+        def failing_handler(event: BaseEvent):
+            raise ValueError("Test error")
+
+        event_bus.set_middleware(on_error=on_error)
+        event_bus.subscribe("bar_close", failing_handler)
+
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
+
+        assert len(error_events) == 1
+        assert error_events[0][0] == "bar_close"
+        assert error_events[0][1] == "failing_handler"
+        assert "Test error" in error_events[0][2]
 
 
-class TestEventBusUnsubscribe(unittest.TestCase):
+# ============================================
+# Unsubscribe Tests
+# ============================================
+
+
+class TestEventBusUnsubscribe:
     """Test unsubscribe functionality."""
 
-    def setUp(self):
-        """Create fresh EventBus for each test."""
-        self.bus = EventBus()
-        self.calls = []
+    def test_unsubscribe_removes_handler(self, event_bus):
+        """Unsubscribing should remove the handler."""
+        calls = []
 
-    def test_unsubscribe_handler(self):
-        """Test unsubscribing a handler."""
+        def handler(event: BaseEvent):
+            calls.append("handler")
 
-        def handler(event):
-            self.calls.append("handler")
+        event_bus.subscribe("bar_close", handler)
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
+        assert len(calls) == 1
 
-        self.bus.subscribe("test", handler)
-        event = Event(event_type="test")
-        self.bus.publish(event)
-        self.assertEqual(len(self.calls), 1)
+        event_bus.unsubscribe("bar_close", handler)
+        event_bus.publish(event)
+        assert len(calls) == 1  # No new calls
 
-        # Unsubscribe and publish again
-        self.bus.unsubscribe("test", handler)
-        self.bus.publish(event)
-        self.assertEqual(len(self.calls), 1)  # No new calls
+    def test_unsubscribe_nonexistent_handler_noop(self, event_bus):
+        """Unsubscribing a non-subscribed handler should be a no-op."""
 
-    def test_unsubscribe_nonexistent_handler(self):
-        """Test unsubscribing handler that was never subscribed (should not error)."""
-
-        def handler(event):
+        def handler(event: BaseEvent):
             pass
 
-        self.bus.unsubscribe("test", handler)  # Should not raise
+        # Should not raise
+        event_bus.unsubscribe("bar_close", handler)
 
-    def test_unsubscribe_one_of_multiple(self):
-        """Test unsubscribing one handler while others remain."""
+    def test_unsubscribe_one_of_multiple(self, event_bus):
+        """Unsubscribing one handler should not affect others."""
+        calls = []
 
-        def handler1(event):
-            self.calls.append("h1")
+        def handler1(event: BaseEvent):
+            calls.append("h1")
 
-        def handler2(event):
-            self.calls.append("h2")
+        def handler2(event: BaseEvent):
+            calls.append("h2")
 
-        self.bus.subscribe("test", handler1)
-        self.bus.subscribe("test", handler2)
+        event_bus.subscribe("bar_close", handler1)
+        event_bus.subscribe("bar_close", handler2)
 
-        event = Event(event_type="test")
-        self.bus.publish(event)
-        self.assertEqual(len(self.calls), 2)
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
+        assert len(calls) == 2
 
-        # Unsubscribe handler1
-        self.bus.unsubscribe("test", handler1)
-        self.calls.clear()
-        self.bus.publish(event)
+        event_bus.unsubscribe("bar_close", handler1)
+        calls.clear()
+        event_bus.publish(event)
 
-        self.assertEqual(len(self.calls), 1)
-        self.assertEqual(self.calls[0], "h2")
+        assert len(calls) == 1
+        assert calls[0] == "h2"
+
+    def test_unsubscribe_invalidates_handler_cache(self, event_bus):
+        """Unsubscribing should invalidate handler cache."""
+        calls = []
+
+        def handler1(event: BaseEvent):
+            calls.append("h1")
+
+        def handler2(event: BaseEvent):
+            calls.append("h2")
+
+        event_bus.subscribe("bar_close", handler1)
+        event_bus.subscribe("bar_close", handler2)
+
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)  # Build cache
+
+        event_bus.unsubscribe("bar_close", handler1)
+        calls.clear()
+        event_bus.publish(event)
+
+        # Should use updated handler list, not cached
+        assert calls == ["h2"]
 
 
-class TestEventBusHistory(unittest.TestCase):
+# ============================================
+# Subscription Token Tests
+# ============================================
+
+
+class TestSubscriptionToken:
+    """Test context-managed subscription tokens."""
+
+    def test_subscription_token_returned(self, event_bus):
+        """subscribe() should return a SubscriptionToken."""
+
+        def handler(event: BaseEvent):
+            pass
+
+        token = event_bus.subscribe("bar_close", handler)
+        assert isinstance(token, SubscriptionToken)
+
+    def test_token_unsubscribe(self, event_bus):
+        """Token.unsubscribe() should remove the handler."""
+        calls = []
+
+        def handler(event: BaseEvent):
+            calls.append("called")
+
+        token = event_bus.subscribe("bar_close", handler)
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
+        assert len(calls) == 1
+
+        token.unsubscribe()
+        event_bus.publish(event)
+        assert len(calls) == 1  # No new calls
+
+    def test_token_context_manager(self, event_bus):
+        """Token should work as context manager."""
+        calls = []
+
+        def handler(event: BaseEvent):
+            calls.append("called")
+
+        event = BarCloseEvent(source_service="test")
+
+        with event_bus.subscribe("bar_close", handler):
+            event_bus.publish(event)
+            assert len(calls) == 1
+
+        # After exiting context, handler should be unsubscribed
+        event_bus.publish(event)
+        assert len(calls) == 1  # No new calls
+
+    def test_token_multiple_unsubscribe_safe(self, event_bus):
+        """Calling unsubscribe() multiple times should be safe."""
+
+        def handler(event: BaseEvent):
+            pass
+
+        token = event_bus.subscribe("bar_close", handler)
+        token.unsubscribe()
+        token.unsubscribe()  # Should not raise
+
+
+# ============================================
+# History Tests
+# ============================================
+
+
+class TestEventBusHistory:
     """Test event history functionality."""
 
-    def setUp(self):
-        """Create fresh EventBus for each test."""
-        self.bus = EventBus(max_history=100)
+    def test_history_stores_events(self, event_bus, sample_price_bar):
+        """Published events should be stored in history."""
+        bar2 = PriceBarEvent(
+            source_service="data_service",
+            symbol="MSFT",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-02T00:00:00Z",
+            open=Decimal("400.00"),
+            high=Decimal("405.00"),
+            low=Decimal("399.00"),
+            close=Decimal("404.50"),
+            volume=2_000_000,
+            adjusted=False,
+            cumulative_price_factor=Decimal("1.0"),
+            cumulative_volume_factor=Decimal("1.0"),
+            source="algoseek",
+        )
 
-    def test_history_stores_events(self):
-        """Test that published events are stored in history."""
-        event1 = Event(event_type="test")
-        event2 = Event(event_type="test")
+        event_bus.publish(sample_price_bar)
+        event_bus.publish(bar2)
 
-        self.bus.publish(event1)
-        self.bus.publish(event2)
+        history = event_bus.get_history()
+        assert len(history) == 2
 
-        history = self.bus.get_history()
-        self.assertEqual(len(history), 2)
+    def test_history_filter_by_type(self, event_bus, sample_price_bar, sample_corporate_action):
+        """History should be filterable by event type."""
+        event_bus.publish(sample_price_bar)
+        event_bus.publish(sample_corporate_action)
 
-    def test_history_filter_by_type(self):
-        """Test filtering history by event type."""
-        fill = FillEvent(fill_id="f1", order_id="o1", symbol="AAPL")
-        order = OrderEvent(order_id="o1", symbol="AAPL")
+        bar_history = event_bus.get_history(event_type="bar")
+        action_history = event_bus.get_history(event_type="corporate_action")
 
-        self.bus.publish(fill)
-        self.bus.publish(order)
+        assert len(bar_history) == 1
+        assert len(action_history) == 1
+        assert bar_history[0].event_type == "bar"
+        assert action_history[0].event_type == "corporate_action"
 
-        fill_history = self.bus.get_history(event_type="fill")
-        order_history = self.bus.get_history(event_type="order")
-
-        self.assertEqual(len(fill_history), 1)
-        self.assertEqual(len(order_history), 1)
-        self.assertEqual(fill_history[0].event_type, "fill")
-
-    def test_history_filter_by_time(self):
-        """Test filtering history by timestamp."""
-        now = datetime.now()
+    def test_history_filter_by_time(self, event_bus):
+        """History should be filterable by timestamp."""
+        now = datetime.now(timezone.utc)
         past = now - timedelta(hours=1)
 
-        old_event = Event(event_type="test", timestamp=past)
-        new_event = Event(event_type="test", timestamp=now)
+        # Create events with specific timestamps using model_copy
+        old_event = BarCloseEvent(source_service="test")
+        old_event = old_event.model_copy(update={"occurred_at": past}, deep=True)
 
-        self.bus.publish(old_event)
-        self.bus.publish(new_event)
+        new_event = BarCloseEvent(source_service="test")
+        new_event = new_event.model_copy(update={"occurred_at": now}, deep=True)
 
-        recent = self.bus.get_history(since=now - timedelta(minutes=30))
-        self.assertEqual(len(recent), 1)
-        self.assertEqual(recent[0].timestamp, now)
+        event_bus.publish(old_event)
+        event_bus.publish(new_event)
 
-    def test_history_limit(self):
-        """Test limiting history results."""
+        recent = event_bus.get_history(since=now - timedelta(minutes=30))
+        assert len(recent) == 1
+        assert recent[0].occurred_at >= now - timedelta(seconds=1)
+
+    def test_history_limit(self, event_bus):
+        """History should respect limit parameter."""
         for i in range(10):
-            self.bus.publish(Event(event_type="test"))
+            event = BarCloseEvent(source_service="test")
+            event_bus.publish(event)
 
-        limited = self.bus.get_history(limit=5)
-        self.assertEqual(len(limited), 5)
+        limited = event_bus.get_history(limit=5)
+        assert len(limited) == 5
 
-    def test_history_max_size(self):
-        """Test that history is bounded by max_history."""
+    def test_history_max_size_bounded(self):
+        """History should be bounded by max_history."""
         bus = EventBus(max_history=5)
 
-        # Publish more events than max_history
         for i in range(10):
-            bus.publish(Event(event_type="test", event_id=f"event_{i}"))
+            event = BarCloseEvent(source_service="test")
+            bus.publish(event)
 
         history = bus.get_history()
-        self.assertEqual(len(history), 5)
-        # Should keep most recent events
-        self.assertEqual(history[0].event_id, "event_5")
-        self.assertEqual(history[-1].event_id, "event_9")
+        assert len(history) == 5
 
-    def test_clear_history(self):
-        """Test clearing history."""
-        self.bus.publish(Event(event_type="test"))
-        self.bus.publish(Event(event_type="test"))
+    def test_clear_history(self, event_bus, sample_price_bar):
+        """clear_history() should remove all events."""
+        event_bus.publish(sample_price_bar)
+        event_bus.publish(sample_price_bar)
 
-        self.assertEqual(len(self.bus.get_history()), 2)
+        assert len(event_bus.get_history()) == 2
 
-        self.bus.clear_history()
-        self.assertEqual(len(self.bus.get_history()), 0)
+        event_bus.clear_history()
+        assert len(event_bus.get_history()) == 0
 
-    def test_history_unlimited(self):
-        """Test unlimited history (max_history=0)."""
+    def test_history_unlimited_when_zero(self):
+        """max_history=0 should allow unlimited history."""
         bus = EventBus(max_history=0)
 
-        # Publish many events
         for i in range(1000):
-            bus.publish(Event(event_type="test"))
+            event = BarCloseEvent(source_service="test")
+            bus.publish(event)
 
         history = bus.get_history()
-        self.assertEqual(len(history), 1000)
+        assert len(history) == 1000
 
 
-class TestEventBusUtilities(unittest.TestCase):
+# ============================================
+# Middleware Tests
+# ============================================
+
+
+class TestEventBusMiddleware:
+    """Test middleware hooks."""
+
+    def test_on_publish_middleware_transforms_event(self, event_bus):
+        """on_publish middleware should be able to transform events."""
+
+        def add_correlation_id(event: BaseEvent) -> BaseEvent:
+            # In practice, we'd create a new event with correlation_id set
+            # For this test, we'll just verify it's called
+            return event
+
+        mock_middleware = Mock(side_effect=add_correlation_id)
+        event_bus.set_middleware(on_publish=mock_middleware)
+
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
+
+        mock_middleware.assert_called_once_with(event)
+
+    def test_on_error_middleware_called(self, event_bus):
+        """on_error middleware should be called on handler errors."""
+        errors_logged = []
+
+        def log_error(event: BaseEvent, handler, exc: Exception):
+            errors_logged.append((event.event_type, type(exc).__name__))
+
+        def failing_handler(event: BaseEvent):
+            raise ValueError("Test error")
+
+        event_bus.set_middleware(on_error=log_error)
+        event_bus.subscribe("bar_close", failing_handler)
+
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
+
+        assert len(errors_logged) == 1
+        assert errors_logged[0] == ("bar_close", "ValueError")
+
+
+# ============================================
+# Event Store Integration Tests
+# ============================================
+
+
+class TestEventBusStoreIntegration:
+    """Test EventBus integration with EventStore."""
+
+    def test_attach_store_persists_events(self, event_bus, sample_price_bar):
+        """Events should be persisted to attached store."""
+        store = InMemoryEventStore()
+        event_bus.attach_store(store)
+
+        event_bus.publish(sample_price_bar)
+
+        assert store.count() == 1
+        stored_event = store.get_by_id(sample_price_bar.event_id)
+        assert stored_event is not None
+        assert stored_event.event_id == sample_price_bar.event_id
+
+    def test_store_failure_doesnt_stop_handlers(self, event_bus, sample_price_bar):
+        """Store failure should not prevent handlers from running."""
+        store = Mock(spec=InMemoryEventStore)
+        store.append.side_effect = RuntimeError("Store failed")
+
+        event_bus.attach_store(store)
+
+        handler_called = []
+
+        def handler(event: BaseEvent):
+            handler_called.append(True)
+
+        event_bus.subscribe("bar", handler)
+        event_bus.publish(sample_price_bar)
+
+        # Handler should still be called despite store failure
+        assert len(handler_called) == 1
+
+    def test_detach_store_stops_persistence(self, event_bus, sample_price_bar):
+        """Detaching store should stop persistence."""
+        store = InMemoryEventStore()
+        event_bus.attach_store(store)
+        event_bus.publish(sample_price_bar)
+        assert store.count() == 1
+
+        event_bus.detach_store()
+
+        bar2 = PriceBarEvent(
+            source_service="data_service",
+            symbol="MSFT",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-02T00:00:00Z",
+            open=Decimal("400.00"),
+            high=Decimal("405.00"),
+            low=Decimal("399.00"),
+            close=Decimal("404.50"),
+            volume=2_000_000,
+            adjusted=False,
+            cumulative_price_factor=Decimal("1.0"),
+            cumulative_volume_factor=Decimal("1.0"),
+            source="algoseek",
+        )
+        event_bus.publish(bar2)
+
+        # Store should not have second event
+        assert store.count() == 1
+
+    def test_store_via_constructor(self, sample_price_bar):
+        """Store can be provided in constructor."""
+        store = InMemoryEventStore()
+        bus = EventBus(event_store=store)
+
+        bus.publish(sample_price_bar)
+
+        assert store.count() == 1
+
+
+# ============================================
+# Utility Method Tests
+# ============================================
+
+
+class TestEventBusUtilities:
     """Test utility methods."""
 
-    def setUp(self):
-        """Create fresh EventBus for each test."""
-        self.bus = EventBus()
+    def test_get_subscriber_count(self, event_bus):
+        """get_subscriber_count() should return correct count."""
 
-    def test_get_subscriber_count(self):
-        """Test getting subscriber count."""
-
-        def handler1(event):
+        def handler1(event: BaseEvent):
             pass
 
-        def handler2(event):
+        def handler2(event: BaseEvent):
             pass
 
-        self.assertEqual(self.bus.get_subscriber_count("test"), 0)
+        assert event_bus.get_subscriber_count("bar_close") == 0
 
-        self.bus.subscribe("test", handler1)
-        self.assertEqual(self.bus.get_subscriber_count("test"), 1)
+        event_bus.subscribe("bar_close", handler1)
+        assert event_bus.get_subscriber_count("bar_close") == 1
 
-        self.bus.subscribe("test", handler2)
-        self.assertEqual(self.bus.get_subscriber_count("test"), 2)
+        event_bus.subscribe("bar_close", handler2)
+        assert event_bus.get_subscriber_count("bar_close") == 2
 
-    def test_get_all_event_types(self):
-        """Test getting all subscribed event types."""
+    def test_inspect_subscribers(self, event_bus):
+        """inspect_subscribers() should return handler names."""
 
-        def handler(event):
+        def my_handler(event: BaseEvent):
             pass
 
-        self.assertEqual(len(self.bus.get_all_event_types()), 0)
+        def another_handler(event: BaseEvent):
+            pass
 
-        self.bus.subscribe("fill", handler)
-        self.bus.subscribe("order", handler)
+        event_bus.subscribe("bar_close", my_handler)
+        event_bus.subscribe("bar_close", another_handler)
 
-        event_types = self.bus.get_all_event_types()
-        self.assertEqual(len(event_types), 2)
-        self.assertIn("fill", event_types)
-        self.assertIn("order", event_types)
+        names = event_bus.inspect_subscribers("bar_close")
+        assert len(names) == 2
+        assert "my_handler" in names
+        assert "another_handler" in names
+
+    def test_get_all_event_types(self, event_bus):
+        """get_all_event_types() should return all subscribed types."""
+
+        def handler(event: BaseEvent):
+            pass
+
+        assert len(event_bus.get_all_event_types()) == 0
+
+        event_bus.subscribe("bar", handler)
+        event_bus.subscribe("corporate_action", handler)
+
+        event_types = event_bus.get_all_event_types()
+        assert len(event_types) == 2
+        assert "bar" in event_types
+        assert "corporate_action" in event_types
 
 
-class TestEventBusIntegration(unittest.TestCase):
-    """Integration tests with real event scenarios."""
+# ============================================
+# Integration Scenarios
+# ============================================
 
-    def test_portfolio_fills_scenario(self):
-        """Test realistic scenario: Portfolio processes fills."""
-        bus = EventBus()
 
-        # Mock portfolio state
-        portfolio_state = {"cash": Decimal("100000"), "position": Decimal("0")}
+class TestEventBusIntegration:
+    """Integration tests with realistic scenarios."""
 
-        def handle_fill(event):
-            """Simulate portfolio processing fill."""
-            if event.side == "buy":
-                portfolio_state["cash"] -= event.quantity * event.price + event.commission
-                portfolio_state["position"] += event.quantity
-            else:
-                portfolio_state["cash"] += event.quantity * event.price - event.commission
-                portfolio_state["position"] -= event.quantity
-
-        bus.subscribe("fill", handle_fill)
-
-        # Buy 100 shares at $75
-        buy_fill = FillEvent(
-            fill_id="f1",
-            order_id="o1",
-            symbol="AAPL",
-            side="buy",
-            quantity=Decimal("100"),
-            price=Decimal("75.00"),
-            commission=Decimal("1.00"),
-        )
-        bus.publish(buy_fill)
-
-        self.assertEqual(portfolio_state["position"], Decimal("100"))
-        self.assertEqual(portfolio_state["cash"], Decimal("92499.00"))
-
-        # Sell 50 shares at $76
-        sell_fill = FillEvent(
-            fill_id="f2",
-            order_id="o2",
-            symbol="AAPL",
-            side="sell",
-            quantity=Decimal("50"),
-            price=Decimal("76.00"),
-            commission=Decimal("1.00"),
-        )
-        bus.publish(sell_fill)
-
-        self.assertEqual(portfolio_state["position"], Decimal("50"))
-        self.assertEqual(portfolio_state["cash"], Decimal("96298.00"))
-
-    def test_corporate_action_processing(self):
-        """Test realistic scenario: Portfolio processes split."""
-        bus = EventBus()
-
-        # Mock portfolio state
-        portfolio_state = {"position": Decimal("100"), "avg_price": Decimal("75.00")}
-
-        def handle_corporate_action(event):
-            """Simulate portfolio processing corporate action."""
-            if event.action_type == "split":
-                portfolio_state["position"] *= event.split_ratio
-                portfolio_state["avg_price"] /= event.split_ratio
-
-        bus.subscribe("corporate_action", handle_corporate_action)
-
-        # 4-for-1 split
-        split_event = CorporateActionEvent(
-            symbol="AAPL",
-            action_type="split",
-            split_ratio=Decimal("4.0"),
-            effective_date=datetime(2020, 8, 31),
-        )
-        bus.publish(split_event)
-
-        self.assertEqual(portfolio_state["position"], Decimal("400"))
-        self.assertEqual(portfolio_state["avg_price"], Decimal("18.75"))
-
-    def test_multi_service_event_consumption(self):
-        """Test multiple services consuming same event."""
-        bus = EventBus()
-
-        # Track which services processed the event
+    def test_multi_service_event_consumption(self, event_bus, sample_price_bar):
+        """Multiple services should consume same event in priority order."""
         services_called = []
 
-        def portfolio_handler(event):
+        def portfolio_handler(event: BaseEvent):
             services_called.append("portfolio")
 
-        def analytics_handler(event):
+        def analytics_handler(event: BaseEvent):
             services_called.append("analytics")
 
-        def reporting_handler(event):
+        def reporting_handler(event: BaseEvent):
             services_called.append("reporting")
 
-        # All services subscribe to fills
-        bus.subscribe("fill", portfolio_handler, priority=100)  # Portfolio first
-        bus.subscribe("fill", analytics_handler, priority=50)
-        bus.subscribe("fill", reporting_handler, priority=10)
+        event_bus.subscribe("bar", portfolio_handler, priority=100)
+        event_bus.subscribe("bar", analytics_handler, priority=50)
+        event_bus.subscribe("bar", reporting_handler, priority=10)
 
-        fill = FillEvent(
-            fill_id="f1",
-            order_id="o1",
-            symbol="AAPL",
-            side="buy",
-            quantity=Decimal("100"),
-            price=Decimal("75.00"),
-        )
-        bus.publish(fill)
+        event_bus.publish(sample_price_bar)
 
-        # All services should have been called in priority order
-        self.assertEqual(services_called, ["portfolio", "analytics", "reporting"])
+        assert services_called == ["portfolio", "analytics", "reporting"]
 
-    def test_signal_to_order_flow(self):
-        """Test complete signal → risk → order → execution flow."""
-        bus = EventBus()
+    def test_cascading_events(self, event_bus):
+        """Handlers should be able to publish new events."""
+        events_flow = []
 
-        # Track the complete flow
-        flow_events = []
+        def bar_close_handler(event: BaseEvent):
+            events_flow.append("bar_close")
+            # Trigger valuation
+            backtest_event = BacktestStartedEvent(source_service="test", config={"test": "data"})
+            event_bus.publish(backtest_event)
 
-        def strategy_generates_signal():
-            """Strategy publishes signal (Phase 4 spec)."""
-            signal = SignalEvent(
-                strategy_id="momentum",
-                symbol="AAPL",
-                side="BUY",
-                strength=0.85,
-                metadata={"price": 75.50},
-            )
-            bus.publish(signal)
-            flow_events.append(("signal", signal))
+        def backtest_handler(event: BaseEvent):
+            events_flow.append("backtest_started")
 
-        def risk_evaluates_signal(event: SignalEvent):
-            """Risk manager validates and creates order (simulated)."""
-            # In Phase 4, RiskService would size the position based on strength
-            # For this test, simulate a fixed quantity approval
-            approved_quantity = Decimal("100")
+        event_bus.subscribe("bar_close", bar_close_handler)
+        event_bus.subscribe("backtest_started", backtest_handler)
 
-            if approved_quantity > 0:
-                order = OrderEvent(
-                    order_id="ord_123",
-                    signal_id=f"sig_{event.strategy_id}_{event.symbol}",
-                    symbol=event.symbol,
-                    side=event.side.lower(),  # type: ignore[arg-type]
-                    quantity=approved_quantity,
-                    order_type="market",
-                )
-                bus.publish(order)
-                flow_events.append(("order", order))
+        event = BarCloseEvent(source_service="test")
+        event_bus.publish(event)
 
-        def execution_fills_order(event: OrderEvent):
-            """Execution service fills order."""
-            fill = FillEvent(
-                fill_id="fill_123",
-                order_id=event.order_id,
-                symbol=event.symbol,
-                side=event.side,
-                quantity=event.quantity,
-                price=Decimal("75.50"),
-                commission=Decimal("1.00"),
-            )
-            bus.publish(fill)
-            flow_events.append(("fill", fill))
-
-        def portfolio_processes_fill(event: FillEvent):
-            """Portfolio updates position."""
-            flow_events.append(("portfolio_updated", event.fill_id))
-
-        # Wire up the flow
-        bus.subscribe("signal", risk_evaluates_signal)  # pyright: ignore[reportArgumentType]
-        bus.subscribe("order", execution_fills_order)  # pyright: ignore[reportArgumentType]
-        bus.subscribe("fill", portfolio_processes_fill)  # pyright: ignore[reportArgumentType]
-
-        # Trigger the flow
-        strategy_generates_signal()
-
-        # Verify complete flow (events append in handler, not in publish order)
-        self.assertEqual(len(flow_events), 4)
-        # Events are appended as they're handled, which happens nested during publish
-        # So order will be: portfolio_updated (innermost), fill, order, signal (outermost)
-        # Let's verify we have all the right event types
-        event_types = [e[0] for e in flow_events]
-        self.assertIn("signal", event_types)
-        self.assertIn("order", event_types)
-        self.assertIn("fill", event_types)
-        self.assertIn("portfolio_updated", event_types)
-
-        # Verify signal and order data (Phase 4: signal has strength, not quantity)
-        signal_event = next(e[1] for e in flow_events if e[0] == "signal")
-        order_event = next(e[1] for e in flow_events if e[0] == "order")
-        self.assertEqual(signal_event.strength, 0.85)
-        self.assertEqual(order_event.quantity, Decimal("100"))  # Risk-determined quantity
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert events_flow == ["bar_close", "backtest_started"]

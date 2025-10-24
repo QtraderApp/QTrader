@@ -1,7 +1,6 @@
 """Centralized logging configuration for QTrader."""
 
 import logging
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -135,19 +134,70 @@ class LoggerFactory:
 
         cls._config = config
 
-        # Configure standard library logging
-        logging.basicConfig(
-            format="%(message)s",
-            stream=sys.stdout,
-            level=getattr(logging, config.level),
+        processors = cls._build_common_processors(config.timestamp_format)
+
+        console_handler = logging.StreamHandler(stream=sys.stdout)
+        console_handler.setLevel(getattr(logging, config.level))
+        console_processor: Any
+        if config.format == "console":
+            console_processor = cls._custom_console_renderer()
+        else:
+            console_processor = structlog.processors.JSONRenderer()
+        console_handler.setFormatter(
+            structlog.stdlib.ProcessorFormatter(
+                processor=console_processor,
+                foreign_pre_chain=processors,
+            )
         )
 
-        # Build structlog processors
-        processors: list[Any] = [
+        handlers: list[logging.Handler] = [console_handler]
+        root_level = getattr(logging, config.level)
+
+        # Configure file logging if enabled
+        if config.enable_file:
+            # Use default path if not specified
+            if config.file_path is None:
+                config.file_path = Path("logs/qtrader.log")
+
+            file_handler = cls._configure_file_logging(config, processors)
+            handlers.append(file_handler)
+            root_level = min(root_level, getattr(logging, config.file_level))
+
+        logging.basicConfig(level=root_level, handlers=handlers, force=True)
+
+        # Configure structlog
+        configured_processors = list(processors)
+        if config.format == "console":
+            configured_processors.extend(
+                [
+                    structlog.dev.set_exc_info,
+                    structlog.processors.ExceptionRenderer(
+                        structlog.dev.plain_traceback,  # type: ignore[arg-type]
+                    ),
+                ]
+            )
+        else:
+            configured_processors.append(structlog.processors.format_exc_info)
+        configured_processors.append(structlog.stdlib.ProcessorFormatter.wrap_for_formatter)
+
+        structlog.configure(
+            processors=configured_processors,
+            wrapper_class=structlog.stdlib.BoundLogger,
+            context_class=dict,
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            cache_logger_on_first_use=True,
+        )
+
+        cls._configured = True
+
+    @classmethod
+    def _build_common_processors(cls, timestamp_format: str) -> list[Any]:
+        """Processors shared by both structlog and stdlib handlers before rendering."""
+        return [
             structlog.contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,
-            cls._get_timestamper(config.timestamp_format),
+            cls._get_timestamper(timestamp_format),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.CallsiteParameterAdder(
                 [
@@ -156,45 +206,6 @@ class LoggerFactory:
                 ]
             ),
         ]
-
-        # Add format-specific processors
-        if config.format == "console":
-            processors.extend(
-                [
-                    structlog.dev.set_exc_info,
-                    structlog.processors.ExceptionRenderer(
-                        structlog.dev.plain_traceback,  # type: ignore[arg-type]
-                    ),
-                    cls._custom_console_renderer(),
-                ]
-            )
-        else:  # json
-            processors.extend(
-                [
-                    structlog.processors.format_exc_info,
-                    structlog.processors.JSONRenderer(),
-                ]
-            )
-
-        # Configure file logging if enabled (BEFORE structlog setup)
-        # This way we can use ProcessorFormatter with a plain renderer
-        if config.enable_file:
-            # Use default path if not specified
-            if config.file_path is None:
-                config.file_path = Path("logs/qtrader.log")
-
-            cls._configure_file_logging(config)
-
-        # Configure structlog
-        structlog.configure(
-            processors=processors,
-            wrapper_class=structlog.stdlib.BoundLogger,
-            context_class=dict,
-            logger_factory=structlog.stdlib.LoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
-
-        cls._configured = True
 
     @staticmethod
     def _get_timestamper(fmt: str) -> Any:
@@ -287,7 +298,7 @@ class LoggerFactory:
         return renderer
 
     @classmethod
-    def _configure_file_logging(cls, config: LoggingConfig) -> None:
+    def _configure_file_logging(cls, config: LoggingConfig, pre_chain: list[Any]) -> logging.Handler:
         """Configure file output for logging."""
         file_path = config.file_path
         assert file_path is not None  # Already validated in configure()
@@ -315,48 +326,14 @@ class LoggerFactory:
         # Set file handler level to the configured file_level
         handler.setLevel(getattr(logging, config.file_level))
 
-        # Use ANSI-stripping formatter for file logging so no color codes are written
-        class AnsiStripFormatter(logging.Formatter):
-            """Formatter that strips ANSI escape sequences from the message portion.
-
-            Keeps the overall format (timestamp, level, message, module:lineno).
-            """
-
-            _ansi_re = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
-
-            def format(self, record: logging.LogRecord) -> str:
-                # Ensure message is a string
-                try:
-                    msg = record.getMessage()
-                except Exception:
-                    # Fallback to raw message
-                    msg = str(record.msg)
-
-                # Strip ANSI sequences
-                clean = AnsiStripFormatter._ansi_re.sub("", msg)
-
-                # Temporarily replace record.msg so standard formatting includes clean message
-                orig_msg = record.msg
-                record.msg = clean
-                try:
-                    out = super().format(record)
-                finally:
-                    record.msg = orig_msg
-
-                return out
-
         handler.setFormatter(
-            AnsiStripFormatter(
-                fmt="%(asctime)s - %(levelname)s - %(message)s - %(name)s:%(lineno)d", datefmt="%Y-%m-%d %H:%M:%S"
+            structlog.stdlib.ProcessorFormatter(
+                processor=structlog.processors.JSONRenderer(),
+                foreign_pre_chain=pre_chain,
             )
         )
 
-        # Add handler to root logger
-        root_logger = logging.getLogger()
-        # Set root logger to the minimum of console level and file level
-        min_level = min(getattr(logging, config.level), getattr(logging, config.file_level))
-        root_logger.setLevel(min_level)
-        root_logger.addHandler(handler)
+        return handler
 
     @classmethod
     def get_logger(cls, name: str | None = None):
@@ -400,6 +377,15 @@ class LoggerFactory:
     @classmethod
     def reset(cls) -> None:
         """Reset logging configuration (mainly for testing)."""
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+            try:
+                handler.close()
+            except Exception:
+                pass
+        root_logger.handlers.clear()
+        root_logger.setLevel(logging.NOTSET)
         cls._config = None
         cls._configured = False
         # Reset structlog to defaults

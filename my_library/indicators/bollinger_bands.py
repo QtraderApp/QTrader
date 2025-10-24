@@ -24,8 +24,8 @@ Use cases:
 from collections import deque
 from typing import Any
 
-from qtrader.contracts.data import Bar
 from qtrader.libraries.indicators import SMA, BaseIndicator
+from qtrader.services.data.models import Bar
 
 
 class BollingerBands(BaseIndicator):

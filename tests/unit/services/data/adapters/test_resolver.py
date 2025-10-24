@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from qtrader.contracts.data import Instrument
 from qtrader.services.data.adapters.resolver import DataSourceResolver
+from qtrader.services.data.models import Instrument
 from qtrader.services.data.source_selector import AssetClass, DataSourceSelector, DataType
 
 

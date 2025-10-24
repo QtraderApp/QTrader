@@ -13,11 +13,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from qtrader.contracts.data import Bar
 from qtrader.engine.config import BacktestConfig
 from qtrader.engine.engine import BacktestEngine, BacktestResult
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import PriceBarEvent, RiskEvaluationTriggerEvent, ValuationTriggerEvent
+from qtrader.services.data.models import Bar
 
 pytestmark = pytest.mark.skip(reason="Engine not yet refactored for new config architecture")
 

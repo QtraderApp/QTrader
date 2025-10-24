@@ -8,10 +8,10 @@ as the main entry point for loading price data in the QTrader system.
 
 from typing import TYPE_CHECKING, Any, Dict, List, Union, cast
 
-from qtrader.contracts.data import DataSource, Instrument
 from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.services.data.adapters.models.algoseek import AlgoseekBar, AlgoseekPriceSeries
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
+from qtrader.services.data.models import DataSource, Instrument
 
 if TYPE_CHECKING:
     from qtrader.services.data.config import DataConfig

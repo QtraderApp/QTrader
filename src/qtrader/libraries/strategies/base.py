@@ -22,8 +22,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from qtrader.contracts.strategies import Signal, SignalIntention
 from qtrader.events.events import PriceBarEvent
+from qtrader.services.strategy.models import Signal, SignalIntention
 
 
 class BaseStrategyConfig(BaseModel):
@@ -395,7 +395,7 @@ class Context:
         symbol: str,
         intention: SignalIntention | str,
         confidence: float,
-        reason: str | None = None,
+        reason: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> Signal:
         """
@@ -464,7 +464,7 @@ class Context:
             intention=intention,
             confidence=confidence,
             reason=reason,
-            metadata=metadata,
+            metadata=metadata or {},
         )
 
         # In actual implementation, this would publish to event bus

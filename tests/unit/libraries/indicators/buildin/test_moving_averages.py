@@ -21,8 +21,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from qtrader.contracts.data import Bar
 from qtrader.libraries.indicators.buildin.moving_averages import DEMA, EMA, HMA, SMA, SMMA, TEMA, WMA
+from qtrader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures

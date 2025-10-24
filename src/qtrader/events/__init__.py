@@ -2,14 +2,22 @@
 Event infrastructure for QTrader event-driven architecture.
 
 This module provides the event system for loose coupling between services:
-- Event classes: Immutable events representing facts that occurred
+- Event classes: Immutable Pydantic events validated against JSON Schema contracts
+  - BaseEvent: Provides envelope fields only
+  - ValidatedEvent: Domain events with payload validation
+  - ControlEvent: Barriers/lifecycle (no payload validation)
 - EventBus: Publish/subscribe infrastructure for event distribution
+- EventStore: Persistent event storage for audit trail and replay
 
 Events enable:
 - Services to communicate without direct dependencies
 - Multiple consumers per event (one-to-many)
 - Audit trail and replay capability
 - Deterministic backtesting
+- Causality tracking via correlation_id and causation_id
+
+SIMPLIFIED event system focused on data events and control events.
+Other events (signals, orders, fills, portfolio) to be added as services are rebuilt.
 """
 
 from qtrader.events.event_bus import EventBus, IEventBus
@@ -17,44 +25,30 @@ from qtrader.events.events import (
     BacktestEndedEvent,
     BacktestStartedEvent,
     BarCloseEvent,
-    CashChangedEvent,
+    BaseEvent,
+    ControlEvent,
     CorporateActionEvent,
-    Event,
-    FillEvent,
-    MarketDataEvent,
-    OrderEvent,
-    PortfolioStateEvent,
-    PositionChangedEvent,
     PriceBarEvent,
     RiskEvaluationTriggerEvent,
-    RiskViolationEvent,
-    SignalEvent,
+    ValidatedEvent,
     ValuationTriggerEvent,
 )
 
 __all__ = [
-    # Base
-    "Event",
+    # Base classes
+    "BaseEvent",
+    "ValidatedEvent",
+    "ControlEvent",
     # Market Data
-    "MarketDataEvent",
     "PriceBarEvent",
     "CorporateActionEvent",
-    # Trading
-    "SignalEvent",
-    "OrderEvent",
-    "FillEvent",
-    # Portfolio
-    "PositionChangedEvent",
-    "CashChangedEvent",
-    "PortfolioStateEvent",
-    # Risk
-    "RiskViolationEvent",
+    # Barrier Events
     "RiskEvaluationTriggerEvent",
     "ValuationTriggerEvent",
-    # Backtest Control
+    "BarCloseEvent",
+    # Backtest Lifecycle
     "BacktestStartedEvent",
     "BacktestEndedEvent",
-    "BarCloseEvent",
     # EventBus
     "IEventBus",
     "EventBus",

@@ -8,12 +8,14 @@ No business logic, no direct service calls, just event publishing.
 import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import structlog
 
 from qtrader.engine.config import BacktestConfig
 from qtrader.events.event_bus import EventBus
-from qtrader.events.events import Event, RiskEvaluationTriggerEvent, ValuationTriggerEvent
+from qtrader.events.event_store import EventStore, InMemoryEventStore, SQLiteEventStore
+from qtrader.events.events import BaseEvent, RiskEvaluationTriggerEvent, ValuationTriggerEvent
 from qtrader.services.data.service import DataService
 from qtrader.services.execution.service import ExecutionService
 from qtrader.services.ledger.service import PortfolioService
@@ -134,6 +136,8 @@ class BacktestEngine:
         execution_service: ExecutionService,
         risk_service: RiskService,
         strategy_service: StrategyService,
+        event_store: EventStore | None = None,
+        results_dir: Path | None = None,
     ) -> None:
         """
         Initialize backtest engine.
@@ -146,6 +150,8 @@ class BacktestEngine:
             execution_service: Execution service for order fills
             risk_service: Risk service for signal evaluation
             strategy_service: Strategy service orchestrating strategies
+            event_store: Optional persistence backend capturing the event stream
+            results_dir: Optional directory for run artifacts (events, reports, etc.)
         """
         self.config = config
         self._event_bus = event_bus
@@ -154,6 +160,8 @@ class BacktestEngine:
         self._execution_service = execution_service
         self._risk_service = risk_service
         self._strategy_service = strategy_service
+        self._event_store = event_store
+        self._results_dir = results_dir
 
         logger.info(
             "backtest.engine.initialized",
@@ -161,6 +169,8 @@ class BacktestEngine:
             end_date=config.end_date,
             warmup_bars=config.warmup_bars,
             universe_size=len(config.universe),
+            event_store=getattr(event_store, "__class__", type(None)).__name__,
+            results_dir=str(results_dir) if results_dir else None,
         )
 
     @classmethod
@@ -185,6 +195,47 @@ class BacktestEngine:
 
         # Create event bus
         event_bus = EventBus()
+
+        # Initialize event store and attach to bus for full stream persistence
+        output_cfg = system_config.output
+        run_started_at = datetime.now()
+        results_base = Path(output_cfg.default_results_dir)
+        if output_cfg.organize_by_date:
+            results_base = (
+                results_base
+                / run_started_at.strftime("%Y")
+                / run_started_at.strftime("%m")
+                / run_started_at.strftime("%d")
+            )
+        results_base.mkdir(parents=True, exist_ok=True)
+
+        if output_cfg.use_timestamps:
+            run_label = run_started_at.strftime(output_cfg.timestamp_format)
+        else:
+            run_label = f"{config.start_date:%Y%m%d}_{config.end_date:%Y%m%d}"
+
+        results_dir = results_base / run_label
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        event_store: EventStore
+        store_path = results_dir / "events.sqlite"
+        try:
+            event_store = SQLiteEventStore(store_path)
+            logger.info(
+                "backtest.engine.event_store_initialized",
+                backend="SQLiteEventStore",
+                path=str(store_path),
+            )
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "backtest.engine.event_store_fallback",
+                backend="InMemoryEventStore",
+                reason=str(exc),
+            )
+            event_store = InMemoryEventStore()
+            store_path = None
+
+        event_bus.attach_store(event_store)
 
         # Create data service using factory method (with EventBus for event-driven mode)
         data_service = DataService.from_config(
@@ -220,6 +271,8 @@ class BacktestEngine:
             execution_service=execution_service,
             risk_service=risk_service,
             strategy_service=strategy_service,
+            event_store=event_store,
+            results_dir=results_dir,
         )
 
     def run(self) -> BacktestResult:
@@ -378,7 +431,7 @@ class BacktestEngine:
             self._bar_count = 0
 
             # Subscribe to price_bar events to track timestamps
-            def track_timestamp(event: Event) -> None:
+            def track_timestamp(event: BaseEvent) -> None:
                 if hasattr(event, "timestamp") and hasattr(event, "is_warmup") and not event.is_warmup:
                     new_ts = event.timestamp
                     # If timestamp changed, publish triggers for previous timestamp

@@ -13,16 +13,34 @@ Key Features:
 - Memory-bounded history (configurable)
 """
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime
-from typing import Callable, Protocol
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    ContextManager,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    overload,
+)
 
-# TODO: Re-enable after EventStore is rebuilt for new event system
-# from qtrader.events.event_store import EventStore
-from qtrader.events.events import BaseEvent as Event
+# Event type registry for ergonomic subscribe
+from qtrader.events.events import BaseEvent
 from qtrader.system import LoggerFactory
 
+EventT = TypeVar("EventT", bound=BaseEvent)
+
 logger = LoggerFactory.get_logger()
+
+if TYPE_CHECKING:  # pragma: no cover - only for type checkers
+    from qtrader.events.event_store import EventStore
 
 
 class IEventBus(Protocol):
@@ -54,7 +72,7 @@ class IEventBus(Protocol):
         >>> bus.publish(fill_event)  # Handler called synchronously
     """
 
-    def publish(self, event: Event) -> None:
+    def publish(self, event: BaseEvent) -> None:
         """
         Publish event to all subscribers.
 
@@ -73,7 +91,7 @@ class IEventBus(Protocol):
     def subscribe(
         self,
         event_type: str,
-        handler: Callable[[Event], None],
+        handler: Callable[[BaseEvent], None],
         priority: int = 0,
     ) -> None:
         """
@@ -97,7 +115,7 @@ class IEventBus(Protocol):
     def unsubscribe(
         self,
         event_type: str,
-        handler: Callable[[Event], None],
+        handler: Callable[[BaseEvent], None],
     ) -> None:
         """
         Unsubscribe from event type.
@@ -116,10 +134,10 @@ class IEventBus(Protocol):
 
     def get_history(
         self,
-        event_type: str | None = None,
-        since: datetime | None = None,
-        limit: int | None = None,
-    ) -> list[Event]:
+        event_type: Optional[str] = None,
+        since: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> List[BaseEvent]:
         """
         Get event history with optional filters.
 
@@ -155,6 +173,27 @@ class IEventBus(Protocol):
         ...
 
 
+class SubscriptionToken(ContextManager):
+    """Token for context-managed subscription removal."""
+
+    def __init__(self, bus: "EventBus", event_type: str, handler: Callable):
+        self.bus = bus
+        self.event_type = event_type
+        self.handler = handler
+        self._active = True
+
+    def unsubscribe(self):
+        if self._active:
+            self.bus.unsubscribe(self.event_type, self.handler)
+            self._active = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.unsubscribe()
+
+
 class EventBus:
     """
     Synchronous event bus for deterministic backtesting.
@@ -186,7 +225,7 @@ class EventBus:
         >>> recent_fills = bus.get_history(event_type="fill", limit=10)
     """
 
-    def __init__(self, max_history: int = 100_000):
+    def __init__(self, max_history: int = 100_000, event_store: Optional["EventStore"] = None):
         """
         Initialize event bus.
 
@@ -194,21 +233,22 @@ class EventBus:
             max_history: Maximum events to keep in history (0 = unlimited).
                         When limit reached, oldest events are discarded.
                         Default 100k events ≈ 40 years of daily backtesting.
+            event_store: Optional persistence backend. When provided every
+                         published event is appended to the store before
+                         handlers run. Store failures are logged but do not
+                         interrupt handler execution.
         """
         # Store handlers by event type: {event_type: [(priority, handler), ...]}
-        self._subscribers: dict[str, list[tuple[int, Callable]]] = defaultdict(list)
-
-        # Event history (chronological order)
-        self._event_history: list[Event] = []
+        self._subscribers: Dict[str, List[Tuple[int, Callable]]] = defaultdict(list)
+        self._handler_cache: Dict[str, List[Tuple[int, Callable]]] = {}
+        self._event_history: deque[BaseEvent] = deque(maxlen=max_history if max_history > 0 else None)
         self._max_history = max_history
+        self._on_publish: Optional[Callable[[BaseEvent], BaseEvent]] = None
+        self._on_error: Optional[Callable[[BaseEvent, Callable, Exception], None]] = None
+        self._event_store: Optional["EventStore"] = event_store
+        logger.debug("event_bus.initialized", max_history=max_history)
 
-        # DEBUG: Internal initialization
-        logger.debug(
-            "event_bus.initialized",
-            max_history=max_history,
-        )
-
-    def publish(self, event: Event) -> None:
+    def publish(self, event: BaseEvent) -> None:
         """
         Publish event to all subscribers.
 
@@ -227,72 +267,90 @@ class EventBus:
         Args:
             event: Event to publish
         """
-        # Store in history (with memory bounding)
+        import time
+
+        start = time.perf_counter()
+        # Pre-publish hook
+        if self._on_publish:
+            event = self._on_publish(event)
+        if self._event_store is not None:
+            try:
+                self._event_store.append(event)
+            except Exception as exc:
+                logger.error(
+                    "event_bus.store_error",
+                    event_type=event.event_type,
+                    event_id=event.event_id,
+                    error=str(exc),
+                )
         self._event_history.append(event)
-        if self._max_history > 0 and len(self._event_history) > self._max_history:
-            # Keep only most recent events
-            self._event_history = self._event_history[-self._max_history :]
-
-        # Get handlers for this event type
-        handlers = self._subscribers.get(event.event_type, [])
-
-        # Sort by priority (higher first)
-        sorted_handlers = sorted(handlers, key=lambda x: x[0], reverse=True)
-
-        # Call each handler (with error isolation)
+        # Handler cache for performance
+        sorted_handlers = self._handler_cache.get(event.event_type)
+        if sorted_handlers is None:
+            handlers = self._subscribers.get(event.event_type, [])
+            sorted_handlers = sorted(handlers, key=lambda x: x[0], reverse=True)
+            self._handler_cache[event.event_type] = sorted_handlers
+        errors = []
         for priority, handler in sorted_handlers:
             try:
                 handler(event)
             except Exception as e:
+                errors.append((handler, e))
                 logger.error(
                     "event_bus.handler_error",
                     event_type=event.event_type,
                     event_id=event.event_id,
-                    handler=handler.__name__,
+                    handler=getattr(handler, "__name__", str(handler)),
                     error=str(e),
                 )
-                # Continue to next handler (error isolation)
-
+                if self._on_error:
+                    self._on_error(event, handler, e)
+        duration = time.perf_counter() - start
         logger.debug(
             "event_bus.published",
             event_type=event.event_type,
             event_id=event.event_id,
-            num_handlers=len(sorted_handlers),
+            version=getattr(event, "event_version", None),
+            subscriber_count=len(sorted_handlers),
+            duration=duration,
+            errors=len(errors),
         )
+
+    @overload
+    def subscribe(
+        self, event_type: str, handler: Callable[[BaseEvent], None], priority: int = 0
+    ) -> SubscriptionToken: ...
+    @overload
+    def subscribe(
+        self, event_type: Type[EventT], handler: Callable[[EventT], None], priority: int = 0
+    ) -> SubscriptionToken: ...
 
     def subscribe(
-        self,
-        event_type: str,
-        handler: Callable[[Event], None],
-        priority: int = 0,
-    ) -> None:
+        self, event_type: Union[str, Type[BaseEvent]], handler: Callable[[Any], None], priority: int = 0
+    ) -> SubscriptionToken:
         """
-        Subscribe to event type.
-
-        Handlers with higher priority are called first. Within same priority,
-        order is determined by subscription order (FIFO).
-
-        Args:
-            event_type: Type of event to subscribe to
-            handler: Callback function to handle event
-            priority: Handler priority (higher = called first, default=0)
+        Subscribe to event type (by string or class).
+        Returns a SubscriptionToken for context-managed unsubscription.
         """
-        self._subscribers[event_type].append((priority, handler))
-
-        # DEBUG: Subscription details (internal plumbing)
+        if isinstance(event_type, str):
+            event_type_str: str = event_type
+        else:
+            tmp_type = getattr(event_type, "event_type", None)
+            if tmp_type is None or not isinstance(tmp_type, str):
+                raise ValueError(f"Event class {event_type} missing event_type")
+            event_type_str: str = tmp_type  # type: ignore
+        self._subscribers[event_type_str].append((priority, handler))
+        self._handler_cache.pop(event_type_str, None)  # Invalidate cache
         logger.debug(
             "event_bus.subscribed",
-            event_type=event_type,
-            handler=handler.__name__,
+            event_type=event_type_str,
+            handler=getattr(handler, "__name__", str(handler)),
             priority=priority,
-            total_handlers=len(self._subscribers[event_type]),
+            total_handlers=len(self._subscribers[event_type_str]),
         )
+        return SubscriptionToken(self, event_type_str, handler)
 
-    def unsubscribe(
-        self,
-        event_type: str,
-        handler: Callable[[Event], None],
-    ) -> None:
+    def unsubscribe(self, event_type: str, handler: Callable[[BaseEvent], None]) -> None:
         """
         Unsubscribe from event type.
 
@@ -305,27 +363,24 @@ class EventBus:
         """
         if event_type not in self._subscribers:
             return
-
-        # Remove all entries for this handler (may have different priorities)
         original_count = len(self._subscribers[event_type])
         self._subscribers[event_type] = [(p, h) for p, h in self._subscribers[event_type] if h != handler]
         removed_count = original_count - len(self._subscribers[event_type])
-
+        self._handler_cache.pop(event_type, None)  # Invalidate cache
         if removed_count > 0:
-            # DEBUG: Unsubscription details
             logger.debug(
                 "event_bus.unsubscribed",
                 event_type=event_type,
-                handler=handler.__name__,
+                handler=getattr(handler, "__name__", str(handler)),
                 removed_count=removed_count,
             )
 
     def get_history(
         self,
-        event_type: str | None = None,
-        since: datetime | None = None,
-        limit: int | None = None,
-    ) -> list[Event]:
+        event_type: Optional[str] = None,
+        since: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> List[BaseEvent]:
         """
         Get event history with optional filters.
 
@@ -342,20 +397,13 @@ class EventBus:
         Returns:
             List of events in chronological order
         """
-        events = self._event_history
-
-        # Filter by type
+        events = list(self._event_history)
         if event_type is not None:
             events = [e for e in events if e.event_type == event_type]
-
-        # Filter by time
         if since is not None:
             events = [e for e in events if e.occurred_at >= since]
-
-        # Limit results (take most recent)
         if limit is not None:
             events = events[-limit:]
-
         return events
 
     def clear_history(self) -> None:
@@ -366,7 +414,6 @@ class EventBus:
         Does not affect subscriptions.
         """
         self._event_history.clear()
-        # DEBUG: History management
         logger.debug("event_bus.history_cleared")
 
     def get_subscriber_count(self, event_type: str) -> int:
@@ -382,6 +429,46 @@ class EventBus:
             Number of registered handlers for this event type
         """
         return len(self._subscribers.get(event_type, []))
+
+    def inspect_subscribers(self, event_type: str) -> List[str]:
+        """List handler names for diagnostics."""
+        return [getattr(h, "__name__", str(h)) for _, h in self._subscribers.get(event_type, [])]
+
+    def set_middleware(
+        self,
+        on_publish: Optional[Callable[[BaseEvent], BaseEvent]] = None,
+        on_error: Optional[Callable[[BaseEvent, Callable, Exception], None]] = None,
+    ) -> None:
+        """Set bus middleware hooks."""
+        self._on_publish = on_publish
+        self._on_error = on_error
+        logger.debug(
+            "event_bus.middleware_set",
+            on_publish=getattr(on_publish, "__name__", None) if on_publish else None,
+            on_error=getattr(on_error, "__name__", None) if on_error else None,
+        )
+
+    def attach_store(self, event_store: "EventStore") -> None:
+        """
+        Attach persistence backend to capture every published event.
+
+        Args:
+            event_store: EventStore implementation (e.g., InMemoryEventStore, SQLiteEventStore)
+        """
+        self._event_store = event_store
+        logger.debug(
+            "event_bus.store_attached",
+            backend=event_store.__class__.__name__,
+        )
+
+    def detach_store(self) -> None:
+        """Detach persistence backend."""
+        if self._event_store is not None:
+            logger.debug(
+                "event_bus.store_detached",
+                backend=self._event_store.__class__.__name__,
+            )
+        self._event_store = None
 
     def get_all_event_types(self) -> list[str]:
         """

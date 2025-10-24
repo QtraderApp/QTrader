@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.contracts.data import Bar
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import PriceBarEvent
+from qtrader.services.data.models import Bar
 from qtrader.services.strategy.service import StrategyService
 
 

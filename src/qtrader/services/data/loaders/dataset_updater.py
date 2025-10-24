@@ -20,8 +20,8 @@ from typing import Iterator, List, Optional
 
 import structlog
 
-from qtrader.contracts.data import Instrument
 from qtrader.services.data.adapters.resolver import DataSourceResolver
+from qtrader.services.data.models import Instrument
 
 logger = structlog.get_logger()
 

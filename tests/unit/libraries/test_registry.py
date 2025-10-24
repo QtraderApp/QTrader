@@ -20,7 +20,6 @@ from typing import Any
 
 import pytest
 
-from qtrader.contracts.data import Bar
 from qtrader.events.events import PriceBarEvent
 from qtrader.libraries.indicators.base import BaseIndicator
 from qtrader.libraries.registry import (
@@ -35,6 +34,7 @@ from qtrader.libraries.registry import (
     get_strategy_registry,
 )
 from qtrader.libraries.strategies.base import BaseStrategy, BaseStrategyConfig, Context
+from qtrader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures - Mock Components

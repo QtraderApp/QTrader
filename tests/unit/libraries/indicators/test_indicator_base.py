@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
-from qtrader.contracts.data import Bar
 from qtrader.libraries.indicators.base import BaseIndicator
+from qtrader.services.data.models import Bar
 
 # ============================================================================
 # Test Fixtures - Concrete Implementation

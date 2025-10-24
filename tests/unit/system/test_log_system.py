@@ -1,5 +1,6 @@
 """Tests for centralized logging configuration."""
 
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -95,8 +96,10 @@ def test_file_logging_configuration(tmp_path):
 
     # Read log file content
     content = log_file.read_text()
-    # Console formatter writes to file, so check for the event name
-    assert "test.message" in content or "key" in content
+    # File logs are JSON lines
+    log_entry = json.loads(content.strip())
+    assert log_entry["event"] == "test.message"
+    assert log_entry["key"] == "value"
 
 
 def test_file_logging_requires_path():
@@ -289,7 +292,27 @@ def test_file_level_independent_from_console_level(tmp_path):
     logger.info("info message")
     logger.warning("warning message")
 
-    # File should contain WARNING level
-    # Note: File level is currently tied to handler level, not individual loggers
-    content = log_file.read_text()
-    assert "warning message" in content
+    # File should contain WARNING level entry encoded as JSON
+    entries = [json.loads(line) for line in log_file.read_text().splitlines() if line.strip()]
+    events = [entry["event"] for entry in entries]
+    assert "warning message" in events
+
+
+def test_file_logs_are_machine_readable_json(tmp_path):
+    """File outputs use JSON so they are easy to parse programmatically."""
+    log_file = tmp_path / "machine.jsonl"
+
+    config = LoggingConfig(enable_file=True, file_path=log_file, file_rotation=False)
+    LoggerFactory.configure(config)
+
+    logger = LoggerFactory.get_logger()
+    logger.error("event_bus.handler_error", error="Fail 2")
+
+    content = log_file.read_text().strip()
+    record = json.loads(content)
+
+    assert record["event"] == "event_bus.handler_error"
+    assert record["error"] == "Fail 2"
+    # Ensure key metadata is present exactly once
+    assert "timestamp" in record
+    assert record["level"].upper() == "ERROR"

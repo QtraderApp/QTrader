@@ -9,9 +9,9 @@ from datetime import date
 from typing import Dict, List
 from unittest.mock import MagicMock
 
-from qtrader.contracts.data import Instrument, PriceSeries
 from qtrader.services.data.interface import IDataAdapter, IDataService
 from qtrader.services.data.loaders.iterator import PriceSeriesIterator
+from qtrader.services.data.models import Instrument, PriceSeries
 
 
 class TestIDataServiceProtocol:

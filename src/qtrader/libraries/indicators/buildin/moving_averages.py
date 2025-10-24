@@ -17,8 +17,8 @@ and stateless computation modes.
 from collections import deque
 from typing import Any
 
-from qtrader.contracts.data import Bar
 from qtrader.libraries.indicators.base import BaseIndicator
+from qtrader.services.data.models import Bar
 
 
 class SMA(BaseIndicator):

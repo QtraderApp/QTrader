@@ -13,8 +13,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from qtrader.contracts.data import Bar
 from qtrader.services.data.interface import IDataService
+from qtrader.services.data.models import Bar
 from qtrader.services.execution.config import ExecutionConfig, SlippageConfig
 from qtrader.services.execution.models import Order, OrderSide, OrderState, TimeInForce
 from qtrader.services.execution.service import ExecutionService

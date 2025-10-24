@@ -8,9 +8,9 @@ verifying that all services communicate correctly via the EventBus.
 from datetime import datetime
 from decimal import Decimal
 
-from qtrader.contracts.data import Bar
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import PortfolioStateEvent, PriceBarEvent, RiskEvaluationTriggerEvent, ValuationTriggerEvent
+from qtrader.services.data.models import Bar
 from qtrader.services.ledger.models import PortfolioConfig
 from qtrader.services.ledger.service import PortfolioService
 

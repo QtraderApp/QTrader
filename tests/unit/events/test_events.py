@@ -1,268 +1,436 @@
 """
-Unit tests for event classes.
+Comprehensive unit tests for Event models.
 
-Tests event creation, immutability, and validation.
+Tests BaseEvent, ValidatedEvent, and specific event types like PriceBarEvent
+and CorporateActionEvent for validation, serialization, and schema compliance.
 """
 
-import unittest
-from datetime import datetime
+import json
+from datetime import timezone
 from decimal import Decimal
 
+import pytest
+
 from qtrader.events.events import (
-    BacktestEndedEvent,
     BacktestStartedEvent,
     BarCloseEvent,
-    CashChangedEvent,
+    BaseEvent,
     CorporateActionEvent,
-    Event,
-    FillEvent,
-    OrderEvent,
-    PositionChangedEvent,
     PriceBarEvent,
-    RiskViolationEvent,
-    SignalEvent,
+    load_and_compile_schema,
 )
 
-
-class TestEventBase(unittest.TestCase):
-    """Test base Event class."""
-
-    def test_event_creation(self):
-        """Test basic event creation."""
-        event = Event()
-        self.assertIsNotNone(event.event_id)
-        self.assertIsInstance(event.timestamp, datetime)
-        self.assertEqual(event.event_type, "")
-
-    def test_event_immutability(self):
-        """Test that events are immutable (frozen)."""
-        event = Event()
-        with self.assertRaises(AttributeError):
-            event.event_type = "modified"  # pyright: ignore[reportAttributeAccessIssue]
-
-    def test_event_with_custom_values(self):
-        """Test event creation with custom values."""
-        timestamp = datetime(2020, 1, 1, 12, 0)
-        event = Event(
-            event_id="test_id",
-            timestamp=timestamp,
-            event_type="test_event",
-        )
-        self.assertEqual(event.event_id, "test_id")
-        self.assertEqual(event.timestamp, timestamp)
-        self.assertEqual(event.event_type, "test_event")
+# ============================================
+# BaseEvent Tests
+# ============================================
 
 
-class TestCorporateActionEvent(unittest.TestCase):
-    """Test CorporateActionEvent."""
+class TestBaseEvent:
+    """Test BaseEvent envelope validation and fields."""
 
-    def test_dividend_event(self):
-        """Test dividend event creation."""
-        event = CorporateActionEvent(
+    def test_basevent_creates_with_defaults(self):
+        """BaseEvent should create with default values."""
+        event = BaseEvent(source_service="test_service")
+
+        assert event.event_id is not None
+        assert event.event_type == "base"
+        assert event.event_version == 1
+        assert event.occurred_at is not None
+        assert event.source_service == "test_service"
+
+    def test_baseevent_generates_unique_ids(self):
+        """Each BaseEvent should have unique event_id."""
+        event1 = BaseEvent(source_service="test")
+        event2 = BaseEvent(source_service="test")
+
+        assert event1.event_id != event2.event_id
+
+    def test_baseevent_occurred_at_is_utc(self):
+        """occurred_at should be UTC timezone-aware."""
+        event = BaseEvent(source_service="test")
+
+        assert event.occurred_at.tzinfo == timezone.utc
+
+    def test_baseevent_accepts_correlation_id(self):
+        """BaseEvent should accept correlation_id."""
+        import uuid
+
+        corr_id = str(uuid.uuid4())
+        event = BaseEvent(source_service="test", correlation_id=corr_id)
+
+        assert event.correlation_id == corr_id
+
+    def test_baseevent_is_frozen(self):
+        """BaseEvent instances should be immutable."""
+        event = BaseEvent(source_service="test")
+
+        with pytest.raises(Exception):  # Pydantic ValidationError
+            event.source_service = "different"
+
+    def test_baseevent_serializes_to_json(self):
+        """BaseEvent should serialize to JSON."""
+        event = BaseEvent(source_service="test_service")
+        json_str = event.model_dump_json()
+
+        assert isinstance(json_str, str)
+        data = json.loads(json_str)
+        assert data["source_service"] == "test_service"
+        assert data["event_type"] == "base"
+
+    def test_baseevent_occurred_at_serializes_with_z_suffix(self):
+        """occurred_at should serialize to RFC3339 with Z suffix."""
+        event = BaseEvent(source_service="test")
+        json_str = event.model_dump_json()
+        data = json.loads(json_str)
+
+        assert data["occurred_at"].endswith("Z")
+
+    def test_baseevent_parses_iso_timestamp(self):
+        """BaseEvent should parse ISO8601 timestamp strings."""
+        event = BaseEvent(source_service="test", occurred_at="2024-01-01T12:00:00Z")
+
+        assert event.occurred_at.year == 2024
+        assert event.occurred_at.month == 1
+        assert event.occurred_at.day == 1
+
+
+# ============================================
+# ControlEvent Tests
+# ============================================
+
+
+class TestControlEvent:
+    """Test ControlEvent (no payload validation)."""
+
+    def test_bar_close_event_creates_successfully(self):
+        """BarCloseEvent should create without errors."""
+        event = BarCloseEvent(source_service="backtest_service")
+
+        assert event.event_type == "bar_close"
+        assert event.source_service == "backtest_service"
+
+    def test_backtest_started_event_with_config(self):
+        """BacktestStartedEvent should accept config dict."""
+        config = {"start_date": "2024-01-01", "end_date": "2024-12-31", "initial_capital": 100000}
+
+        event = BacktestStartedEvent(source_service="backtest_service", config=config)
+
+        assert event.event_type == "backtest_started"
+        assert event.config == config
+
+
+# ============================================
+# PriceBarEvent Tests
+# ============================================
+
+
+class TestPriceBarEvent:
+    """Test PriceBarEvent validation and schema compliance."""
+
+    def test_price_bar_event_creates_with_required_fields(self):
+        """PriceBarEvent should create with required fields."""
+        event = PriceBarEvent(
+            source_service="data_service",
             symbol="AAPL",
-            action_type="dividend",
-            effective_date=datetime(2020, 2, 7),
-            ex_date=datetime(2020, 2, 7),
-            dividend_amount=Decimal("0.77"),
-            dividend_type="cash",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("150.00"),
+            high=Decimal("155.00"),
+            low=Decimal("149.00"),
+            close=Decimal("154.50"),
+            volume=1_000_000,
+            adjusted=False,
+            cumulative_price_factor=Decimal("1.0"),
+            cumulative_volume_factor=Decimal("1.0"),
+            source="algoseek",
         )
-        self.assertEqual(event.event_type, "corporate_action")
-        self.assertEqual(event.symbol, "AAPL")
-        self.assertEqual(event.action_type, "dividend")
-        self.assertEqual(event.dividend_amount, Decimal("0.77"))
-        self.assertEqual(event.dividend_type, "cash")
 
-    def test_split_event(self):
-        """Test split event creation."""
-        event = CorporateActionEvent(
+        assert event.symbol == "AAPL"
+        assert event.event_type == "bar"
+        assert event.open == Decimal("150.00")
+
+    def test_price_bar_validates_schema(self):
+        """PriceBarEvent should validate against bar schema."""
+        # This should not raise
+        event = PriceBarEvent(
+            source_service="data_service",
+            symbol="TEST",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("100.00"),
+            high=Decimal("105.00"),
+            low=Decimal("99.00"),
+            close=Decimal("104.00"),
+            volume=1000,
+            adjusted=False,
+            cumulative_price_factor=Decimal("1.0"),
+            cumulative_volume_factor=Decimal("1.0"),
+            source="test",
+        )
+
+        assert event.symbol == "TEST"
+
+    def test_price_bar_decimal_fields_accept_strings(self):
+        """PriceBarEvent Decimal fields should accept string input."""
+        event = PriceBarEvent(
+            source_service="data_service",
             symbol="AAPL",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open="150.00",  # String input
+            high="155.00",
+            low="149.00",
+            close="154.50",
+            volume=1_000_000,
+            adjusted=False,
+            cumulative_price_factor="1.0",
+            cumulative_volume_factor="1.0",
+            source="algoseek",
+        )
+
+        # Should be converted to Decimal
+        assert isinstance(event.open, Decimal)
+        assert event.open == Decimal("150.00")
+
+    def test_price_bar_serializes_decimals_as_strings(self):
+        """PriceBarEvent should serialize Decimals as strings."""
+        event = PriceBarEvent(
+            source_service="data_service",
+            symbol="AAPL",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("150.00"),
+            high=Decimal("155.00"),
+            low=Decimal("149.00"),
+            close=Decimal("154.50"),
+            volume=1_000_000,
+            adjusted=False,
+            cumulative_price_factor=Decimal("1.0"),
+            cumulative_volume_factor=Decimal("1.0"),
+            source="algoseek",
+        )
+
+        json_str = event.model_dump_json()
+        data = json.loads(json_str)
+
+        # Decimals should be strings in JSON
+        assert isinstance(data["open"], str)
+        assert data["open"] == "150.00"
+
+    def test_price_bar_roundtrip_preserves_precision(self):
+        """PriceBarEvent should preserve Decimal precision through serialization."""
+        original = PriceBarEvent(
+            source_service="data_service",
+            symbol="TEST",
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("123.456789"),
+            high=Decimal("123.456789"),
+            low=Decimal("123.456789"),
+            close=Decimal("123.456789"),
+            volume=1000,
+            adjusted=False,
+            cumulative_price_factor=Decimal("1.23456789"),
+            cumulative_volume_factor=Decimal("9.87654321"),
+            source="test",
+        )
+
+        # Serialize and deserialize
+        json_str = original.model_dump_json()
+        reconstructed = PriceBarEvent.model_validate_json(json_str)
+
+        assert reconstructed.open == Decimal("123.456789")
+        assert reconstructed.cumulative_price_factor == Decimal("1.23456789")
+
+
+# ============================================
+# CorporateActionEvent Tests
+# ============================================
+
+
+class TestCorporateActionEvent:
+    """Test CorporateActionEvent validation."""
+
+    def test_corporate_action_split_creates_successfully(self):
+        """CorporateActionEvent for split should create successfully."""
+        event = CorporateActionEvent(
+            source_service="data_service",
+            symbol="AAPL",
+            asset_class="equity",
             action_type="split",
-            effective_date=datetime(2020, 8, 31),
-            split_ratio=Decimal("4.0"),
+            announcement_date="2020-07-30",
+            ex_date="2020-08-31",
+            effective_date="2020-08-31",
+            source="algoseek",
+            split_from=1,
+            split_to=4,
+            split_ratio=Decimal("0.25"),
+            price_adjustment_factor=Decimal("0.25"),
+            volume_adjustment_factor=Decimal("4.0"),
         )
-        self.assertEqual(event.event_type, "corporate_action")
-        self.assertEqual(event.symbol, "AAPL")
-        self.assertEqual(event.action_type, "split")
-        self.assertEqual(event.split_ratio, Decimal("4.0"))
 
-    def test_corporate_action_immutability(self):
-        """Test that corporate action events are immutable."""
-        event = CorporateActionEvent(symbol="AAPL", action_type="split")
-        with self.assertRaises(AttributeError):
-            event.symbol = "MSFT"  # pyright: ignore[reportAttributeAccessIssue]
+        assert event.event_type == "corporate_action"
+        assert event.action_type == "split"
+        assert event.split_ratio == Decimal("0.25")
 
-
-class TestPriceBarEvent(unittest.TestCase):
-    """Test PriceBarEvent."""
-
-    def test_price_bar_event_creation(self):
-        """Test price bar event creation (without full Bar for now)."""
-        # For now, test event creation without complex Bar model
-        # Full Bar integration will be tested in integration tests
-        event = PriceBarEvent(symbol="AAPL", bar=None)
-        self.assertEqual(event.event_type, "price_bar")
-        self.assertEqual(event.symbol, "AAPL")
-        self.assertIsNone(event.bar)  # Bar can be None
-
-    def test_price_bar_event_immutability(self):
-        """Test that price bar events are immutable."""
-        event = PriceBarEvent(symbol="AAPL")
-        with self.assertRaises(AttributeError):
-            event.symbol = "MSFT"  # pyright: ignore[reportAttributeAccessIssue]
-
-
-class TestSignalEvent(unittest.TestCase):
-    """Test SignalEvent."""
-
-    def test_signal_event_creation(self):
-        """Test signal event creation (Phase 4 spec)."""
-        event = SignalEvent(
-            strategy_id="mean_reversion",
+    def test_corporate_action_dividend_creates_successfully(self):
+        """CorporateActionEvent for dividend should create successfully."""
+        event = CorporateActionEvent(
+            source_service="data_service",
             symbol="AAPL",
-            side="BUY",
-            strength=0.85,
-            metadata={"price": 150.0, "volatility": 0.25},
+            asset_class="equity",
+            action_type="dividend",
+            announcement_date="2024-01-15",
+            ex_date="2024-01-30",
+            effective_date="2024-02-15",
+            source="algoseek",
+            dividend_amount=Decimal("0.25"),
+            dividend_currency="USD",
         )
-        self.assertEqual(event.event_type, "signal")
-        self.assertEqual(event.strategy_id, "mean_reversion")
-        self.assertEqual(event.symbol, "AAPL")
-        self.assertEqual(event.side, "BUY")
-        self.assertEqual(event.strength, 0.85)
-        self.assertEqual(event.metadata["price"], 150.0)
 
+        assert event.action_type == "dividend"
+        assert event.dividend_amount == Decimal("0.25")
+        assert event.dividend_currency == "USD"
 
-class TestOrderEvent(unittest.TestCase):
-    """Test OrderEvent."""
-
-    def test_order_event_creation(self):
-        """Test order event creation."""
-        event = OrderEvent(
-            order_id="order_123",
-            signal_id="sig_123",
+    def test_corporate_action_serializes_correctly(self):
+        """CorporateActionEvent should serialize correctly."""
+        event = CorporateActionEvent(
+            source_service="data_service",
             symbol="AAPL",
-            side="buy",
-            quantity=Decimal("100"),
-            order_type="market",
+            asset_class="equity",
+            action_type="split",
+            announcement_date="2020-07-30",
+            ex_date="2020-08-31",
+            effective_date="2020-08-31",
+            source="algoseek",
+            split_from=1,
+            split_to=4,
+            split_ratio=Decimal("0.25"),
+            price_adjustment_factor=Decimal("0.25"),
+            volume_adjustment_factor=Decimal("4.0"),
         )
-        self.assertEqual(event.event_type, "order")
-        self.assertEqual(event.order_id, "order_123")
-        self.assertEqual(event.signal_id, "sig_123")
-        self.assertEqual(event.symbol, "AAPL")
-        self.assertEqual(event.side, "buy")
-        self.assertEqual(event.quantity, Decimal("100"))
+
+        json_str = event.model_dump_json()
+        data = json.loads(json_str)
+
+        assert data["action_type"] == "split"
+        assert data["symbol"] == "AAPL"
 
 
-class TestFillEvent(unittest.TestCase):
-    """Test FillEvent."""
+# ============================================
+# Schema Loading Tests
+# ============================================
 
-    def test_fill_event_creation(self):
-        """Test fill event creation."""
-        event = FillEvent(
-            fill_id="fill_123",
-            order_id="order_123",
+
+class TestSchemaLoading:
+    """Test schema loading and compilation."""
+
+    def test_load_and_compile_schema_success(self):
+        """load_and_compile_schema should load valid schemas."""
+        validator = load_and_compile_schema("bar.v1.json")
+
+        assert validator is not None
+        assert hasattr(validator, "validate")
+
+    def test_load_and_compile_schema_nonexistent_raises(self):
+        """load_and_compile_schema should raise for missing schema."""
+        with pytest.raises(FileNotFoundError):
+            load_and_compile_schema("nonexistent.v1.json")
+
+    def test_schema_loading_is_cached(self):
+        """Schema loading should use caching."""
+        validator1 = load_and_compile_schema("bar.v1.json")
+        validator2 = load_and_compile_schema("bar.v1.json")
+
+        # Should return same cached instance
+        assert validator1 is validator2
+
+
+# ============================================
+# Event Envelope Validation Tests
+# ============================================
+
+
+class TestEnvelopeValidation:
+    """Test envelope validation across event types."""
+
+    def test_envelope_requires_valid_event_id_format(self):
+        """Envelope should validate event_id format."""
+        # Default generated IDs should be valid UUIDs
+        event = BaseEvent(source_service="test")
+        assert len(event.event_id) == 36  # UUID format
+
+    def test_envelope_accepts_custom_event_id(self):
+        """Envelope should accept custom event_id if valid UUID."""
+        import uuid
+
+        custom_id = str(uuid.uuid4())
+
+        event = BaseEvent(source_service="test", event_id=custom_id)
+        assert event.event_id == custom_id
+
+    def test_envelope_requires_source_service(self):
+        """Envelope should require source_service."""
+        # This should work
+        event = BaseEvent(source_service="test_service")
+        assert event.source_service == "test_service"
+
+
+# ============================================
+# Integration Tests
+# ============================================
+
+
+class TestEventIntegration:
+    """Integration tests with realistic scenarios."""
+
+    def test_event_can_be_serialized_and_deserialized(self):
+        """Event should roundtrip through JSON serialization."""
+        original = PriceBarEvent(
+            source_service="data_service",
             symbol="AAPL",
-            side="buy",
-            quantity=Decimal("100"),
-            price=Decimal("75.50"),
-            commission=Decimal("1.00"),
+            asset_class="equity",
+            interval="1d",
+            timestamp="2024-01-01T00:00:00Z",
+            open=Decimal("150.00"),
+            high=Decimal("155.00"),
+            low=Decimal("149.00"),
+            close=Decimal("154.50"),
+            volume=1_000_000,
+            adjusted=False,
+            cumulative_price_factor=Decimal("1.0"),
+            cumulative_volume_factor=Decimal("1.0"),
+            source="algoseek",
         )
-        self.assertEqual(event.event_type, "fill")
-        self.assertEqual(event.fill_id, "fill_123")
-        self.assertEqual(event.order_id, "order_123")
-        self.assertEqual(event.symbol, "AAPL")
-        self.assertEqual(event.quantity, Decimal("100"))
-        self.assertEqual(event.price, Decimal("75.50"))
 
+        # Serialize
+        json_str = original.model_dump_json()
 
-class TestPositionChangedEvent(unittest.TestCase):
-    """Test PositionChangedEvent."""
+        # Deserialize
+        reconstructed = PriceBarEvent.model_validate_json(json_str)
 
-    def test_position_changed_event(self):
-        """Test position changed event creation."""
-        event = PositionChangedEvent(
-            symbol="AAPL",
-            old_quantity=Decimal("0"),
-            new_quantity=Decimal("100"),
-            reason="fill",
-        )
-        self.assertEqual(event.event_type, "position_changed")
-        self.assertEqual(event.symbol, "AAPL")
-        self.assertEqual(event.old_quantity, Decimal("0"))
-        self.assertEqual(event.new_quantity, Decimal("100"))
-        self.assertEqual(event.reason, "fill")
+        assert reconstructed.event_id == original.event_id
+        assert reconstructed.symbol == original.symbol
+        assert reconstructed.open == original.open
 
+    def test_events_maintain_immutability(self):
+        """Events should not allow field modification after creation."""
+        event = BarCloseEvent(source_service="test")
 
-class TestCashChangedEvent(unittest.TestCase):
-    """Test CashChangedEvent."""
+        with pytest.raises(Exception):  # Pydantic ValidationError
+            event.source_service = "modified"
 
-    def test_cash_changed_event(self):
-        """Test cash changed event creation."""
-        event = CashChangedEvent(
-            old_cash=Decimal("100000"),
-            new_cash=Decimal("92500"),
-            change_amount=Decimal("-7500"),
-            reason="fill_buy",
-        )
-        self.assertEqual(event.event_type, "cash_changed")
-        self.assertEqual(event.old_cash, Decimal("100000"))
-        self.assertEqual(event.new_cash, Decimal("92500"))
-        self.assertEqual(event.change_amount, Decimal("-7500"))
+    def test_event_copy_creates_new_instance(self):
+        """model_copy should create new instance with modified fields."""
+        original = BarCloseEvent(source_service="original")
 
+        modified = original.model_copy(update={"source_service": "modified"})
 
-class TestRiskViolationEvent(unittest.TestCase):
-    """Test RiskViolationEvent."""
-
-    def test_risk_violation_event(self):
-        """Test risk violation event creation."""
-        event = RiskViolationEvent(
-            violation_type="position_limit_exceeded",
-            severity="error",
-            message="Position size exceeds 10% of portfolio",
-            symbol="AAPL",
-        )
-        self.assertEqual(event.event_type, "risk_violation")
-        self.assertEqual(event.violation_type, "position_limit_exceeded")
-        self.assertEqual(event.severity, "error")
-        self.assertIn("10%", event.message)
-
-
-class TestBacktestEvents(unittest.TestCase):
-    """Test backtest control events."""
-
-    def test_backtest_started_event(self):
-        """Test backtest started event."""
-        event = BacktestStartedEvent(
-            backtest_id="bt_123",
-            start_date=datetime(2020, 1, 1),
-            end_date=datetime(2020, 12, 31),
-            config={"initial_cash": 100000},
-        )
-        self.assertEqual(event.event_type, "backtest_started")
-        self.assertEqual(event.backtest_id, "bt_123")
-        self.assertEqual(event.config["initial_cash"], 100000)
-
-    def test_backtest_ended_event(self):
-        """Test backtest ended event."""
-        event = BacktestEndedEvent(
-            backtest_id="bt_123",
-            total_bars=250,
-            total_fills=50,
-            duration_seconds=12.5,
-        )
-        self.assertEqual(event.event_type, "backtest_ended")
-        self.assertEqual(event.total_bars, 250)
-        self.assertEqual(event.total_fills, 50)
-
-    def test_bar_close_event(self):
-        """Test bar close event."""
-        event = BarCloseEvent(
-            current_time=datetime(2020, 1, 2, 16, 0),
-            bar_number=1,
-        )
-        self.assertEqual(event.event_type, "bar_close")
-        self.assertEqual(event.bar_number, 1)
-        self.assertIsNotNone(event.current_time)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert original.source_service == "original"
+        assert modified.source_service == "modified"
+        assert original.event_id == modified.event_id  # Same ID unless updated

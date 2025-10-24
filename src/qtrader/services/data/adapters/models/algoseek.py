@@ -11,7 +11,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from qtrader.contracts.data import Bar, PriceSeries
+from qtrader.services.data.models import Bar, PriceSeries
 
 
 class AlgoseekBar(BaseModel):

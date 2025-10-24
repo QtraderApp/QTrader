@@ -11,9 +11,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from qtrader.contracts.data import Instrument
 from qtrader.services.data.adapters.algoseek import AlgoseekOHLCVendorAdapter
 from qtrader.services.data.adapters.models.algoseek import AlgoseekBar
+from qtrader.services.data.models import Instrument
 
 
 class TestAlgoseekOHLCVendorAdapterInitialization:

@@ -1,19 +1,16 @@
 """
-Bollinger Bands Breakout Strategy.
+Bollinger Breakout Strategy.
 
-Demonstrates:
-- Custom strategy using custom indicator (BollingerBands)
-- Using bandwidth for volatility filtering
-- Using %B for entry/exit signals
-- Process/parameter separation pattern
+Trend-following strategy that trades breakouts of Bollinger Bands with confirmation
+from volume and RSI indicators.
 """
 
-from my_library.indicators import BollingerBands
 from pydantic import ConfigDict
 
-from qtrader.contracts.strategies import SignalIntention
 from qtrader.events.events import PriceBarEvent
+from qtrader.libraries.indicators import BollingerBands
 from qtrader.libraries.strategies import BaseStrategy, BaseStrategyConfig, Context
+from qtrader.services.strategy.models import SignalIntention
 
 
 class BollingerBreakoutConfig(BaseStrategyConfig):

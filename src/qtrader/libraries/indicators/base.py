@@ -16,7 +16,7 @@ Registry Name: Derived from class name (e.g., SMAIndicator → "sma")
 from abc import ABC, abstractmethod
 from typing import Any
 
-from qtrader.contracts.data import Bar
+from qtrader.services.data.models import Bar
 
 
 class BaseIndicator(ABC):
