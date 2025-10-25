@@ -32,13 +32,7 @@ from typing import Any
 
 import yaml
 
-from qtrader.services.portfolio_manager.models import (
-    ConcentrationLimit,
-    LeverageLimit,
-    RiskConfig,
-    SizingConfig,
-    StrategyBudget,
-)
+from qtrader.services.manager.models import ConcentrationLimit, LeverageLimit, RiskConfig, SizingConfig, StrategyBudget
 
 
 class ConfigLoadError(Exception):

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from qtrader.services.portfolio_manager.config_loader import ConfigLoadError, load_risk_config
-from qtrader.services.portfolio_manager.models import RiskConfig
+from qtrader.services.manager.config_loader import ConfigLoadError, load_risk_config
+from qtrader.services.manager.models import RiskConfig
 
 
 @pytest.fixture

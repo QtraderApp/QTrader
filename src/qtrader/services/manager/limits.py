@@ -26,7 +26,7 @@ Thread Safety:
 from dataclasses import dataclass
 from decimal import Decimal
 
-from qtrader.services.portfolio_manager.models import ConcentrationLimit, LeverageLimit, OrderBase, Position
+from qtrader.services.manager.models import ConcentrationLimit, LeverageLimit, OrderBase, Position
 
 
 @dataclass(frozen=True)

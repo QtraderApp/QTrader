@@ -4,8 +4,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.portfolio_manager.limits import check_all_limits, check_concentration_limit, check_leverage_limits
-from qtrader.services.portfolio_manager.models import ConcentrationLimit, LeverageLimit, OrderBase, Position
+from qtrader.services.manager.limits import check_all_limits, check_concentration_limit, check_leverage_limits
+from qtrader.services.manager.models import ConcentrationLimit, LeverageLimit, OrderBase, Position
 
 # =============================================================================
 # Fixtures

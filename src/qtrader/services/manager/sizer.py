@@ -24,7 +24,7 @@ Thread Safety:
 
 from decimal import Decimal
 
-from qtrader.services.portfolio_manager.models import Signal
+from qtrader.services.manager.models import Signal
 
 
 def size_position(

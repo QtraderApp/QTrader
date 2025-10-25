@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.portfolio_manager.models import (
+from qtrader.services.manager.models import (
     ConcentrationLimit,
     LeverageLimit,
     OrderBase,

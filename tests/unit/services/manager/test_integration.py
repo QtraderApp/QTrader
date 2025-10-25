@@ -8,7 +8,7 @@ import pytest
 
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import OrderApprovedEvent, OrderRejectedEvent, RiskEvaluationTriggerEvent, SignalEvent
-from qtrader.services.portfolio_manager.models import (
+from qtrader.services.manager.models import (
     ConcentrationLimit,
     LeverageLimit,
     PortfolioState,
@@ -17,7 +17,7 @@ from qtrader.services.portfolio_manager.models import (
     SizingConfig,
     StrategyBudget,
 )
-from qtrader.services.portfolio_manager.service import RiskService
+from qtrader.services.manager.service import RiskService
 
 # =============================================================================
 # Fixtures

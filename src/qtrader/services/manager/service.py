@@ -16,10 +16,10 @@ from typing import Any
 
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import OrderApprovedEvent, OrderRejectedEvent, RiskEvaluationTriggerEvent, SignalEvent
-from qtrader.services.portfolio_manager.allocator import allocate_capital
-from qtrader.services.portfolio_manager.limits import check_all_limits
-from qtrader.services.portfolio_manager.models import OrderBase, PortfolioState, RiskConfig, Signal
-from qtrader.services.portfolio_manager.sizer import FixedFractionSizer
+from qtrader.services.manager.allocator import allocate_capital
+from qtrader.services.manager.limits import check_all_limits
+from qtrader.services.manager.models import OrderBase, PortfolioState, RiskConfig, Signal
+from qtrader.services.manager.sizer import FixedFractionSizer
 from qtrader.system import LoggerFactory
 
 
@@ -88,12 +88,7 @@ class RiskService:
             >>> config_dict = {...}  # Risk config from BacktestConfig
             >>> service = RiskService.from_config(config_dict, event_bus)
         """
-        from qtrader.services.portfolio_manager.models import (
-            ConcentrationLimit,
-            LeverageLimit,
-            SizingConfig,
-            StrategyBudget,
-        )
+        from qtrader.services.manager.models import ConcentrationLimit, LeverageLimit, SizingConfig, StrategyBudget
 
         # Convert BacktestConfig format to Phase 4 RiskConfig format
         budgets = [

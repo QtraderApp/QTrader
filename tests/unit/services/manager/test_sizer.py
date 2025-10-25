@@ -4,8 +4,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.portfolio_manager.models import Signal
-from qtrader.services.portfolio_manager.sizer import FixedFractionSizer, size_position
+from qtrader.services.manager.models import Signal
+from qtrader.services.manager.sizer import FixedFractionSizer, size_position
 
 # =============================================================================
 # Fixtures

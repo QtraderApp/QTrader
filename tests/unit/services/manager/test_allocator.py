@@ -4,13 +4,13 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.portfolio_manager.allocator import (
+from qtrader.services.manager.allocator import (
     allocate_capital,
     get_allocation_summary,
     get_unallocated_capital,
     validate_allocations,
 )
-from qtrader.services.portfolio_manager.models import StrategyBudget
+from qtrader.services.manager.models import StrategyBudget
 
 # ============================================================================
 # allocate_capital() Tests

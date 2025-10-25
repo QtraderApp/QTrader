@@ -12,7 +12,7 @@ Architecture:
 
 from decimal import Decimal
 
-from qtrader.services.portfolio_manager.models import StrategyBudget
+from qtrader.services.manager.models import StrategyBudget
 
 
 def allocate_capital(
