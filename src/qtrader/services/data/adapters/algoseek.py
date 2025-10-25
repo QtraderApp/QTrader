@@ -533,12 +533,9 @@ class AlgoseekOHLCVendorAdapter:
 
             # Stream bars one at a time using fetchone() (truly streaming, no materialization)
             bar_count = 0
-            while True:
-                row = result.fetchone()  # type: ignore[assignment]
-                if row is None:
-                    break  # No more rows
-
-                row_dict = dict(zip(columns, row))
+            db_row = result.fetchone()
+            while db_row is not None:
+                row_dict = dict(zip(columns, db_row))
 
                 # Parse to AlgoseekBar (validation happens in Pydantic model)
                 try:
@@ -554,7 +551,8 @@ class AlgoseekOHLCVendorAdapter:
                         error=str(e),
                     )
                     # Skip invalid bars but continue processing
-                    continue
+
+                db_row = result.fetchone()
 
             # DEBUG: Bars loaded details
             logger.debug(
