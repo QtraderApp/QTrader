@@ -238,7 +238,7 @@ class BacktestEngine:
         data_service = DataService.from_config(
             config_dict=config_dict,
             dataset=dataset,
-            event_bus=event_bus,  # type: ignore
+            event_bus=event_bus,
         )
 
         # Services suspended - will add back incrementally

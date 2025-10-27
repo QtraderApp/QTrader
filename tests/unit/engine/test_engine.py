@@ -41,6 +41,9 @@ def mock_system_config():
     mock_config.output.use_timestamps = True
     mock_config.output.timestamp_format = "%Y%m%d_%H%M%S"
     mock_config.output.organize_by_date = False
+    mock_config.output.event_store = Mock()
+    mock_config.output.event_store.backend = "sqlite"
+    mock_config.output.event_store.filename = "events.db"
     mock_config.logging = Mock()
     mock_config.logging.to_logger_config = Mock(return_value=Mock())
     return mock_config
