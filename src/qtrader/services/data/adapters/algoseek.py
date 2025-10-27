@@ -23,12 +23,11 @@ from zoneinfo import ZoneInfo
 import duckdb
 import pandas as pd
 
-from qtrader.events.events import PriceBarEvent
+from qtrader.events.events import CorporateActionEvent, PriceBarEvent
 from qtrader.services.data.adapters.models.algoseek import AlgoseekBar
 from qtrader.system import LoggerFactory
 
 if TYPE_CHECKING:
-    from qtrader.events.events import CorporateActionEvent
     from qtrader.services.data.models import Instrument
 
 logger = LoggerFactory.get_logger()
@@ -793,13 +792,28 @@ class AlgoseekOHLCVendorAdapter:
                 source=self.dataset_name,  # Full dataset name
                 dividend_amount=dividend_amount,
                 dividend_currency="USD",
-                dividend_type="cash",
+                dividend_type="ordinary",  # Changed from "cash" to match schema enum
                 price_adjustment_factor=Decimal(str(bar.AdjustmentFactor)) if bar.AdjustmentFactor else None,
             )
 
         # Check for split
         if bar.is_split():
             split_ratio = bar.get_split_ratio()
+
+            # Calculate split_from and split_to from ratio
+            # For a 4-for-1 split, ratio is 4.0, which means 1 old share becomes 4 new shares
+            if split_ratio is not None and split_ratio >= 1.0:
+                # Forward split: 1-for-N
+                split_from = 1
+                split_to = int(split_ratio)
+            elif split_ratio is not None:
+                # Reverse split: N-for-1
+                split_from = int(1 / split_ratio)
+                split_to = 1
+            else:
+                # Fallback if ratio cannot be determined
+                split_from = None
+                split_to = None
 
             return CorporateActionEvent(
                 symbol=bar.Ticker,
@@ -809,6 +823,8 @@ class AlgoseekOHLCVendorAdapter:
                 ex_date=bar.TradeDate.date().isoformat(),
                 effective_date=bar.TradeDate.date().isoformat(),
                 source=self.dataset_name,  # Full dataset name
+                split_from=split_from,
+                split_to=split_to,
                 split_ratio=split_ratio,
                 volume_adjustment_factor=Decimal(str(bar.AdjustmentFactor)) if bar.AdjustmentFactor else None,
             )
