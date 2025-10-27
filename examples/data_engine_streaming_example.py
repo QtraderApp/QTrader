@@ -163,7 +163,7 @@ def main() -> int:
         # Note: Apple had a 4-for-1 stock split on August 31, 2020
         symbol = "AAPL"
         start = date(2020, 8, 1)
-        end = date(2020, 9, 30)
+        end = date(2020, 9, 1)
 
         console.print(f"Streaming [magenta]{symbol}[/magenta] from [green]{start}[/green] to [green]{end}[/green]...")
         console.print(f"Replay Speed: [yellow]{engine.config.replay_speed}[/yellow] seconds per bar")
@@ -218,8 +218,10 @@ def main() -> int:
         if corporate_action_count > 0:
             console.print(
                 Panel(
+                    "[yellow]Apple had a dividend on August 07, 2020[/yellow]\n"
+                    "[dim]└─    This affects price adjustment factors.[/dim]\n"
                     "[yellow]Apple had a 4-for-1 stock split on August 31, 2020[/yellow]\n"
-                    "[dim]This affects price and volume adjustment factors.[/dim]",
+                    "[dim]└─    This affects price and volume adjustment factors.[/dim]",
                     title="ℹ️  Note",
                     border_style="blue",
                 )
