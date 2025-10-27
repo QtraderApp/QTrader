@@ -166,6 +166,7 @@ def main() -> int:
         end = date(2020, 9, 30)
 
         console.print(f"Streaming [magenta]{symbol}[/magenta] from [green]{start}[/green] to [green]{end}[/green]...")
+        console.print(f"Replay Speed: [yellow]{engine.config.replay_speed}[/yellow] seconds per bar")
         console.print()
 
         # Stream bars through the event bus
@@ -178,6 +179,7 @@ def main() -> int:
                 start_date=start,
                 end_date=end,
                 is_warmup=False,  # Not warmup - process normally
+                replay_speed=engine.config.replay_speed,  # Use replay_speed from config
             )
         except Exception as stream_error:
             # Log the error but continue - bars were still streamed

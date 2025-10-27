@@ -5,6 +5,7 @@ data streaming from vendor adapters via EventBus.
 """
 
 import heapq
+import time
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -267,6 +268,7 @@ class DataService:
         end_date: date,
         *,
         is_warmup: bool = False,
+        replay_speed: float = 0.0,
     ) -> None:
         """
         Load bars and publish PriceBarEvent for each bar (event-driven mode).
@@ -284,6 +286,9 @@ class DataService:
             end_date: End of date range (inclusive)
             is_warmup: If True, publishes bars with is_warmup=True flag.
                       Strategies should NOT generate signals during warmup.
+            replay_speed: Seconds to sleep between publishing each bar (0.0 = no delay).
+                         Used for visualization/debugging to slow down playback.
+                         Does not affect system logic, only timing of event publication.
 
         Raises:
             ValueError: If EventBus not configured
@@ -296,6 +301,9 @@ class DataService:
             >>>
             >>> # Load live bars (generate signals)
             >>> service.stream_bars("AAPL", date(2020, 1, 1), date(2020, 12, 31), is_warmup=False)
+            >>>
+            >>> # Visualize bars at 1 second per bar
+            >>> service.stream_bars("AAPL", date(2020, 1, 1), date(2020, 12, 31), replay_speed=1.0)
 
         Flow:
             DataService loads bar → Publishes PriceBarEvent + CorporateActionEvent →
@@ -318,6 +326,7 @@ class DataService:
             start_date=start_date.isoformat(),
             end_date=end_date.isoformat(),
             is_warmup=is_warmup,
+            replay_speed=replay_speed,
         )
 
         # Create adapter directly (bypass loader/series/iterator layers)
@@ -340,6 +349,10 @@ class DataService:
 
             prev_bar = bar
 
+            # Sleep for visualization (if replay_speed > 0)
+            if replay_speed > 0:
+                time.sleep(replay_speed)
+
         logger.info(
             "data_service.stream_bars.complete",
             symbol=symbol,
@@ -355,6 +368,7 @@ class DataService:
         *,
         is_warmup: bool = False,
         strict: bool = False,
+        replay_speed: float = 0.0,
     ) -> None:
         """
         Load bars for multiple symbols and publish PriceBarEvent for each bar.
@@ -372,6 +386,9 @@ class DataService:
             end_date: End of date range (inclusive)
             is_warmup: If True, all bars published with is_warmup=True
             strict: If True, raise ValueError if any symbol fails to load
+            replay_speed: Seconds to sleep after publishing bars for each timestamp (0.0 = no delay).
+                         Used for visualization/debugging to slow down playback.
+                         Does not affect system logic, only timing of event publication.
 
         Raises:
             ValueError: If EventBus not configured
@@ -392,6 +409,14 @@ class DataService:
             ...     date(2020, 1, 1),
             ...     date(2020, 12, 31),
             ...     is_warmup=False
+            ... )
+            >>>
+            >>> # Visualize universe at 1 second per timestamp
+            >>> service.stream_universe(
+            ...     ["AAPL", "MSFT"],
+            ...     date(2020, 1, 1),
+            ...     date(2020, 12, 31),
+            ...     replay_speed=1.0
             ... )
 
         Event Ordering:
@@ -418,6 +443,7 @@ class DataService:
             start_date=start_date.isoformat(),
             end_date=end_date.isoformat(),
             is_warmup=is_warmup,
+            replay_speed=replay_speed,
         )
 
         # Create adapters for all symbols
@@ -486,6 +512,10 @@ class DataService:
                     if corp_event:
                         self._event_bus.publish(corp_event)
 
+                # Sleep for visualization (if replay_speed > 0) after publishing all bars for this timestamp
+                if replay_speed > 0:
+                    time.sleep(replay_speed)
+
                 unique_timestamps += 1
                 bars_at_current_ts = {}
 
@@ -519,6 +549,10 @@ class DataService:
                 corp_event = adapter.to_corporate_action_event(bar_data, prev_data)
                 if corp_event:
                     self._event_bus.publish(corp_event)
+
+            # Sleep for visualization (if replay_speed > 0) after publishing final timestamp
+            if replay_speed > 0:
+                time.sleep(replay_speed)
 
             unique_timestamps += 1
 
