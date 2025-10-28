@@ -28,8 +28,10 @@ from qtrader.events.events import (
     BaseEvent,
     ControlEvent,
     CorporateActionEvent,
+    FillEvent,
     PriceBarEvent,
     RiskEvaluationTriggerEvent,
+    SignalEvent,
     ValidatedEvent,
     ValuationTriggerEvent,
 )
@@ -42,6 +44,9 @@ __all__ = [
     # Market Data
     "PriceBarEvent",
     "CorporateActionEvent",
+    # Trading Events
+    "SignalEvent",
+    "FillEvent",
     # Barrier Events
     "RiskEvaluationTriggerEvent",
     "ValuationTriggerEvent",

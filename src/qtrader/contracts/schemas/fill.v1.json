@@ -1,0 +1,102 @@
+{
+    "$id": "contracts.schemas.fill.v1.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Order Fill v1",
+    "description": "Represents an order fill event from the execution service. Contains execution details only - portfolio-level position state is tracked separately.",
+    "type": "object",
+    "required": [
+        "fill_id",
+        "source_order_id",
+        "timestamp",
+        "symbol",
+        "side",
+        "filled_quantity",
+        "fill_price"
+    ],
+    "properties": {
+        "fill_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique identifier for this fill (UUID format)."
+        },
+        "source_order_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Originating order identifier that generated this fill. Required for audit trail and order reconciliation."
+        },
+        "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Fill execution timestamp - when the order was actually filled (UTC RFC3339 with Z suffix)."
+        },
+        "order_received_at": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "format": "date-time",
+            "description": "Timestamp when execution service received the order (UTC RFC3339 with Z suffix). Used for execution latency analysis (timestamp - order_received_at). Null if not tracked."
+        },
+        "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Instrument identifier that was filled (e.g., AAPL, BTC-USD)."
+        },
+        "side": {
+            "type": "string",
+            "enum": [
+                "buy",
+                "sell"
+            ],
+            "description": "Fill side - buy increases position, sell decreases position."
+        },
+        "filled_quantity": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Shares/units filled in THIS execution as decimal string. Always positive."
+        },
+        "fill_price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Execution price per share/unit as decimal string. Includes slippage."
+        },
+        "strategy_id": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "minLength": 1,
+            "description": "Strategy that originated the signal leading to this order. For multi-strategy attribution. Null if not attributed."
+        },
+        "commission": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Total commission charged for this fill as decimal string. Defaults to '0'."
+        },
+        "slippage_bps": {
+            "type": [
+                "integer",
+                "null"
+            ],
+            "minimum": 0,
+            "description": "Slippage applied in basis points (1 bps = 0.01%). Used for execution quality analysis. Null if not calculated."
+        },
+        "gross_value": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Total value of THIS fill before commission (filled_quantity * fill_price) as decimal string. Null if not calculated."
+        },
+        "net_value": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Total cash impact of THIS fill including commission as decimal string. For buys: -(gross_value + commission), for sells: +(gross_value - commission). Null if not calculated."
+        }
+    },
+    "additionalProperties": false
+}

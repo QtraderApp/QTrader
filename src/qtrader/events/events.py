@@ -411,6 +411,72 @@ class SignalEvent(ValidatedEvent):
         return format(v, "f") if v is not None else None
 
 
+class FillEvent(ValidatedEvent):
+    """
+    Order fill event - validates against fill.v{version}.json.
+
+    Emitted by ExecutionService when an order is filled. Contains execution
+    details only - portfolio-level position state is tracked separately.
+
+    Wire format uses strings for decimals to avoid floating point issues
+    and ensure cross-language compatibility. Pydantic auto-converts to proper
+    types for Python domain use.
+
+    Attributes:
+        fill_id: Unique fill identifier (UUID)
+        source_order_id: Originating order ID (required for audit trail)
+        timestamp: Fill execution timestamp (ISO8601 UTC)
+        symbol: Instrument identifier
+        side: "buy" or "sell"
+        filled_quantity: Shares/units filled (always positive)
+        fill_price: Execution price per share/unit (includes slippage)
+        order_received_at: When execution service received the order (optional)
+        strategy_id: Strategy attribution (optional, for multi-strategy)
+        commission: Transaction cost (optional, defaults to 0)
+        slippage_bps: Slippage in basis points (optional)
+        gross_value: filled_quantity * fill_price (optional)
+        net_value: Cash impact including commission (optional)
+
+    Example:
+        >>> from decimal import Decimal
+        >>> fill = FillEvent(
+        ...     fill_id="f7e6d5c4-b3a2-1098-7654-321fedcba098",
+        ...     source_order_id="order-123",
+        ...     timestamp="2024-03-15T14:35:24.123Z",
+        ...     symbol="AAPL",
+        ...     side="buy",
+        ...     filled_quantity=Decimal("100"),
+        ...     fill_price=Decimal("145.75"),
+        ...     commission=Decimal("1.00")
+        ... )
+    """
+
+    SCHEMA_BASE: ClassVar[Optional[str]] = "fill"
+    event_type: str = "fill"  # Must match SCHEMA_BASE
+
+    # Required domain fields
+    fill_id: str  # UUID string
+    source_order_id: str
+    timestamp: str  # ISO8601 string (UTC RFC3339 with Z suffix)
+    symbol: str
+    side: str  # "buy" or "sell" (validated by schema)
+    filled_quantity: Decimal  # String on wire, Decimal in Python
+    fill_price: Decimal  # String on wire, Decimal in Python
+
+    # Optional fields
+    order_received_at: Optional[str] = None  # ISO8601 string
+    strategy_id: Optional[str] = None
+    commission: Decimal = Decimal("0")  # String on wire, Decimal in Python
+    slippage_bps: Optional[int] = None
+    gross_value: Optional[Decimal] = None  # String on wire, Decimal in Python
+    net_value: Optional[Decimal] = None  # String on wire, Decimal in Python
+
+    @field_serializer("filled_quantity", "fill_price", "commission", "gross_value", "net_value")
+    def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
+        """Serialize Decimal to string for wire format."""
+        return format(v, "f") if v is not None else None
+
+
 # ============================================
 # Control Events (No Payload Validation)
 # ============================================
