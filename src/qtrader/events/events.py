@@ -357,6 +357,60 @@ class CorporateActionEvent(ValidatedEvent):
         return format(v, "f") if v is not None else None
 
 
+class SignalEvent(ValidatedEvent):
+    """
+    Trading signal event - validates against signal.v{version}.json.
+
+    Wire format uses strings for decimals and enums to avoid floating point issues
+    and ensure cross-language compatibility. Pydantic auto-converts to proper types
+    for Python domain use.
+
+    The intention field accepts either SignalIntention enum or string on input,
+    but serializes to string for wire format.
+    """
+
+    SCHEMA_BASE: ClassVar[Optional[str]] = "signal"
+    event_type: str = "signal"  # Must match SCHEMA_BASE
+
+    # Required domain fields
+    timestamp: str  # ISO8601 string on wire (UTC RFC3339 with Z suffix)
+    strategy_id: str
+    symbol: str
+    intention: str  # OPEN_LONG | CLOSE_LONG | OPEN_SHORT | CLOSE_SHORT (string on wire)
+    price: Decimal  # String on wire, Decimal in Python
+    confidence: Decimal  # String on wire, Decimal in Python (0.0 - 1.0)
+
+    # Optional fields
+    reason: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+    stop_loss: Optional[Decimal] = None
+    take_profit: Optional[Decimal] = None
+
+    @field_validator("intention", mode="before")
+    @classmethod
+    def _validate_intention(cls, v: Any) -> str:
+        """Convert SignalIntention enum to string, or validate string value."""
+        # Import here to avoid circular dependency
+        from qtrader.services.strategy.models import SignalIntention
+
+        if isinstance(v, SignalIntention):
+            return v.value
+        if isinstance(v, str):
+            # Validate that it's a valid intention value
+            try:
+                SignalIntention(v)
+                return v
+            except ValueError:
+                valid_values = [e.value for e in SignalIntention]
+                raise ValueError(f"Invalid intention value: {v}. Must be one of: {valid_values}")
+        raise ValueError(f"intention must be SignalIntention or str, got {type(v)}")
+
+    @field_serializer("price", "confidence", "stop_loss", "take_profit")
+    def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
+        """Serialize Decimal to string for wire format."""
+        return format(v, "f") if v is not None else None
+
+
 # ============================================
 # Control Events (No Payload Validation)
 # ============================================

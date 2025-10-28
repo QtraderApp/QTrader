@@ -83,6 +83,32 @@ Splits, dividends, mergers, and other corporate events.
 
 **Schema**: `schemas/corporate_action.v1.json` **Example**: `examples/corporate_action.v1.example.json`
 
+### signal.v1 - Trading Signals
+
+Trading signals emitted by strategies indicating intent to trade.
+
+**Key fields**:
+
+- `timestamp`: Signal generation timestamp (UTC RFC3339)
+- `strategy_id`: Unique identifier of the strategy that generated the signal
+- `symbol`: Instrument identifier to trade
+- `intention`: Trading action - `OPEN_LONG`, `CLOSE_LONG`, `OPEN_SHORT`, `CLOSE_SHORT`
+- `price`: Price at which signal was generated (typically current market price)
+- `confidence`: Signal strength [0.0, 1.0] - higher = stronger conviction
+- **Optional**: `reason` (human-readable explanation), `metadata` (strategy-specific data)
+- **Optional risk management**: `stop_loss`, `take_profit`
+
+**Use case**: Strategies emit signals via Context → Manager evaluates and sizes → ExecutionService creates orders. Signals are INTENT, not orders - they declare what the strategy wants to do, while manager determines how much to trade.
+
+**Philosophy**:
+
+- Strategies emit **declarative signals** (what to do), not imperative orders (do this now)
+- Confidence levels allow risk management to size positions appropriately
+- Stop loss and take profit are **recommendations** from the strategy, not hard requirements
+- Signals are immutable facts - they record what the strategy wanted at a point in time
+
+**Schema**: `schemas/signal.v1.json` **Example**: `examples/signal.v1.example.json`
+
 ## Versioning Strategy
 
 ### Semantic Versioning
@@ -149,6 +175,17 @@ Modify the existing schema file directly:
 - Supports: splits, dividends, mergers, spinoffs, symbol changes, delistings
 - Key dates: announcement, ex-date, record, payment, effective
 
+#### signal.v1.json
+
+**v1.0** (2025-10-28)
+
+- Initial release
+- Trading signals emitted by strategies
+- Required: timestamp, strategy_id, symbol, intention, price, confidence
+- Optional: reason, metadata, stop_loss, take_profit
+- Intention enum: OPEN_LONG, CLOSE_LONG, OPEN_SHORT, CLOSE_SHORT
+- Confidence as decimal [0.0, 1.0]
+
 ## Validation
 
 ### Using pytest
@@ -162,6 +199,7 @@ pytest tests/unit/contracts/ -v
 # Run specific contract tests
 pytest tests/unit/contracts/test_bar_schema.py -v
 pytest tests/unit/contracts/test_corporate_action_schema.py -v
+pytest tests/unit/events/test_signal_event.py -v
 ```
 
 ### Manual Validation
@@ -316,6 +354,47 @@ if corporate_action["action_type"] == "split":
 1. Record cash receipt: `shares * dividend_amount`
 1. Update realized gains
 1. Adjust cost basis (if return of capital)
+
+### Processing Trading Signals
+
+**RiskService workflow**:
+
+1. Receive SignalEvent from event bus
+1. Check signal confidence against threshold (e.g., only act on confidence > 0.7)
+1. Query current position for symbol
+1. Determine appropriate position size based on:
+   - Signal confidence level
+   - Portfolio risk limits
+   - Current exposure
+   - Stop loss distance (if provided)
+1. Create order request with calculated size
+1. Pass to ExecutionService
+
+**Example**:
+
+```python
+# Strategy emits signal
+context.emit_signal(
+    timestamp="2024-03-15T14:35:22Z",
+    symbol="AAPL",
+    intention=SignalIntention.OPEN_LONG,
+    price=Decimal("145.75"),
+    confidence=0.85,  # High confidence
+    stop_loss=Decimal("140.50"),  # 3.6% risk
+    take_profit=Decimal("152.00"),  # 4.3% reward
+    reason="Golden cross with volume confirmation"
+)
+
+# RiskService receives and sizes
+risk_percentage = 0.02  # 2% portfolio risk per trade
+position_size = calculate_size(
+    portfolio_value=100000,
+    risk_per_trade=risk_percentage,
+    entry_price=145.75,
+    stop_loss=140.50
+)
+# Result: ~380 shares (risking $2000 on $5.25 stop distance)
+```
 
 ## Tools & Resources
 
