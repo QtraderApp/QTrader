@@ -289,20 +289,6 @@ class TestResolverMultipleMatches:
             assert call_args[0] in ["algoseek-us-equity-1d-unadjusted", "polygon-us-equity-1d"]
 
 
-class TestResolverLegacy:
-    """Test legacy resolve() method still works."""
-
-    def test_resolve_by_instrument(self, temp_config: Path) -> None:
-        """Test resolve() method with Instrument - deprecated API."""
-        resolver = DataSourceResolver(str(temp_config))
-        instrument = Instrument(symbol="AAPL")
-
-        # The old resolve() is deprecated and now raises AttributeError
-        # when instrument doesn't have data_source in metadata
-        with pytest.raises(AttributeError, match="Instrument is missing 'data_source'"):
-            resolver.resolve(instrument)
-
-
 class TestConfigFinding:
     """Test configuration file finding logic."""
 
@@ -592,79 +578,3 @@ data_sources:
         config = resolver.get_source_config("test")
 
         assert config["root_path"] == "/custom/data"
-
-
-class TestDeprecatedResolveMethod:
-    """Test deprecated resolve() method with metadata."""
-
-    def test_resolve_with_metadata_data_source(self, temp_config: Path) -> None:
-        """Test resolve() with data_source in metadata (backward compat)."""
-        resolver = DataSourceResolver(str(temp_config))
-        instrument = Instrument(symbol="AAPL", metadata={"data_source": "polygon-us-equity-1d"})
-
-        with patch.object(resolver, "_create_adapter") as mock_create:
-            mock_create.return_value = MagicMock()
-
-            with patch("qtrader.services.data.adapters.resolver.logger") as mock_logger:
-                resolver.resolve(instrument)
-
-                # Should log deprecation warning
-                mock_logger.warning.assert_called()
-                assert "deprecated" in str(mock_logger.warning.call_args)
-
-                # Should call _create_adapter
-                assert mock_create.called
-
-    def test_resolve_with_provider_name_fallback(self, temp_config: Path) -> None:
-        """Test resolve() with provider name fallback."""
-        resolver = DataSourceResolver(str(temp_config))
-        # Use just "polygon" as provider name - should match polygon-us-equity-1d
-        instrument = Instrument(symbol="AAPL", metadata={"data_source": "polygon"})
-
-        with patch.object(resolver, "_create_adapter") as mock_create:
-            mock_create.return_value = MagicMock()
-            resolver.resolve(instrument)
-
-            # Should find polygon source by provider matching
-            assert mock_create.called
-            call_args = mock_create.call_args[0]
-            assert "polygon" in call_args[0]  # source name contains polygon
-
-    def test_resolve_provider_multiple_matches_logs_warning(self, temp_config: Path) -> None:
-        """Test that multiple provider matches logs warning."""
-        # Create config with multiple sources from same provider
-        config_path = temp_config.parent / "multi_provider.yaml"
-        config_path.write_text("""
-data_sources:
-  polygon-equity:
-    provider: polygon
-    adapter: polygonOHLC
-    asset_class: equity
-
-  polygon-options:
-    provider: polygon
-    adapter: polygonOHLC
-    asset_class: options
-""")
-
-        resolver = DataSourceResolver(str(config_path))
-        instrument = Instrument(symbol="AAPL", metadata={"data_source": "polygon"})
-
-        with patch.object(resolver, "_create_adapter") as mock_create:
-            mock_create.return_value = MagicMock()
-
-            with patch("qtrader.services.data.adapters.resolver.logger") as mock_logger:
-                resolver.resolve(instrument)
-
-                # Should log warning about multiple matches
-                mock_logger.warning.assert_called()
-                warning_msg = str(mock_logger.warning.call_args)
-                assert "Multiple sources match" in warning_msg
-
-    def test_resolve_missing_data_source_in_config(self, temp_config: Path) -> None:
-        """Test error when data_source not in config."""
-        resolver = DataSourceResolver(str(temp_config))
-        instrument = Instrument(symbol="AAPL", metadata={"data_source": "nonexistent"})
-
-        with pytest.raises(KeyError, match="Data source 'nonexistent' not configured"):
-            resolver.resolve(instrument)

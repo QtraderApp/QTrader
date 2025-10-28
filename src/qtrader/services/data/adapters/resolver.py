@@ -51,11 +51,11 @@ class DataSourceResolver:
             api_key: "${IQFEED_API_KEY}"
 
     Usage:
+        >>> from qtrader.services.data.models import Instrument
         >>> resolver = DataSourceResolver()
-        >>> instrument = Instrument("AAPL", InstrumentType.EQUITY, DataSource.ALGOSEEK)
-        >>> adapter = resolver.resolve(instrument)
-        >>> config = DataConfig(bar_schema=bar_schema)
-        >>> bars = adapter.read_bars(config)
+        >>> instrument = Instrument("AAPL")
+        >>> adapter = resolver.resolve_by_dataset("algoseek-us-equity-1d-unadjusted", instrument)
+        >>> # Adapter can now read bars for this instrument
     """
 
     # Registry of available adapters: maps adapter name to fully qualified class path
@@ -63,7 +63,9 @@ class DataSourceResolver:
     # This is the single source of truth for all supported adapters. When adding a new
     # adapter, add it here to make it available to both the resolver and validator.
     #
-    # TODO: Consider auto-discovery via entry points for third-party adapters:
+    # FUTURE ENHANCEMENT: Auto-discovery via entry points for third-party adapters.
+    # Priority: Low - implement when third-party adapter ecosystem exists.
+    # Current approach works well for built-in adapters. Entry points would allow:
     #   [project.entry_points."qtrader.adapters"]
     #   myCustomAdapter = "my_package.adapters:MyAdapter"
     #
@@ -394,73 +396,6 @@ class DataSourceResolver:
 
         source_config = self.sources[dataset]
         return self._create_adapter(dataset, source_config, instrument)
-
-    def resolve(self, instrument: Instrument):
-        """
-        DEPRECATED: Resolve instrument to data adapter by inferring dataset.
-
-        This method is deprecated because it requires instrument to specify
-        data_source, which duplicates what the config already knows.
-
-        Use resolve_by_dataset() instead with explicit dataset name.
-
-        Args:
-            instrument: Instrument specification (should have data_source for backward compat)
-
-        Returns:
-            Instantiated data adapter.
-
-        Raises:
-            KeyError: If data source not configured.
-            ValueError: If adapter cannot be loaded.
-            AttributeError: If instrument doesn't have data_source (new Instrument API)
-        """
-        logger.warning(
-            "resolve() is deprecated. Use resolve_by_dataset() with explicit dataset name. "
-            "This avoids duplication between config and instrument metadata."
-        )
-
-        # For backward compatibility with OLD Instrument API that had data_source field
-        # New Instrument only has (symbol, frequency, metadata)
-        # So this will fail gracefully with clear error message
-
-        try:
-            # Try to get data_source from metadata (temporary backward compat hack)
-            if "data_source" in instrument.metadata:
-                source_name = instrument.metadata["data_source"]
-            else:
-                raise AttributeError(
-                    "Instrument is missing 'data_source'. "
-                    "New Instrument API only has (symbol, frequency, metadata). "
-                    "Use resolve_by_dataset(dataset, instrument) instead. "
-                    "Example: resolver.resolve_by_dataset('algoseek-us-equity-1d-unadjusted', Instrument('AAPL'))"
-                )
-        except AttributeError:
-            raise AttributeError(
-                "Instrument is missing 'data_source'. "
-                "New Instrument API only has (symbol, frequency, metadata). "
-                "Use resolve_by_dataset(dataset, instrument) instead. "
-                "Example: resolver.resolve_by_dataset('algoseek-us-equity-1d-unadjusted', Instrument('AAPL'))"
-            )
-
-        if source_name not in self.sources:
-            # Backward compatibility: Try to find source by provider name
-            # E.g., "algoseek" → "algoseek-us-equity-1d-unadjusted"
-            matching_sources = [name for name, config in self.sources.items() if config.get("provider") == source_name]
-
-            if not matching_sources:
-                raise KeyError(f"Data source '{source_name}' not configured. Available: {list(self.sources.keys())}")
-
-            # Use first matching source
-            if len(matching_sources) > 1:
-                logger.warning(
-                    f"Multiple sources match provider '{source_name}': {matching_sources}. "
-                    f"Using first match: {matching_sources[0]}"
-                )
-            source_name = matching_sources[0]
-
-        source_config = self.sources[source_name]
-        return self._create_adapter(source_name, source_config, instrument)
 
     def list_sources(self) -> list[str]:
         """Get list of configured data sources."""
