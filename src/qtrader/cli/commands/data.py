@@ -238,7 +238,13 @@ def raw_data(symbol: str, start_date: str, end_date: str, dataset: str):
     is_flag=True,
     help="Delete existing cache and re-prime from scratch (useful for adapters without incremental support)",
 )
-def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool, force_reprime: bool):
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Skip confirmation prompts (auto-confirm force-reprime deletion)",
+)
+def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool, force_reprime: bool, yes: bool):
     """
     Update cached data to latest available.
 
@@ -269,11 +275,32 @@ def update_dataset(dataset: str, symbols: str, dry_run: bool, verbose: bool, for
         reprime_str = " [yellow](FORCE RE-PRIME)[/yellow]" if force_reprime else ""
         console.print(f"\n{mode_str}{reprime_str} Dataset: [cyan]{dataset}[/cyan]\n")
 
-        if force_reprime and not dry_run:
-            console.print("[yellow]⚠ Force re-prime: Will delete existing caches and re-download all data[/yellow]\n")
-
         # Create update service
         service = UpdateService(dataset)
+
+        # Force-reprime confirmation prompt
+        if force_reprime and not dry_run and not yes:
+            # Get cache directory path to show user what will be deleted
+            cache_root = service.updater._get_cache_root()
+
+            console.print("[yellow]⚠️  WARNING: Force re-prime will DELETE existing cache data[/yellow]")
+            console.print(f"[dim]Cache directory: {cache_root}[/dim]\n")
+
+            # Parse symbols to show what will be affected
+            symbol_list_preview = [s.strip() for s in symbols.split(",")] if symbols else None
+            if symbol_list_preview:
+                console.print(f"[yellow]Symbols to re-prime: {', '.join(symbol_list_preview)}[/yellow]")
+            else:
+                console.print("[yellow]This will delete caches for ALL symbols in the dataset[/yellow]")
+
+            console.print()
+
+            if not click.confirm("Are you sure you want to continue?", default=False):
+                console.print("[yellow]Aborted.[/yellow]")
+                return
+
+        if force_reprime and not dry_run:
+            console.print("[yellow]⚠ Force re-prime: Will delete existing caches and re-download all data[/yellow]\n")
 
         # Get symbols to update (service handles priority logic)
         symbols_to_update, source_desc = service.get_symbols_to_update(symbol_list)
