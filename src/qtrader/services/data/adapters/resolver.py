@@ -84,27 +84,29 @@ class DataSourceResolver:
         # "postgresOHLC": "qtrader.services.data.adapters.postgres.PostgresOHLCAdapter",
     }
 
-    def __init__(self, config_path: str | None = None):
+    def __init__(self, config_path: str | None = None, system_sources_config: str | None = None):
         """
         Initialize resolver.
 
         Args:
-            config_path: Path to data_sources.yaml. If None, searches default locations.
+            config_path: Path to data_sources.yaml. If None, uses system_sources_config or searches defaults.
+            system_sources_config: Path from system config (data.sources_config). Takes precedence over defaults.
 
         Raises:
             FileNotFoundError: If config file not found in any location.
             ValueError: If config format is invalid.
         """
-        self.config_path = self._find_config(config_path)
+        self.config_path = self._find_config(config_path, system_sources_config)
         self.sources = self._load_config(self.config_path)
         self._adapter_cache: Dict[str, type] = {}
 
-    def _find_config(self, config_path: str | None) -> Path:
+    def _find_config(self, config_path: str | None, system_sources_config: str | None) -> Path:
         """
         Find data sources config file.
 
         Args:
-            config_path: Explicit path or None to search defaults.
+            config_path: Explicit path (highest priority).
+            system_sources_config: Path from system config (second priority).
 
         Returns:
             Path to config file.
@@ -112,15 +114,23 @@ class DataSourceResolver:
         Raises:
             FileNotFoundError: If no config file found.
         """
+        # Priority 1: Explicit config_path
         if config_path:
             path = Path(config_path).expanduser()
             if path.exists():
                 return path
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
-        # Try default locations
+        # Priority 2: System config path
+        if system_sources_config:
+            path = Path(system_sources_config).expanduser()
+            if path.exists():
+                return path
+            raise FileNotFoundError(f"Config file from system config not found: {system_sources_config}")
+
+        # Priority 3: Default locations
         candidates = [
-            Path("config/data_sources.yaml"),  # Project-relative
+            Path("config/data_sources.yaml"),  # Project-relative (fallback)
             Path.home() / ".qtrader" / "data_sources.yaml",  # User home
         ]
 
