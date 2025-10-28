@@ -15,13 +15,14 @@ Philosophy:
 - Strategies are STATELESS regarding portfolio (no position tracking)
 """
 
+from collections import deque
 from decimal import Decimal
 from typing import Any, Optional
 
 import structlog
 
 from qtrader.events.event_bus import IEventBus
-from qtrader.events.events import SignalEvent
+from qtrader.events.events import PriceBarEvent, SignalEvent
 from qtrader.services.strategy.models import SignalIntention
 
 logger = structlog.get_logger()
@@ -32,61 +33,91 @@ class Context:
     Strategy execution context.
 
     Provides strategies with:
-    1. Signal emission (emit_signal) - PRIMARY USE
-    2. Position queries (get_position) - FUTURE
-    3. Price queries (get_price) - FUTURE
-    4. Historical bars (get_bars) - FUTURE
+    1. Signal emission (emit_signal) - FULLY IMPLEMENTED
+    2. Price queries (get_price) - IMPLEMENTED
+    3. Historical bars (get_bars) - IMPLEMENTED
+
+    Position Tracking Philosophy:
+    - Strategies track their own positions via on_position_filled() events
+    - No get_position() method - event-driven architecture
+    - Strategies can maintain self.positions = {} if needed
+    - Most strategies don't need position state - RiskManager handles it
 
     Current Implementation Status:
     - ✅ emit_signal: Fully implemented
-    - 🚧 get_position: Stub (returns None)
-    - 🚧 get_price: Stub (returns None)
-    - 🚧 get_bars: Stub (returns None)
+    - ✅ get_price: Queries cached bars
+    - ✅ get_bars: Returns historical bars from cache
+    - ❌ get_position: REMOVED - use event-driven position tracking instead
 
     Usage in Strategy:
         ```python
         class MyStrategy(Strategy):
+            def __init__(self, config):
+                self.config = config
+                self.positions = {}  # Optional: track if needed
+
+            def on_position_filled(self, event: PositionFilledEvent, context: Context) -> None:
+                # Optional: track position changes via events
+                self.positions[event.symbol] = event.quantity
+
             def on_bar(self, event: PriceBarEvent, context: Context) -> None:
-                if event.is_warmup:
-                    return
+                # Get historical bars for indicator calculation
+                bars = context.get_bars(event.symbol, n=20)
+                if bars is None or len(bars) < 20:
+                    return  # Self-managed warmup
 
-                # Emit signal
-                context.emit_signal(
-                    timestamp=event.timestamp,
-                    symbol=event.symbol,
-                    intention=SignalIntention.OPEN_LONG,
-                    confidence=0.8,
-                    reason="Golden cross detected"
-                )
+                prices = [bar.close for bar in bars]
+                sma = sum(prices) / len(prices)
 
-                # Query position (future)
-                # position = context.get_position(event.symbol)
-                # if position and position.quantity > 0:
-                #     # Already long, don't add more
-                #     return
+                # Get current price
+                current_price = context.get_price(event.symbol)
+
+                if current_price and current_price > sma:
+                    # Emit signal (don't check positions - RiskManager does that)
+                    context.emit_signal(
+                        timestamp=event.timestamp,
+                        symbol=event.symbol,
+                        intention=SignalIntention.OPEN_LONG,
+                        confidence=0.8,
+                        price=current_price,
+                        reason=f"Price {current_price} above SMA {sma}"
+                    )
         ```
 
     Note:
         - Context is created per strategy instance (not per bar)
-        - Context is stateless - doesn't store strategy state
-        - Strategies should store their own state (indicators, counters, etc.)
+        - Bar history cached per symbol with configurable max_bars
+        - Strategies can track their own state (indicators, positions, etc.)
+        - For position tracking: implement on_position_filled() lifecycle method
     """
 
-    def __init__(self, strategy_id: str, event_bus: IEventBus):
+    def __init__(
+        self,
+        strategy_id: str,
+        event_bus: IEventBus,
+        max_bars: int = 500,
+    ):
         """
         Initialize context for a strategy.
 
         Args:
             strategy_id: Unique strategy identifier (from config.name)
             event_bus: Event bus for publishing signals
+            max_bars: Maximum bars to cache per symbol (default 500)
         """
         self._strategy_id = strategy_id
         self._event_bus = event_bus
         self._signal_count = 0  # Track emitted signals for logging
+        self._max_bars = max_bars
+
+        # Bar cache: {symbol: deque[PriceBarEvent]}
+        # Uses deque with maxlen for automatic windowing
+        self._bar_cache: dict[str, deque[PriceBarEvent]] = {}
 
         logger.debug(
             "strategy.context.initialized",
             strategy_id=strategy_id,
+            max_bars=max_bars,
         )
 
     def emit_signal(
@@ -185,93 +216,164 @@ class Context:
 
         return signal
 
-    def get_position(self, symbol: str) -> Optional[Any]:
+    def cache_bar(self, event: PriceBarEvent) -> None:
         """
-        Get current position for a symbol.
+        Cache bar for historical queries.
 
-        STUB: Not yet implemented. Returns None.
-
-        Future implementation will query PortfolioService for current position.
+        Called by StrategyService before on_bar() to maintain rolling window
+        of bars per symbol for historical lookups.
 
         Args:
-            symbol: Instrument symbol
-
-        Returns:
-            Position object or None if no position
-            Currently always returns None (stub)
-
-        Example (future):
-            >>> position = context.get_position("AAPL")
-            >>> if position:
-            ...     print(f"Long {position.quantity} shares at avg ${position.avg_price}")
+            event: PriceBarEvent to cache
         """
+        symbol = event.symbol
+
+        # Create deque for symbol if first bar
+        if symbol not in self._bar_cache:
+            self._bar_cache[symbol] = deque(maxlen=self._max_bars)
+
+        # Append bar (deque auto-evicts oldest if at maxlen)
+        self._bar_cache[symbol].append(event)
+
         logger.debug(
-            "strategy.context.get_position.stub",
+            "strategy.context.bar_cached",
             strategy_id=self._strategy_id,
             symbol=symbol,
-            result="stub_returns_none",
+            timestamp=event.timestamp,
+            cached_bars=len(self._bar_cache[symbol]),
         )
-        return None
 
-    def get_price(self, symbol: str) -> Optional[float]:
+    def get_price(self, symbol: str) -> Optional[Decimal]:
         """
-        Get latest price for a symbol.
+        Get latest close price for a symbol.
 
-        STUB: Not yet implemented. Returns None.
-
-        Future implementation will query DataService for latest price.
+        Returns the close price of the most recent cached bar.
+        Used for current market price in strategy logic.
 
         Args:
             symbol: Instrument symbol
 
         Returns:
-            Latest price or None if not available
-            Currently always returns None (stub)
+            Latest close price as Decimal, or None if no bars cached
 
-        Example (future):
+        Example:
             >>> price = context.get_price("AAPL")
-            >>> if price and price > self.entry_price * 1.10:
-            ...     # Price up 10%, take profit
-            ...     context.emit_signal(...)
+            >>> if price:
+            ...     print(f"Current AAPL price: ${price}")
+            ...
+            ...     # Use for signal price
+            ...     context.emit_signal(
+            ...         timestamp=event.timestamp,
+            ...         symbol="AAPL",
+            ...         intention=SignalIntention.OPEN_LONG,
+            ...         price=price,
+            ...         confidence=0.80
+            ...     )
+
+        Performance:
+            O(1) - fast lookup from cache
+
+        Note:
+            Returns close price of most recent bar. For intraday strategies,
+            you may want to use event.close directly or get_bars(symbol, 1)[0]
+            to access full OHLCV data.
         """
+        if symbol not in self._bar_cache or len(self._bar_cache[symbol]) == 0:
+            logger.debug(
+                "strategy.context.get_price.no_data",
+                strategy_id=self._strategy_id,
+                symbol=symbol,
+            )
+            return None
+
+        latest_bar = self._bar_cache[symbol][-1]
+
         logger.debug(
-            "strategy.context.get_price.stub",
+            "strategy.context.get_price.success",
             strategy_id=self._strategy_id,
             symbol=symbol,
-            result="stub_returns_none",
+            price=str(latest_bar.close),
+            timestamp=latest_bar.timestamp,
         )
-        return None
 
-    def get_bars(self, symbol: str, n: int = 1) -> Optional[list]:
+        return latest_bar.close
+
+    def get_bars(self, symbol: str, n: int = 1) -> Optional[list[PriceBarEvent]]:
         """
         Get N most recent bars for a symbol.
 
-        STUB: Not yet implemented. Returns None.
-
-        Future implementation will query DataService for historical bars.
+        Returns historical bars from cache. Used for indicator calculation
+        (SMA, RSI, etc.) and pattern detection.
 
         Args:
             symbol: Instrument symbol
             n: Number of bars to retrieve (default 1 = just last bar)
 
         Returns:
-            List of Bar objects or None if not available
-            Currently always returns None (stub)
+            List of PriceBarEvent in chronological order (oldest first),
+            or None if insufficient bars cached
 
-        Example (future):
+        Example:
+            >>> # Calculate 20-period SMA
             >>> bars = context.get_bars("AAPL", n=20)
-            >>> if bars:
+            >>> if bars and len(bars) == 20:
             ...     prices = [bar.close for bar in bars]
-            ...     sma = sum(prices) / len(prices)
+            ...     sma_20 = sum(prices) / 20
+            ...
+            ...     current_price = bars[-1].close
+            ...     if current_price > sma_20:
+            ...         # Price above SMA - bullish signal
+            ...         context.emit_signal(...)
+            >>>
+            >>> # Get last 50 bars for pattern detection
+            >>> bars = context.get_bars("AAPL", n=50)
+            >>> if bars and len(bars) >= 50:
+            ...     highs = [bar.high for bar in bars]
+            ...     resistance = max(highs[-20:])  # 20-bar resistance
+
+        Performance:
+            O(n) - efficient slice from deque
+
+        Note:
+            - Returns bars in chronological order (oldest first, newest last)
+            - Returns None if fewer than n bars available
+            - Maximum bars cached per symbol: self._max_bars (default 500)
+            - For longer histories, increase max_bars in Context initialization
         """
+        if symbol not in self._bar_cache or len(self._bar_cache[symbol]) == 0:
+            logger.debug(
+                "strategy.context.get_bars.no_data",
+                strategy_id=self._strategy_id,
+                symbol=symbol,
+                requested=n,
+            )
+            return None
+
+        cached_count = len(self._bar_cache[symbol])
+
+        # Return None if insufficient bars
+        if cached_count < n:
+            logger.debug(
+                "strategy.context.get_bars.insufficient",
+                strategy_id=self._strategy_id,
+                symbol=symbol,
+                requested=n,
+                available=cached_count,
+            )
+            return None
+
+        # Get last n bars and convert deque to list
+        bars = list(self._bar_cache[symbol])[-n:]
+
         logger.debug(
-            "strategy.context.get_bars.stub",
+            "strategy.context.get_bars.success",
             strategy_id=self._strategy_id,
             symbol=symbol,
-            n=n,
-            result="stub_returns_none",
+            requested=n,
+            returned=len(bars),
         )
-        return None
+
+        return bars
 
     @property
     def strategy_id(self) -> str:

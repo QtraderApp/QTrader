@@ -1,10 +1,13 @@
 """
 Strategy Service Interface.
 
-Defines the protocol for loading and orchestrating external strategy instances.
+Defines the protocol for orchestrating strategy instances.
 """
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from qtrader.libraries.strategies import Strategy
 
 from qtrader.events.event_bus import EventBus
 
@@ -12,25 +15,26 @@ from qtrader.events.event_bus import EventBus
 class IStrategyService(Protocol):
     """Protocol for strategy orchestration service."""
 
-    def __init__(self, event_bus: EventBus) -> None:
+    def __init__(self, event_bus: EventBus, strategies: dict[str, "Strategy"]) -> None:
         """
         Initialize strategy service.
 
         Args:
             event_bus: Event bus for publishing/subscribing to events
+            strategies: Dictionary mapping strategy names to instances
+
+        Subscribes to:
+            - PriceBarEvent: Routed to strategies based on universe filtering
+            - FillEvent: Routed to strategies for position tracking
         """
         ...
 
-    def load_strategy(self, strategy_path: str, strategy_id: str, config: dict) -> None:
+    def get_metrics(self) -> dict:
         """
-        Load an external strategy from a Python file.
+        Get metrics for all managed strategies.
 
-        Args:
-            strategy_path: Path to .py file containing strategy class
-            strategy_id: Unique identifier for this strategy instance
-            config: Configuration dictionary passed to strategy constructor
-
-        Raises:
-            ValueError: If strategy file cannot be loaded or is invalid
+        Returns:
+            Dictionary with per-strategy metrics including bars_processed,
+            signals_emitted, errors_encountered
         """
         ...
