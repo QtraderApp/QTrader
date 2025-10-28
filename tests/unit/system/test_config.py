@@ -109,7 +109,7 @@ class TestLoggingConfig:
         assert config.format == "console"
         assert config.timestamp_format == "compact"
         assert config.enable_file is True
-        assert config.file_path is None
+        assert config.file_path == "logs/qtrader.log"
         assert config.file_level == "WARNING"
         assert config.file_rotation is True
         assert config.max_file_size_mb == 10
@@ -161,16 +161,16 @@ class TestLoggingConfig:
         assert logger_config.format == "json"
         assert logger_config.file_path == Path("logs/app.log")
 
-    def test_to_logger_config_handles_none_file_path(self):
-        """Test to_logger_config() handles None file_path."""
+    def test_to_logger_config_uses_default_file_path(self):
+        """Test to_logger_config() uses default file_path when not specified."""
         # Arrange
-        config = LoggingConfig(file_path=None)
+        config = LoggingConfig()  # Uses default
 
         # Act
         logger_config = config.to_logger_config()
 
         # Assert
-        assert logger_config.file_path is None
+        assert logger_config.file_path == Path("logs/qtrader.log")
 
 
 class TestSystemConfig:

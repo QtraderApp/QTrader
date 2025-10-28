@@ -44,6 +44,8 @@ def mock_system_config():
     mock_config.output.event_store = Mock()
     mock_config.output.event_store.backend = "sqlite"
     mock_config.output.event_store.filename = "events.db"
+    mock_config.custom_libraries = Mock()
+    mock_config.custom_libraries.strategies = "my_library/strategies"
     mock_config.logging = Mock()
     mock_config.logging.to_logger_config = Mock(return_value=Mock())
     return mock_config
