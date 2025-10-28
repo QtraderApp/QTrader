@@ -65,6 +65,25 @@ class OutputConfig:
 
 
 @dataclass
+class CustomLibrariesConfig:
+    """Custom library paths configuration.
+
+    Specifies directories to scan for custom implementations of:
+    - Strategies
+    - Risk policies
+    - Indicators
+    - Metrics
+
+    System will auto-discover and register implementations from these paths.
+    """
+
+    strategies: str = "my_library/strategies"
+    risk_policies: str = "my_library/risk_policies"
+    indicators: str = "my_library/indicators"
+    metrics: str = "my_library/metrics"
+
+
+@dataclass
 class LoggingConfig:
     """Logging configuration (maps to log_system.LoggingConfig)."""
 
@@ -72,7 +91,7 @@ class LoggingConfig:
     format: Literal["console", "json"] = "console"
     timestamp_format: Literal["iso", "compact", "time", "short"] = "compact"
     enable_file: bool = True
-    file_path: str | None = None
+    file_path: str = "logs/qtrader.log"
     file_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "WARNING"
     file_rotation: bool = True
     max_file_size_mb: int = 10
@@ -109,6 +128,7 @@ class SystemConfig:
         - Data service configuration (HOW to handle data)
         - Output/results directory
         - Logging settings
+        - Custom library paths
 
     What will be added later (as services are refactored):
         - Portfolio service config
@@ -125,6 +145,7 @@ class SystemConfig:
     data: DataServiceConfig = field(default_factory=DataServiceConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    custom_libraries: CustomLibrariesConfig = field(default_factory=CustomLibrariesConfig)
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "SystemConfig":
@@ -217,7 +238,7 @@ class SystemConfig:
             format=logging_dict.get("format", "console"),
             timestamp_format=logging_dict.get("timestamp_format", "compact"),
             enable_file=logging_dict.get("enable_file", True),
-            file_path=logging_dict.get("file_path"),
+            file_path=logging_dict.get("file_path") or "logs/qtrader.log",
             file_level=logging_dict.get("file_level", "WARNING"),
             file_rotation=logging_dict.get("file_rotation", True),
             max_file_size_mb=logging_dict.get("max_file_size_mb", 10),
@@ -225,10 +246,20 @@ class SystemConfig:
             console_width=logging_dict.get("console_width", 0),
         )
 
+        # Custom libraries
+        custom_libraries_dict = config_dict.get("custom_libraries", {})
+        custom_libraries = CustomLibrariesConfig(
+            strategies=custom_libraries_dict.get("strategies", "my_library/strategies"),
+            risk_policies=custom_libraries_dict.get("risk_policies", "my_library/risk_policies"),
+            indicators=custom_libraries_dict.get("indicators", "my_library/indicators"),
+            metrics=custom_libraries_dict.get("metrics", "my_library/metrics"),
+        )
+
         return cls(
             data=data,
             output=output,
             logging=logging,
+            custom_libraries=custom_libraries,
         )
 
 
