@@ -20,7 +20,7 @@ from decimal import Decimal
 import pytest
 
 from qtrader.events.events import SignalEvent
-from qtrader.libraries.risk_policies.base import BaseRiskPolicy, OrderDecision, PortfolioState
+from qtrader.libraries.risk.base import BaseRiskPolicy, OrderDecision, PortfolioState
 
 # ============================================================================
 # Test Fixtures

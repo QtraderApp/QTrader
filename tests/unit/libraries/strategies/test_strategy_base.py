@@ -1,7 +1,7 @@
 """
 Unit tests for qtrader.libraries.strategies.base module.
 
-Tests the BaseStrategy and BaseStrategyConfig abstract classes:
+Tests the Strategy and StrategyConfig abstract classes:
 - Abstract method requirements
 - Config contract (name, display_name, warmup_bars)
 - Properties and lifecycle methods
@@ -14,17 +14,19 @@ Following unittest.prompt.md guidelines:
 - Focus on contract compliance
 """
 
+from decimal import Decimal
+
 import pytest
 
 from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.strategies.base import BaseStrategy, BaseStrategyConfig, Context
+from qtrader.libraries.strategies.base import Context, Strategy, StrategyConfig
 
 # ============================================================================
 # Test Fixtures - Concrete Implementations
 # ============================================================================
 
 
-class ConcreteStrategyConfig(BaseStrategyConfig):
+class ConcreteStrategyConfig(StrategyConfig):
     """Minimal concrete config for testing."""
 
     name: str = "concrete_strategy"
@@ -32,10 +34,10 @@ class ConcreteStrategyConfig(BaseStrategyConfig):
     warmup_bars: int = 10
 
 
-class ConcreteStrategy(BaseStrategy):
+class ConcreteStrategy(Strategy):
     """Minimal concrete strategy for testing."""
 
-    def __init__(self, config: BaseStrategyConfig):
+    def __init__(self, config: StrategyConfig):
         self.config = config
 
     def on_bar(self, event: PriceBarEvent, context: Context) -> None:
@@ -43,13 +45,13 @@ class ConcreteStrategy(BaseStrategy):
         pass
 
 
-class IncompleteStrategy(BaseStrategy):
+class IncompleteStrategy(Strategy):
     """Strategy missing required methods."""
 
     pass
 
 
-class ConfigWithExtraFields(BaseStrategyConfig):
+class ConfigWithExtraFields(StrategyConfig):
     """Config with strategy-specific fields."""
 
     name: str = "custom"
@@ -63,12 +65,12 @@ class ConfigWithExtraFields(BaseStrategyConfig):
 
 
 # ============================================================================
-# Test BaseStrategyConfig
+# Test StrategyConfig
 # ============================================================================
 
 
-class TestBaseStrategyConfigCreation:
-    """Test BaseStrategyConfig instantiation and validation."""
+class TestStrategyConfigCreation:
+    """Test StrategyConfig instantiation and validation."""
 
     def test_config_with_required_fields_succeeds(self) -> None:
         """Config with all required fields should instantiate successfully."""
@@ -94,7 +96,7 @@ class TestBaseStrategyConfigCreation:
         """Config can override metadata fields."""
 
         # Arrange
-        class CustomConfig(BaseStrategyConfig):
+        class CustomConfig(StrategyConfig):
             name: str = "test"
             display_name: str = "Test"
             description: str = "Test strategy"
@@ -114,7 +116,7 @@ class TestBaseStrategyConfigCreation:
         """Config with negative warmup_bars - Pydantic allows but logically invalid."""
 
         # Arrange
-        class InvalidConfig(BaseStrategyConfig):
+        class InvalidConfig(StrategyConfig):
             name: str = "invalid"
             display_name: str = "Invalid"
             warmup_bars: int = -5
@@ -152,14 +154,14 @@ class TestBaseStrategyConfigCreation:
         assert config.warmup_bars == -10  # Assignment succeeded
 
 
-class TestBaseStrategyConfigFields:
-    """Test specific BaseStrategyConfig fields."""
+class TestStrategyConfigFields:
+    """Test specific StrategyConfig fields."""
 
     def test_config_name_field_required(self) -> None:
         """name field is required in config."""
 
         # Arrange
-        class NoNameConfig(BaseStrategyConfig):
+        class NoNameConfig(StrategyConfig):
             display_name: str = "Test"
             warmup_bars: int = 0
 
@@ -176,7 +178,7 @@ class TestBaseStrategyConfigFields:
         """display_name field is required in config."""
 
         # Arrange
-        class NoDisplayConfig(BaseStrategyConfig):
+        class NoDisplayConfig(StrategyConfig):
             name: str = "test"
             warmup_bars: int = 0
 
@@ -189,18 +191,18 @@ class TestBaseStrategyConfigFields:
 
 
 # ============================================================================
-# Test BaseStrategy Abstract Interface
+# Test Strategy Abstract Interface
 # ============================================================================
 
 
-class TestBaseStrategyAbstractInterface:
-    """Test BaseStrategy abstract method enforcement."""
+class TestStrategyAbstractInterface:
+    """Test Strategy abstract method enforcement."""
 
     def test_cannot_instantiate_base_strategy_directly(self) -> None:
-        """BaseStrategy is abstract and cannot be instantiated."""
+        """Strategy is abstract and cannot be instantiated."""
         # Arrange & Act & Assert
         with pytest.raises(TypeError) as exc_info:
-            BaseStrategy(ConcreteStrategyConfig())  # type: ignore[abstract]
+            Strategy(ConcreteStrategyConfig())  # type: ignore[abstract]
 
         assert "abstract" in str(exc_info.value).lower()
 
@@ -221,16 +223,16 @@ class TestBaseStrategyAbstractInterface:
         strategy = ConcreteStrategy(config)
 
         # Assert
-        assert isinstance(strategy, BaseStrategy)
+        assert isinstance(strategy, Strategy)
         assert strategy.config == config
 
 
 # ============================================================================
-# Test BaseStrategy Required Methods
+# Test Strategy Required Methods
 # ============================================================================
 
 
-class TestBaseStrategyRequiredMethods:
+class TestStrategyRequiredMethods:
     """Test that concrete strategies provide required methods."""
 
     def test_init_method_required(self) -> None:
@@ -276,12 +278,12 @@ class TestBaseStrategyRequiredMethods:
 
 
 # ============================================================================
-# Test BaseStrategy Properties
+# Test Strategy Properties
 # ============================================================================
 
 
-class TestBaseStrategyProperties:
-    """Test BaseStrategy property contracts."""
+class TestStrategyProperties:
+    """Test Strategy property contracts."""
 
     def test_name_property_returns_config_name(self) -> None:
         """name property should return config.name."""
@@ -388,8 +390,20 @@ class TestStrategyLifecycleMethods:
                 self.context = context
 
         strategy = TestStrategy(ConcreteStrategyConfig())
-        # Mock event and context
-        event = PriceBarEvent()  # type: ignore[abstract]
+        # Mock event and context with proper fields
+        event = PriceBarEvent(
+            symbol="AAPL",
+            timestamp="2020-01-01T00:00:00",
+            interval="1d",  # Daily bars
+            open=Decimal("100.0"),
+            high=Decimal("105.0"),
+            low=Decimal("99.0"),
+            close=Decimal("103.0"),
+            volume=1000000,
+            cumulative_price_factor=Decimal("1.0"),
+            cumulative_volume_factor=Decimal("1.0"),
+            source="test",
+        )
         context = Context()  # type: ignore[abstract]
 
         # Act
@@ -464,7 +478,7 @@ class TestStrategyConfigInheritance:
         """Strategy can use extended config with custom fields."""
 
         # Arrange
-        class CustomStrategy(BaseStrategy):
+        class CustomStrategy(Strategy):
             def __init__(self, config: ConfigWithExtraFields):
                 self.config = config
                 self.fast = config.fast_period
@@ -496,21 +510,21 @@ class TestStrategyDocumentation:
     """Test that base classes have proper documentation."""
 
     def test_base_strategy_has_docstring(self) -> None:
-        """BaseStrategy should have comprehensive docstring."""
+        """Strategy should have comprehensive docstring."""
         # Arrange & Act & Assert
-        assert BaseStrategy.__doc__ is not None
-        assert len(BaseStrategy.__doc__) > 100
+        assert Strategy.__doc__ is not None
+        assert len(Strategy.__doc__) > 100
 
     def test_base_strategy_config_has_docstring(self) -> None:
-        """BaseStrategyConfig should have comprehensive docstring."""
+        """StrategyConfig should have comprehensive docstring."""
         # Arrange & Act & Assert
-        assert BaseStrategyConfig.__doc__ is not None
-        assert len(BaseStrategyConfig.__doc__) > 100
+        assert StrategyConfig.__doc__ is not None
+        assert len(StrategyConfig.__doc__) > 100
 
     def test_on_bar_method_has_docstring(self) -> None:
         """on_bar method should be documented."""
         # Arrange & Act & Assert
-        assert BaseStrategy.on_bar.__doc__ is not None
+        assert Strategy.on_bar.__doc__ is not None
 
     def test_context_emit_signal_has_docstring(self) -> None:
         """Context.emit_signal should be documented."""

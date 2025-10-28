@@ -7,7 +7,7 @@ All risk policies must inherit from BaseRiskPolicy and implement:
 - batch_evaluate(): Evaluate multiple signals (optional, for netting)
 """
 
-from qtrader.libraries.risk_policies.base import BaseRiskPolicy, OrderDecision, PortfolioState
+from qtrader.libraries.risk.base import BaseRiskPolicy, OrderDecision, PortfolioState
 
 __all__ = [
     "BaseRiskPolicy",

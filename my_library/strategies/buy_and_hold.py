@@ -8,11 +8,11 @@ Demonstrates minimal strategy implementation with no indicators or complex logic
 from pydantic import ConfigDict
 
 from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.strategies import BaseStrategy, BaseStrategyConfig, Context
+from qtrader.libraries.strategies import Context, Strategy, StrategyConfig
 from qtrader.services.strategy.models import SignalIntention
 
 
-class BuyAndHoldConfig(BaseStrategyConfig):
+class BuyAndHoldConfig(StrategyConfig):
     """
     Configuration for Buy and Hold Strategy.
 
@@ -40,7 +40,7 @@ class BuyAndHoldConfig(BaseStrategyConfig):
     confidence: float = 1.0
 
 
-class BuyAndHoldStrategy(BaseStrategy):
+class BuyAndHoldStrategy(Strategy):
     """
     Buy and Hold Strategy.
 

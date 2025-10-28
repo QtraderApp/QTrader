@@ -1,7 +1,7 @@
 """
 Base Strategy Abstract Class.
 
-All strategies must inherit from BaseStrategy and implement the required methods.
+All strategies must inherit from Strategy and implement the required methods.
 This enables the registry system to auto-discover and validate strategy implementations.
 
 Philosophy:
@@ -26,7 +26,7 @@ from qtrader.events.events import PriceBarEvent
 from qtrader.services.strategy.models import Signal, SignalIntention
 
 
-class BaseStrategyConfig(BaseModel):
+class StrategyConfig(BaseModel):
     """
     Base configuration class for all strategies.
 
@@ -45,7 +45,7 @@ class BaseStrategyConfig(BaseModel):
 
     Example:
         ```python
-        class SMACrossoverConfig(BaseStrategyConfig):
+        class SMACrossoverConfig(StrategyConfig):
             # Identity
             name: str = "sma_crossover"
             display_name: str = "SMA Crossover Strategy"
@@ -108,7 +108,7 @@ class BaseStrategyConfig(BaseModel):
         validate_assignment = True  # Validate on attribute assignment
 
 
-class BaseStrategy(ABC):
+class Strategy(ABC):
     """
     Abstract base class for all trading strategies.
 
@@ -136,7 +136,7 @@ class BaseStrategy(ABC):
     Example Implementation:
         ```python
         # 1. Define config (parameters)
-        class SMACrossoverConfig(BaseStrategyConfig):
+        class SMACrossoverConfig(StrategyConfig):
             name: str = "sma_crossover"
             display_name: str = "SMA Crossover Strategy"
             fast_period: int = 10
@@ -147,7 +147,7 @@ class BaseStrategy(ABC):
                 return self.slow_period + 1
 
         # 2. Define strategy (process)
-        class SMACrossoverStrategy(BaseStrategy):
+        class SMACrossoverStrategy(Strategy):
             def __init__(self, config: SMACrossoverConfig):
                 self.config = config  # Required
                 # Initialize indicators with config values
@@ -182,15 +182,15 @@ class BaseStrategy(ABC):
     """
 
     # Required instance variable (must be set in __init__)
-    config: BaseStrategyConfig
+    config: StrategyConfig
 
     @abstractmethod
-    def __init__(self, config: BaseStrategyConfig):
+    def __init__(self, config: StrategyConfig):
         """
         Initialize strategy with configuration.
 
         Args:
-            config: Strategy-specific configuration (inherits from BaseStrategyConfig)
+            config: Strategy-specific configuration (inherits from StrategyConfig)
                    Contains tunable parameters like periods, thresholds, etc.
 
         Example:

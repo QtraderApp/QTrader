@@ -9,11 +9,11 @@ from pydantic import ConfigDict
 
 from qtrader.events.events import PriceBarEvent
 from qtrader.libraries.indicators import BollingerBands
-from qtrader.libraries.strategies import BaseStrategy, BaseStrategyConfig, Context
+from qtrader.libraries.strategies import Context, Strategy, StrategyConfig
 from qtrader.services.strategy.models import SignalIntention
 
 
-class BollingerBreakoutConfig(BaseStrategyConfig):
+class BollingerBreakoutConfig(StrategyConfig):
     """
     Configuration for Bollinger Bands Breakout Strategy.
 
@@ -58,7 +58,7 @@ class BollingerBreakoutConfig(BaseStrategyConfig):
     max_confidence: float = 0.9
 
 
-class BollingerBreakoutStrategy(BaseStrategy):
+class BollingerBreakoutStrategy(Strategy):
     """
     Bollinger Bands Breakout Strategy.
 
@@ -89,7 +89,7 @@ class BollingerBreakoutStrategy(BaseStrategy):
     def __init__(self, config: BollingerBreakoutConfig):
         """Initialize strategy with configuration."""
         super().__init__(config)
-        self.config = config  # Store config (BaseStrategy requirement)
+        self.config = config  # Store config (Strategy requirement)
         self._config = config  # Private typed reference for type checker
 
         # Initialize indicators

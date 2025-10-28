@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Callable, Generic, Type, TypeVar
 
 from qtrader.libraries.indicators.base import BaseIndicator
-from qtrader.libraries.strategies.base import BaseStrategy
+from qtrader.libraries.strategies.base import Strategy
 
 # Type variable for generic registry
 T = TypeVar("T")
@@ -405,7 +405,7 @@ def get_indicator_registry() -> IndicatorRegistry:
     return IndicatorRegistry()
 
 
-class StrategyRegistry(BaseRegistry[BaseStrategy]):
+class StrategyRegistry(BaseRegistry[Strategy]):
     """
     Registry for trading strategies.
 
@@ -428,7 +428,7 @@ class StrategyRegistry(BaseRegistry[BaseStrategy]):
 
     def __init__(self):
         """Initialize strategy registry."""
-        super().__init__(BaseStrategy, "strategy")
+        super().__init__(Strategy, "strategy")
 
     def discover(
         self,
