@@ -18,7 +18,6 @@ class MeanReversionConfig(StrategyConfig):
     name: str = "mean_reversion"
     display_name: str = "Mean Reversion"
     description: str = "Buy on oversold, sell on overbought"
-    warmup_bars: int = 20
 
     period: int = 20
     std_dev: float = 2.0

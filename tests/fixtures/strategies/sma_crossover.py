@@ -17,7 +17,6 @@ class SMAConfig(StrategyConfig):
     name: str = "sma_crossover"
     display_name: str = "SMA Crossover"
     description: str = "Buy when fast SMA crosses above slow SMA"
-    warmup_bars: int = 50
 
     fast_period: int = 10
     slow_period: int = 20
