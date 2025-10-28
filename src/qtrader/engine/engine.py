@@ -244,11 +244,11 @@ class BacktestEngine:
             "dataset": dataset,
         }
 
-        # TODO: Align EventBus with IEventBus protocol to resolve type incompatibility
         data_service = DataService.from_config(
             config_dict=config_dict,
             dataset=dataset,
             event_bus=event_bus,
+            system_config=system_config,
         )
 
         # Initialize StrategyService if strategies configured
@@ -259,8 +259,8 @@ class BacktestEngine:
                 strategy_count=len(config.strategies),
             )
 
-            # Get custom strategies path (hardcoded for now, will add to system config later)
-            custom_strategies_path = Path("my_library/strategies")
+            # Get custom strategies path from system config
+            custom_strategies_path = Path(system_config.custom_libraries.strategies)
 
             # Discover strategies using registry
             strategy_registry = StrategyRegistry()
@@ -270,6 +270,7 @@ class BacktestEngine:
                     "backtest.engine.strategies_discovered",
                     discovered_count=len(strategies_loaded),
                     strategy_names=list(strategies_loaded.keys()),
+                    path=str(custom_strategies_path),
                 )
             except Exception as e:
                 logger.warning(
@@ -466,8 +467,10 @@ class BacktestEngine:
             # Example: 100 symbols * 252 days * 500 bytes = ~12.6 MB (manageable)
             #          1000 symbols * 2520 days * 500 bytes = ~1.26 GB (high)
             #
-            # TODO: Refactor DataService to use heap-merge streaming for incremental
-            #       publishing instead of buffering all bars in memory.
+            # FUTURE OPTIMIZATION: Heap-merge streaming for memory efficiency.
+            # Priority: Medium - optimize when targeting 1000+ symbol universes.
+            # Current approach works well for typical use cases (10-500 symbols).
+            # Heap-merge would stream bars incrementally instead of buffering all in memory.
             try:
                 self._data_service.stream_universe(
                     symbols=list(source_symbols),

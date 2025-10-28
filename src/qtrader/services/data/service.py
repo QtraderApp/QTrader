@@ -126,10 +126,12 @@ class DataService:
     @classmethod
     def from_config(
         cls,
-        config_dict: dict,
+        config_dict: dict[str, Any],
         dataset: str,
         resolver: Optional[DataSourceResolver] = None,
         event_bus: Optional[IEventBus] = None,
+        timezone: Optional[str] = None,
+        system_config: Optional[Any] = None,
     ) -> "DataService":
         """
         Factory method to create DataService from backtest configuration.
@@ -143,6 +145,8 @@ class DataService:
                     (e.g., "algoseek-us-equity-1d-unadjusted")
             resolver: Optional DataSourceResolver instance
             event_bus: Optional EventBus for event-driven operation
+            timezone: Optional timezone (from system config, defaults to "America/New_York")
+            system_config: Optional SystemConfig for sources_config path
 
         Returns:
             Configured DataService instance
@@ -164,9 +168,10 @@ class DataService:
             data_sources.yaml, not from parsing the dataset name. This ensures
             consistency and allows flexible naming.
         """
-        # Create resolver if not provided
+        # Create resolver if not provided, using system config path if available
         if resolver is None:
-            resolver = DataSourceResolver()
+            sources_config = system_config.data.sources_config if system_config else None
+            resolver = DataSourceResolver(system_sources_config=sources_config)
 
         # Get dataset metadata from resolver (source of truth)
         if dataset not in resolver.sources:

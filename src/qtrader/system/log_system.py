@@ -155,7 +155,7 @@ class LoggerFactory:
 
         # Configure file logging if enabled
         if config.enable_file:
-            # Use default path if not specified
+            # Use default if file_path not provided
             if config.file_path is None:
                 config.file_path = Path("logs/qtrader.log")
 
