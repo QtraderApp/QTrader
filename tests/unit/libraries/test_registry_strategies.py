@@ -150,11 +150,12 @@ class TestGetStrategyConfig:
         config = registry.get_strategy_config("sma_crossover")
 
         # Assert
-        assert config.warmup_bars == 50
-        # Config is Pydantic model with extra fields allowed
+        # SMAConfig subclass has fast_period and slow_period
+        # Access via getattr since registry returns base StrategyConfig type
+        assert getattr(config, "fast_period", None) == 10
+        assert getattr(config, "slow_period", None) == 20
+        # Config is Pydantic model
         assert hasattr(config, "model_extra")
-        if config.model_extra:
-            assert config.model_extra.get("fast_period") == 10
 
 
 class TestListStrategies:

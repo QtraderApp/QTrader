@@ -85,7 +85,6 @@ class TestStrategyDiscovery:
         assert isinstance(config, StrategyConfig)
         assert config.name == "sma_crossover"
         assert config.display_name == "SMA Crossover"
-        assert config.warmup_bars == 50
 
     def test_discover_multiple_strategies(self, loader: StrategyLoader, fixtures_dir: Path) -> None:
         """Can discover multiple strategies from same directory."""
@@ -175,7 +174,6 @@ from qtrader.events.events import PriceBarEvent
 class DupConfig(StrategyConfig):
     name: str = "duplicate"
     display_name: str = "Duplicate"
-    warmup_bars: int = 0
 
 CONFIG = DupConfig()
 
@@ -195,7 +193,6 @@ from qtrader.events.events import PriceBarEvent
 class DupConfig2(StrategyConfig):
     name: str = "duplicate"  # Same name!
     display_name: str = "Duplicate 2"
-    warmup_bars: int = 0
 
 CONFIG = DupConfig2()
 
@@ -242,7 +239,6 @@ from qtrader.events.events import PriceBarEvent
 class ExtraConfig(StrategyConfig):
     name: str = "extra_strategy"
     display_name: str = "Extra"
-    warmup_bars: int = 0
 
 CONFIG = ExtraConfig()
 
@@ -283,7 +279,6 @@ from qtrader.events.events import PriceBarEvent
 class NestedConfig(StrategyConfig):
     name: str = "nested"
     display_name: str = "Nested"
-    warmup_bars: int = 0
 
 CONFIG = NestedConfig()
 
@@ -315,7 +310,6 @@ from qtrader.events.events import PriceBarEvent
 class NestedConfig(StrategyConfig):
     name: str = "nested"
     display_name: str = "Nested"
-    warmup_bars: int = 0
 
 CONFIG = NestedConfig()
 

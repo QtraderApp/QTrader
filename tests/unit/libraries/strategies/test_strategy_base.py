@@ -47,7 +47,6 @@ class ConcreteStrategyConfig(StrategyConfig):
 
     name: str = "concrete_strategy"
     display_name: str = "Concrete Strategy"
-    warmup_bars: int = 10
 
 
 class ConcreteStrategy(Strategy):
@@ -72,7 +71,6 @@ class ConfigWithExtraFields(StrategyConfig):
 
     name: str = "custom"
     display_name: str = "Custom Strategy"
-    warmup_bars: int = 20
 
     # Strategy-specific parameters
     fast_period: int = 10
@@ -96,7 +94,6 @@ class TestStrategyConfigCreation:
         # Assert
         assert config.name == "concrete_strategy"
         assert config.display_name == "Concrete Strategy"
-        assert config.warmup_bars == 10
 
     def test_config_default_metadata_fields(self) -> None:
         """Config should have default values for metadata fields."""
@@ -128,23 +125,6 @@ class TestStrategyConfigCreation:
         assert config.author == "Test Team"
         assert config.version == "2.5.0"
 
-    def test_config_warmup_bars_validation_negative_fails(self) -> None:
-        """Config with negative warmup_bars - Pydantic allows but logically invalid."""
-
-        # Arrange
-        class InvalidConfig(StrategyConfig):
-            name: str = "invalid"
-            display_name: str = "Invalid"
-            warmup_bars: int = -5
-
-        # Act
-        config = InvalidConfig()
-
-        # Assert - Pydantic Field with ge=0 is defined, but class-level override works
-        # This is a known Pydantic behavior - validation happens on model_validate
-        # For now, just verify config created (strategy should validate logic separately)
-        assert config.warmup_bars == -5  # Created, but logically invalid
-
     def test_config_with_strategy_specific_fields(self) -> None:
         """Config can add strategy-specific parameters."""
         # Arrange & Act
@@ -161,13 +141,10 @@ class TestStrategyConfigCreation:
         config = ConcreteStrategyConfig()
 
         # Act - Pydantic validate_assignment is set to True in base config
-        # But Field-level validation (ge=0) only applies during model construction
-        # Assignment validation checks types, not constraints
-        config.warmup_bars = -10
+        config.name = "new_name"
 
-        # Assert - assignment works, but value is logically invalid
-        # Strategy code should validate warmup_bars >= 0 separately
-        assert config.warmup_bars == -10  # Assignment succeeded
+        # Assert - assignment works
+        assert config.name == "new_name"
 
 
 class TestStrategyConfigFields:
@@ -179,7 +156,6 @@ class TestStrategyConfigFields:
         # Arrange
         class NoNameConfig(StrategyConfig):
             display_name: str = "Test"
-            warmup_bars: int = 0
 
         # Act & Assert - Pydantic requires default or passed value
         try:
@@ -196,7 +172,6 @@ class TestStrategyConfigFields:
         # Arrange
         class NoDisplayConfig(StrategyConfig):
             name: str = "test"
-            warmup_bars: int = 0
 
         # Act & Assert
         try:
@@ -327,19 +302,6 @@ class TestStrategyProperties:
         assert display_name == "Concrete Strategy"
         assert display_name == config.display_name
 
-    def test_warmup_bars_property_returns_config_warmup_bars(self) -> None:
-        """warmup_bars property should return config.warmup_bars."""
-        # Arrange
-        config = ConcreteStrategyConfig()
-        strategy = ConcreteStrategy(config)
-
-        # Act
-        warmup = strategy.warmup_bars
-
-        # Assert
-        assert warmup == 10
-        assert warmup == config.warmup_bars
-
     def test_properties_read_only(self) -> None:
         """Strategy properties should be read-only."""
         # Arrange
@@ -440,11 +402,6 @@ class TestContextInterface:
         # Arrange & Act & Assert
         assert hasattr(Context, "emit_signal")
 
-    def test_context_has_get_position_method(self) -> None:
-        """Context should define get_position method."""
-        # Arrange & Act & Assert
-        assert hasattr(Context, "get_position")
-
     def test_context_has_get_bars_method(self) -> None:
         """Context should define get_bars method."""
         # Arrange & Act & Assert
@@ -472,7 +429,6 @@ class TestStrategyConfigInheritance:
         # Assert - base fields present
         assert hasattr(config, "name")
         assert hasattr(config, "display_name")
-        assert hasattr(config, "warmup_bars")
         assert hasattr(config, "description")
         assert hasattr(config, "version")
 
