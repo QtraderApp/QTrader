@@ -306,7 +306,6 @@ class BacktestEngine:
                         strategy_id=strategy_id,
                         strategy_class=strategy_class.__name__,
                         universe=strategy_config.universe,
-                        warmup_bars=strategy_config.warmup_bars,
                     )
                 except Exception as e:
                     logger.error(

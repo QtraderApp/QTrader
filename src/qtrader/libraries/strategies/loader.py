@@ -205,7 +205,6 @@ class StrategyLoader:
             display_name=config.display_name,
             class_name=strategy_class.__name__,
             file=file_path.name,
-            warmup_bars=config.warmup_bars,
         )
 
     def _find_strategies_in_module(self, module: Any, file_path: Path) -> list[type[Strategy]]:

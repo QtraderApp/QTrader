@@ -427,9 +427,9 @@ class StrategyRegistry(BaseRegistry[Strategy]):
         strategy = BollingerBreakout(config)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize strategy registry."""
-        super().__init__(Strategy, "strategy")
+        super().__init__(Strategy, "strategy")  # type: ignore[type-abstract]
         self._configs: dict[str, StrategyConfig] = {}  # Store configs alongside classes
         self._loader = StrategyLoader()
 
@@ -470,7 +470,6 @@ class StrategyRegistry(BaseRegistry[Strategy]):
             metadata = {
                 "source_type": "custom",
                 "class_name": strategy_class.__name__,
-                "warmup_bars": config.warmup_bars,
                 "display_name": config.display_name,
                 "description": config.description,
             }
@@ -533,7 +532,6 @@ class StrategyRegistry(BaseRegistry[Strategy]):
                 metadata.update(
                     {
                         "display_name": config.display_name,
-                        "warmup_bars": config.warmup_bars,
                         "description": config.description,
                     }
                 )

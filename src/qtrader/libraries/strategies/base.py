@@ -17,6 +17,7 @@ Registry Name: Defined in config.name field (e.g., "buy_and_hold", "sma_crossove
 """
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -42,7 +43,6 @@ class StrategyConfig(BaseModel):
     Required Fields:
     - name: Strategy identifier for registry (e.g., "sma_crossover")
     - display_name: Human-readable name for UI/reports (e.g., "SMA Crossover")
-    - warmup_bars: Number of bars needed before strategy starts trading
 
     Example:
         ```python
@@ -57,9 +57,6 @@ class StrategyConfig(BaseModel):
             created: str = "2024-01-15"
             updated: str = "2024-03-20"
             version: str = "1.2.0"
-
-            # Warmup
-            warmup_bars: int = 21
 
             # Strategy-specific parameters
             fast_period: int = 10
@@ -99,7 +96,6 @@ class StrategyConfig(BaseModel):
     version: str = Field(default="1.0.0", description="Strategy version (semantic versioning)")
 
     # Base fields (can be overridden by child configs)
-    warmup_bars: int = Field(default=0, ge=0, description="Number of bars needed before strategy starts trading")
     universe: list[str] = Field(
         default_factory=list,
         description="List of symbols this strategy trades. Empty list means all symbols.",
@@ -122,20 +118,25 @@ class Strategy(ABC):
     - Process market data (PriceBarEvent)
     - Generate trading signals (via context.emit_signal)
     - Use config for PARAMETERS (tunable values)
-    - Manage strategy-specific state (indicators, counters, etc.)
+    - Manage strategy-specific state (indicators, counters, positions if needed)
 
     Does NOT:
     - Hardcode parameter values (use config instead)
-    - Know about portfolio state (use context.get_position if needed)
     - Calculate position sizes (that's RiskService/Portfolio Manager)
     - Execute orders (that's ExecutionService)
     - Apply risk limits (that's RiskService)
 
+    Position Tracking Philosophy:
+    - Strategies can track their own positions via on_position_filled() if needed
+    - Most strategies don't need position state - just emit signals
+    - RiskManager handles position checks and sizing
+    - For position-aware strategies: subscribe to position events
+
     Lifecycle:
     1. __init__(config) - Initialize with configuration
     2. setup() - Optional setup phase (connections, validation, etc.)
-    3. warmup phase - Process warmup bars (is_warmup=True), no signals
-    4. trading phase - Process bars and generate signals
+    3. on_bar() - Process bars and generate signals (self-manages warmup via get_bars())
+    4. on_position_filled() - Optional: track position changes
     5. teardown() - Optional cleanup phase (close connections, save state, etc.)
 
     Example Implementation:
@@ -147,43 +148,43 @@ class Strategy(ABC):
             fast_period: int = 10
             slow_period: int = 20
 
-            @property
-            def warmup_bars(self) -> int:
-                return self.slow_period + 1
-
         # 2. Define strategy (process)
         class SMACrossoverStrategy(Strategy):
             def __init__(self, config: SMACrossoverConfig):
                 self.config = config  # Required
-                # Initialize indicators with config values
-                self.fast_sma = SMA(period=config.fast_period)
-                self.slow_sma = SMA(period=config.slow_period)
-
-            def warmup_bars_required(self) -> int:
-                return self.config.warmup_bars
+                self.positions = {}  # Optional: track positions if needed
 
             def on_bar(self, event: PriceBarEvent, context: Context) -> None:
-                # Update indicators
-                self.fast_sma.update(event.bar)
-                self.slow_sma.update(event.bar)
+                # Get bars for indicator calculation
+                bars = context.get_bars(event.symbol, n=self.config.slow_period)
 
-                # Don't trade during warmup
-                if event.is_warmup or not self.fast_sma.is_ready:
+                # Self-managed warmup: skip if insufficient data
+                if bars is None or len(bars) < self.config.slow_period:
                     return
 
-                # Trading logic (uses config values implicitly via indicators)
-                if self.fast_sma.value > self.slow_sma.value:
+                # Calculate indicators
+                fast_sma = sum(b.close for b in bars[-self.config.fast_period:]) / self.config.fast_period
+                slow_sma = sum(b.close for b in bars) / self.config.slow_period
+
+                # Trading logic
+                if fast_sma > slow_sma:
                     context.emit_signal(
                         symbol=event.symbol,
                         intention="OPEN_LONG",
                         confidence=0.8
                     )
+
+            def on_position_filled(self, event: PositionFilledEvent, context: Context) -> None:
+                # Optional: track position changes
+                self.positions[event.symbol] = event.quantity
         ```
 
     Key Design:
         - Strategy class defines PROCESS: "if fast > slow, buy"
         - Config class defines PARAMETERS: "fast=10, slow=20"
         - Same strategy, different configs = parameter optimization
+        - Warmup self-managed: check get_bars() returns enough data
+        - Position tracking optional: use on_position_filled() if needed
     """
 
     # Required instance variable (must be set in __init__)
@@ -281,6 +282,54 @@ class Strategy(ABC):
         """
         pass
 
+    def on_position_filled(self, event: Any, context: "Context") -> None:
+        """
+        Optional: Handle position fill events for position tracking.
+
+        Called when a position is opened, closed, or modified. Use this to
+        maintain strategy-level position state if your strategy needs to know
+        current positions.
+
+        Args:
+            event: PositionFilledEvent containing:
+                  - event.symbol: Symbol ticker
+                  - event.quantity: New position quantity (positive=long, negative=short, 0=flat)
+                  - event.price: Fill price
+                  - event.timestamp: Fill timestamp
+            context: Strategy context (same as on_bar)
+
+        Example:
+            def __init__(self, config):
+                self.config = config
+                self.positions = {}  # Track positions
+
+            def on_position_filled(self, event: PositionFilledEvent, context: Context):
+                # Update position tracking
+                self.positions[event.symbol] = event.quantity
+
+                # Log position change
+                if event.quantity == 0:
+                    print(f"Closed position in {event.symbol}")
+                elif event.quantity > 0:
+                    print(f"Long {event.quantity} shares of {event.symbol}")
+                else:
+                    print(f"Short {abs(event.quantity)} shares of {event.symbol}")
+
+            def on_bar(self, event: PriceBarEvent, context: Context):
+                # Use position state in trading logic
+                current_position = self.positions.get(event.symbol, 0)
+                if current_position > 0:
+                    # Already long, maybe scale out or hold
+                    pass
+
+        Note:
+            - Default implementation does nothing (optional override)
+            - Called AFTER position change is recorded
+            - Strategies that don't care about positions don't need to implement this
+            - For most strategies, RiskManager handles position logic - no need to track
+        """
+        pass
+
     @abstractmethod
     def on_bar(self, event: PriceBarEvent, context: "Context") -> None:
         """
@@ -349,33 +398,9 @@ class Strategy(ABC):
         """
         return self.config.display_name
 
-    @property
-    def warmup_bars(self) -> int:
-        """
-        Return number of bars needed before strategy can start trading.
-
-        Returns:
-            Number of warmup bars required (0 if no warmup needed)
-            Typically returns self.config.warmup_bars
-
-        Examples:
-            - Buy and Hold: 0 (no indicators)
-            - SMA(20): 20 bars
-            - SMA Crossover(10, 20): 21 bars (slow period + 1)
-            - RSI(14): ~28 bars (2x period for stability)
-
-        Implementation:
-            @property
-            def warmup_bars(self) -> int:
-                return self.config.warmup_bars
-
-        Note:
-            - Engine will load this many historical bars before start_date
-            - Engine calls on_bar with is_warmup=True for warmup phase
-            - Usually delegates to config.warmup_bars
-            - Config calculates warmup from other parameters when possible
-        """
-        return self.config.warmup_bars
+    # Note: warmup_bars property removed - strategies self-manage warmup
+    # by checking if get_bars() returns sufficient data. No centralized
+    # warmup coordination needed.
 
 
 # ============================================================================
