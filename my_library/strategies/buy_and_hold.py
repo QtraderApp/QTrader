@@ -33,9 +33,6 @@ class BuyAndHoldConfig(StrategyConfig):
     updated: str = "2024-10-23"
     version: str = "1.0.0"
 
-    # Warmup
-    warmup_bars: int = 0  # No warmup needed
-
     # Signal confidence (always max confidence)
     confidence: float = 1.0
 

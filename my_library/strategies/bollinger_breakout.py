@@ -40,10 +40,7 @@ class BollingerBreakoutConfig(StrategyConfig):
     updated: str = "2024-10-23"
     version: str = "1.1.0"
 
-    # Warmup
-    warmup_bars: int = 30  # Enough for BB indicator to warm up
-
-    # Bollinger Bands parameters
+    # Bollinger Bands parameters (strategy needs bb_period bars minimum)
     bb_period: int = 20
     bb_num_std: float = 2.0
 
