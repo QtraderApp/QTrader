@@ -33,7 +33,8 @@ from pathlib import Path
 from typing import Any, Callable, Generic, Type, TypeVar
 
 from qtrader.libraries.indicators.base import BaseIndicator
-from qtrader.libraries.strategies.base import Strategy
+from qtrader.libraries.strategies.base import Strategy, StrategyConfig
+from qtrader.libraries.strategies.loader import StrategyLoader, StrategyLoadError
 
 # Type variable for generic registry
 T = TypeVar("T")
@@ -429,6 +430,116 @@ class StrategyRegistry(BaseRegistry[Strategy]):
     def __init__(self):
         """Initialize strategy registry."""
         super().__init__(Strategy, "strategy")
+        self._configs: dict[str, StrategyConfig] = {}  # Store configs alongside classes
+        self._loader = StrategyLoader()
+
+    def load_from_directory(
+        self,
+        directory: Path,
+        recursive: bool = False,
+    ) -> dict[str, tuple[type[Strategy], StrategyConfig]]:
+        """
+        Load strategies using StrategyLoader (new approach).
+
+        This is the recommended way to load strategies as it properly
+        extracts StrategyConfig instances from the same file.
+
+        Args:
+            directory: Path to directory containing strategy .py files
+            recursive: If True, search subdirectories
+
+        Returns:
+            Dict mapping strategy name to (StrategyClass, config)
+
+        Raises:
+            StrategyLoadError: If directory doesn't exist or loading fails
+
+        Example:
+            registry = StrategyRegistry()
+            strategies = registry.load_from_directory(Path("my_library/strategies"))
+
+            for name, (cls, config) in strategies.items():
+                print(f"Loaded: {name} - {config.display_name}")
+        """
+        strategies: dict[str, tuple[type[Strategy], StrategyConfig]] = self._loader.load_from_directory(
+            directory, recursive
+        )
+
+        # Register each strategy in the base registry
+        for name, (strategy_class, config) in strategies.items():
+            metadata = {
+                "source_type": "custom",
+                "class_name": strategy_class.__name__,
+                "warmup_bars": config.warmup_bars,
+                "display_name": config.display_name,
+                "description": config.description,
+            }
+
+            self.register(name, strategy_class, metadata, allow_override=False)
+            self._configs[name] = config
+
+        return strategies
+
+    def get_strategy_class(self, name: str) -> type[Strategy]:
+        """
+        Get strategy class by name.
+
+        Args:
+            name: Strategy name (from config.name)
+
+        Returns:
+            Strategy class
+
+        Raises:
+            ComponentNotFoundError: If strategy not found
+        """
+        return self.get(name)
+
+    def get_strategy_config(self, name: str) -> StrategyConfig:
+        """
+        Get strategy config by name.
+
+        Args:
+            name: Strategy name (from config.name)
+
+        Returns:
+            StrategyConfig instance
+
+        Raises:
+            ComponentNotFoundError: If strategy not found
+        """
+        if name not in self._configs:
+            raise ComponentNotFoundError(f"Strategy '{name}' not found or has no config")
+
+        return self._configs[name]
+
+    def list_strategies(self) -> dict[str, dict[str, Any]]:
+        """
+        List all registered strategies with their metadata.
+
+        Returns:
+            Dict mapping strategy names to metadata
+
+        Example:
+            strategies = registry.list_strategies()
+            for name, info in strategies.items():
+                print(f"{name}: {info['display_name']} (warmup: {info['warmup_bars']})")
+        """
+        result = {}
+        for name in self.list_names():
+            metadata = self.get_metadata(name)
+            if name in self._configs:
+                config = self._configs[name]
+                metadata.update(
+                    {
+                        "display_name": config.display_name,
+                        "warmup_bars": config.warmup_bars,
+                        "description": config.description,
+                    }
+                )
+            result[name] = metadata
+
+        return result
 
     def discover(
         self,
@@ -465,16 +576,15 @@ class StrategyRegistry(BaseRegistry[Strategy]):
                 name_transform=lambda name: name.lower(),
             )
 
-        # Discover custom strategies
+        # Discover custom strategies using StrategyLoader
         if custom_paths:
             for custom_path in custom_paths:
-                if custom_path.exists():
-                    counts["custom"] += self.discover_from_directory(
-                        custom_path,
-                        source_type="custom",
-                        recursive=True,
-                        name_transform=lambda name: name.lower(),
-                    )
+                try:
+                    strategies = self.load_from_directory(custom_path, recursive=True)
+                    counts["custom"] += len(strategies)
+                except StrategyLoadError as e:
+                    # Log error but continue with other paths
+                    print(f"Warning: Failed to load strategies from {custom_path}: {e}")
 
         return counts
 

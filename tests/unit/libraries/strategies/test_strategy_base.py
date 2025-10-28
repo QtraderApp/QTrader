@@ -15,15 +15,31 @@ Following unittest.prompt.md guidelines:
 """
 
 from decimal import Decimal
+from unittest.mock import Mock
 
 import pytest
 
 from qtrader.events.events import PriceBarEvent
-from qtrader.libraries.strategies.base import Context, Strategy, StrategyConfig
+from qtrader.libraries.strategies.base import Strategy, StrategyConfig
+from qtrader.services.strategy.context import Context
 
 # ============================================================================
 # Test Fixtures - Concrete Implementations
 # ============================================================================
+
+
+@pytest.fixture
+def mock_event_bus():
+    """Mock event bus for Context creation."""
+    event_bus = Mock()
+    event_bus.publish = Mock()
+    return event_bus
+
+
+@pytest.fixture
+def context(mock_event_bus):
+    """Create a Context instance for testing."""
+    return Context(strategy_id="test_strategy", event_bus=mock_event_bus)
 
 
 class ConcreteStrategyConfig(StrategyConfig):
@@ -256,7 +272,7 @@ class TestStrategyRequiredMethods:
         assert hasattr(strategy, "on_bar")
         assert callable(strategy.on_bar)
 
-    def test_setup_method_optional(self) -> None:
+    def test_setup_method_optional(self, context) -> None:
         """setup method is optional (has default implementation)."""
         # Arrange
         strategy = ConcreteStrategy(ConcreteStrategyConfig())
@@ -264,9 +280,9 @@ class TestStrategyRequiredMethods:
         # Act & Assert
         assert hasattr(strategy, "setup")
         # Should not raise when called
-        strategy.setup(Context())  # type: ignore[abstract]
+        strategy.setup(context)
 
-    def test_teardown_method_optional(self) -> None:
+    def test_teardown_method_optional(self, context) -> None:
         """teardown method is optional (has default implementation)."""
         # Arrange
         strategy = ConcreteStrategy(ConcreteStrategyConfig())
@@ -274,7 +290,7 @@ class TestStrategyRequiredMethods:
         # Act & Assert
         assert hasattr(strategy, "teardown")
         # Should not raise when called
-        strategy.teardown(Context())  # type: ignore[abstract]
+        strategy.teardown(context)
 
 
 # ============================================================================
@@ -342,7 +358,7 @@ class TestStrategyProperties:
 class TestStrategyLifecycleMethods:
     """Test strategy lifecycle: setup, on_bar, teardown."""
 
-    def test_setup_receives_context(self) -> None:
+    def test_setup_receives_context(self, context) -> None:
         """setup should receive Context parameter."""
 
         # Arrange
@@ -352,7 +368,6 @@ class TestStrategyLifecycleMethods:
                 self.setup_context = context
 
         strategy = TestStrategy(ConcreteStrategyConfig())
-        context = Context()  # type: ignore[abstract]
 
         # Act
         strategy.setup(context)
@@ -361,7 +376,7 @@ class TestStrategyLifecycleMethods:
         assert hasattr(strategy, "setup_called")
         assert strategy.setup_called is True
 
-    def test_teardown_receives_context(self) -> None:
+    def test_teardown_receives_context(self, context) -> None:
         """teardown should receive Context parameter."""
 
         # Arrange
@@ -370,7 +385,6 @@ class TestStrategyLifecycleMethods:
                 self.teardown_called = True
 
         strategy = TestStrategy(ConcreteStrategyConfig())
-        context = Context()  # type: ignore[abstract]
 
         # Act
         strategy.teardown(context)
@@ -379,7 +393,7 @@ class TestStrategyLifecycleMethods:
         assert hasattr(strategy, "teardown_called")
         assert strategy.teardown_called is True
 
-    def test_on_bar_receives_event_and_context(self) -> None:
+    def test_on_bar_receives_event_and_context(self, context) -> None:
         """on_bar should receive PriceBarEvent and Context."""
 
         # Arrange
@@ -404,7 +418,6 @@ class TestStrategyLifecycleMethods:
             cumulative_volume_factor=Decimal("1.0"),
             source="test",
         )
-        context = Context()  # type: ignore[abstract]
 
         # Act
         strategy.on_bar(event, context)
@@ -497,7 +510,7 @@ class TestStrategyConfigInheritance:
         assert strategy.slow == 20
         assert isinstance(strategy.config, ConfigWithExtraFields)
         # Access threshold through typed config
-        typed_config: ConfigWithExtraFields = strategy.config  # type: ignore[assignment]
+        typed_config: ConfigWithExtraFields = strategy.config
         assert typed_config.threshold == 0.05
 
 

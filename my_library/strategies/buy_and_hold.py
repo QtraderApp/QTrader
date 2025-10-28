@@ -75,20 +75,20 @@ class BuyAndHoldStrategy(Strategy):
         if self._bought:
             return
 
-        bar = event.bar
-        if bar is None:
-            return
-
         # Buy on first bar
         context.emit_signal(
-            timestamp=bar.trade_datetime,
-            strategy_id=self.config.name,
+            timestamp=event.timestamp,
             symbol=event.symbol,
             intention=SignalIntention.OPEN_LONG,
+            price=event.close,
             confidence=self._config.confidence,
             reason="Buy and hold - initial purchase",
-            metadata={"price": bar.close},
+            metadata={"price": str(event.close)},
         )
 
         # Mark as bought
         self._bought = True
+
+
+# Config instance for auto-discovery
+CONFIG = BuyAndHoldConfig()

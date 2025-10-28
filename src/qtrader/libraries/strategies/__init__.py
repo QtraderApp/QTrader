@@ -11,9 +11,12 @@ All strategy configs must inherit from StrategyConfig:
 """
 
 from qtrader.libraries.strategies.base import Context, Strategy, StrategyConfig
+from qtrader.libraries.strategies.loader import StrategyLoader, StrategyLoadError
 
 __all__ = [
     "Strategy",
     "StrategyConfig",
     "Context",
+    "StrategyLoader",
+    "StrategyLoadError",
 ]

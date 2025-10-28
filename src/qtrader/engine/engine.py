@@ -10,14 +10,20 @@ Pure event-driven orchestrator that coordinates services via EventBus.
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
 
 from qtrader.engine.config import BacktestConfig
 from qtrader.events.event_bus import EventBus
 from qtrader.events.event_store import EventStore, InMemoryEventStore, SQLiteEventStore
+from qtrader.libraries.registry import StrategyRegistry
 from qtrader.services.data.service import DataService
+from qtrader.services.strategy.service import StrategyService
 from qtrader.system.config import get_system_config
+
+if TYPE_CHECKING:
+    from qtrader.libraries.strategies import Strategy
 
 logger = structlog.get_logger(__name__)
 
@@ -100,6 +106,7 @@ class BacktestEngine:
         config: BacktestConfig,
         event_bus: EventBus,
         data_service: DataService,
+        strategy_service: StrategyService | None = None,
         event_store: EventStore | None = None,
         results_dir: Path | None = None,
     ) -> None:
@@ -110,12 +117,14 @@ class BacktestEngine:
             config: Backtest configuration
             event_bus: Event bus for publishing events
             data_service: Data service for loading historical bars
+            strategy_service: Optional strategy service for running trading strategies
             event_store: Optional persistence backend
             results_dir: Optional directory for run artifacts
         """
         self.config = config
         self._event_bus = event_bus
         self._data_service = data_service
+        self._strategy_service = strategy_service
         self._event_store = event_store
         self._results_dir = results_dir
         self._bar_count = 0  # Initialize for tracking bars processed
@@ -129,6 +138,7 @@ class BacktestEngine:
             end_date=config.end_date,
             universe_size=len(all_symbols),
             data_sources=len(config.data.sources),
+            strategies=len(strategy_service._strategies) if strategy_service else 0,
             event_store=getattr(event_store, "__class__", type(None)).__name__,
             results_dir=str(results_dir) if results_dir else None,
         )
@@ -241,16 +251,91 @@ class BacktestEngine:
             event_bus=event_bus,
         )
 
+        # Initialize StrategyService if strategies configured
+        strategy_service: StrategyService | None = None
+        if hasattr(config, "strategies") and config.strategies:
+            logger.info(
+                "backtest.engine.loading_strategies",
+                strategy_count=len(config.strategies),
+            )
+
+            # Get custom strategies path (hardcoded for now, will add to system config later)
+            custom_strategies_path = Path("my_library/strategies")
+
+            # Discover strategies using registry
+            strategy_registry = StrategyRegistry()
+            try:
+                strategies_loaded = strategy_registry.load_from_directory(custom_strategies_path, recursive=False)
+                logger.info(
+                    "backtest.engine.strategies_discovered",
+                    discovered_count=len(strategies_loaded),
+                    strategy_names=list(strategies_loaded.keys()),
+                )
+            except Exception as e:
+                logger.warning(
+                    "backtest.engine.strategy_discovery_failed",
+                    path=str(custom_strategies_path),
+                    error=str(e),
+                )
+                strategies_loaded = {}
+
+            # Instantiate strategies from config
+            strategy_instances: dict[str, "Strategy"] = {}
+            for strategy_cfg in config.strategies:
+                strategy_id = strategy_cfg.strategy_id
+
+                # Get strategy class and config from registry
+                try:
+                    strategy_class = strategy_registry.get_strategy_class(strategy_id)
+                    base_config = strategy_registry.get_strategy_config(strategy_id)
+
+                    # Override universe from portfolio.yaml
+                    universe = strategy_cfg.universe
+
+                    # Create new config with updated universe
+                    strategy_config_dict = base_config.model_dump()
+                    strategy_config_dict["universe"] = universe
+                    strategy_config = type(base_config)(**strategy_config_dict)
+
+                    # Instantiate strategy
+                    strategy_instance = strategy_class(strategy_config)
+                    strategy_instances[strategy_id] = strategy_instance
+
+                    logger.info(
+                        "backtest.engine.strategy_instantiated",
+                        strategy_id=strategy_id,
+                        strategy_class=strategy_class.__name__,
+                        universe=strategy_config.universe,
+                        warmup_bars=strategy_config.warmup_bars,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "backtest.engine.strategy_instantiation_failed",
+                        strategy_id=strategy_id,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+
+            # Create StrategyService if we have any strategies
+            if strategy_instances:
+                strategy_service = StrategyService(event_bus=event_bus, strategies=strategy_instances)
+                logger.info(
+                    "backtest.engine.strategy_service_created",
+                    strategy_count=len(strategy_instances),
+                )
+            else:
+                logger.warning("backtest.engine.no_strategies_loaded")
+
         # Services suspended - will add back incrementally
         # portfolio_service = PortfolioService.from_config(...)
         # execution_service = ExecutionService.from_config(...)
         # risk_service = RiskService.from_config(...)
-        # strategy_service = StrategyService.from_config(...)
 
         return cls(
             config=config,
             event_bus=event_bus,
             data_service=data_service,
+            strategy_service=strategy_service,
             event_store=event_store,
             results_dir=results_dir,
         )
@@ -326,6 +411,20 @@ class BacktestEngine:
         )
 
         try:
+            # Call strategy setup before main loop
+            if self._strategy_service is not None:
+                logger.info("backtest.strategy_setup.starting")
+                try:
+                    self._strategy_service.setup()
+                    logger.info("backtest.strategy_setup.complete")
+                except Exception as e:
+                    logger.error(
+                        "backtest.strategy_setup.failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                    raise
+
             # Main event loop - stream data
             logger.info(
                 "backtest.main_phase.starting",
@@ -393,6 +492,20 @@ class BacktestEngine:
                 "backtest.main_phase.complete",
                 bars_processed=self._bar_count,
             )
+
+            # Call strategy teardown after main loop
+            if self._strategy_service is not None:
+                logger.info("backtest.strategy_teardown.starting")
+                try:
+                    self._strategy_service.teardown()
+                    strategy_metrics = self._strategy_service.get_metrics()
+                    logger.info("backtest.strategy_teardown.complete", metrics=strategy_metrics)
+                except Exception as e:
+                    logger.warning(
+                        "backtest.strategy_teardown.failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
 
             # Collect results
             duration = datetime.now() - start_time

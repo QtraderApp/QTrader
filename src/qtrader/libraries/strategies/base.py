@@ -17,13 +17,14 @@ Registry Name: Defined in config.name field (e.g., "buy_and_hold", "sma_crossove
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, Field
 
 from qtrader.events.events import PriceBarEvent
-from qtrader.services.strategy.models import Signal, SignalIntention
+
+# Import actual Context implementation for strategies to use
+# This is the runtime context that strategies receive in on_bar()
+from qtrader.services.strategy.context import Context
 
 
 class StrategyConfig(BaseModel):
@@ -99,6 +100,10 @@ class StrategyConfig(BaseModel):
 
     # Base fields (can be overridden by child configs)
     warmup_bars: int = Field(default=0, ge=0, description="Number of bars needed before strategy starts trading")
+    universe: list[str] = Field(
+        default_factory=list,
+        description="List of symbols this strategy trades. Empty list means all symbols.",
+    )
 
     class Config:
         """Pydantic config for base class."""
@@ -373,141 +378,12 @@ class Strategy(ABC):
         return self.config.warmup_bars
 
 
-# Type hint for context (avoid circular import)
-# Actual Context class will be imported at runtime
-class Context:
-    """
-    Strategy context interface (placeholder for type hints).
+# ============================================================================
+# Public API
+# ============================================================================
 
-    Actual implementation in qtrader.api.context (future).
-    Provides strategies access to market data and signal emission.
-
-    Key Principle: Strategies emit signals, NOT orders.
-    - RiskService sizes and approves/rejects signals
-    - ExecutionService handles order placement
-    - Strategies declare INTENT and CONFIDENCE only
-    """
-
-    def emit_signal(
-        self,
-        timestamp: datetime,
-        strategy_id: str,
-        symbol: str,
-        intention: SignalIntention | str,
-        confidence: float,
-        reason: str = "",
-        metadata: dict[str, Any] | None = None,
-    ) -> Signal:
-        """
-        Emit a trading signal for risk evaluation.
-
-        Creates and validates a Signal contract instance. The signal is sent to
-        RiskService which determines position size based on confidence, risk limits,
-        and current portfolio state.
-
-        Args:
-            timestamp: Signal generation time (typically event.bar.trade_datetime)
-            strategy_id: Strategy identifier (use self.config.name)
-            symbol: Instrument symbol (e.g., "AAPL")
-            intention: SignalIntention (OPEN_LONG/CLOSE_LONG/OPEN_SHORT/CLOSE_SHORT) or string
-            confidence: Signal confidence [0.0 to 1.0]
-                - 1.0 = maximum conviction
-                - 0.5 = moderate conviction
-                - 0.0 = no conviction (signal ignored)
-            reason: Optional explanation for logging/debugging
-            metadata: Optional dict with additional signal data (JSON-serializable values)
-                - price: Current price
-                - indicator_value: Indicator reading that triggered signal
-                - volatility: Market volatility measure
-
-        Returns:
-            Validated Signal contract instance
-
-        Example:
-            # Strong OPEN_LONG signal
-            signal = context.emit_signal(
-                timestamp=event.bar.trade_datetime,
-                strategy_id=self.config.name,
-                symbol="AAPL",
-                intention=SignalIntention.OPEN_LONG,
-                confidence=0.9,
-                reason="Price below lower Bollinger Band",
-                metadata={"price": 150.25, "percent_b": -0.1, "bandwidth": 0.05}
-            )
-
-            # Moderate CLOSE_SHORT signal (string intention)
-            signal = context.emit_signal(
-                timestamp=event.bar.trade_datetime,
-                strategy_id=self.config.name,
-                symbol="AAPL",
-                intention="CLOSE_SHORT",
-                confidence=0.6,
-                reason="Price above upper Bollinger Band"
-            )
-
-        Note:
-            - Don't calculate position size - that's RiskService's job
-            - Don't check current positions - RiskService handles netting
-            - Don't place orders - ExecutionService handles that
-            - Just declare: "I want to OPEN_LONG/CLOSE_SHORT with X% confidence"
-            - Signal contract validates all inputs (timestamp, confidence range, etc.)
-        """
-        # Convert string intention to enum if needed
-        if isinstance(intention, str):
-            intention = SignalIntention(intention)
-
-        # Create and validate Signal contract
-        signal = Signal(
-            timestamp=timestamp,
-            strategy_id=strategy_id,
-            symbol=symbol,
-            intention=intention,
-            confidence=confidence,
-            reason=reason,
-            metadata=metadata or {},
-        )
-
-        # In actual implementation, this would publish to event bus
-        # For now, just return the validated signal
-        return signal
-
-    def get_position(self, symbol: str) -> int:
-        """
-        Get current position quantity for a symbol.
-
-        Args:
-            symbol: Instrument symbol
-
-        Returns:
-            Position quantity (positive=long, negative=short, 0=flat)
-
-        Note:
-            Most strategies don't need this. Use it only if your logic
-            depends on current position (e.g., scaling in/out).
-        """
-        return 0  # Placeholder
-
-    def get_bars(self, symbol: str, n: int) -> list:
-        """
-        Get historical bars for a symbol.
-
-        Args:
-            symbol: Instrument symbol
-            n: Number of bars to retrieve
-
-        Returns:
-            List of Bar objects (most recent last)
-        """
-        return []  # Placeholder
-
-    def get_price(self, symbol: str) -> float | None:
-        """
-        Get latest price for a symbol.
-
-        Args:
-            symbol: Instrument symbol
-
-        Returns:
-            Latest close price, or None if not available
-        """
-        pass
+__all__ = [
+    "StrategyConfig",
+    "Strategy",
+    "Context",
+]
