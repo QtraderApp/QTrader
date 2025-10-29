@@ -87,7 +87,7 @@ class TestBaseEvent:
 
     def test_baseevent_parses_iso_timestamp(self):
         """BaseEvent should parse ISO8601 timestamp strings."""
-        event = BaseEvent(source_service="test", occurred_at="2024-01-01T12:00:00Z")
+        event = BaseEvent(source_service="test", occurred_at="2024-01-01T12:00:00Z")  # pyright: ignore[reportArgumentType]
 
         assert event.occurred_at.year == 2024
         assert event.occurred_at.month == 1
@@ -113,7 +113,7 @@ class TestControlEvent:
         """BacktestStartedEvent should accept config dict."""
         config = {"start_date": "2024-01-01", "end_date": "2024-12-31", "initial_capital": 100000}
 
-        event = BacktestStartedEvent(source_service="backtest_service", config=config)
+        event = BacktestStartedEvent(source_service="backtest_service", config=config)  # pyright: ignore[reportCallIssue]
 
         assert event.event_type == "backtest_started"
         assert event.config == config
@@ -180,14 +180,14 @@ class TestPriceBarEvent:
             asset_class="equity",
             interval="1d",
             timestamp="2024-01-01T00:00:00Z",
-            open="150.00",  # String input
-            high="155.00",
-            low="149.00",
-            close="154.50",
+            open="150.00",  # pyright: ignore[reportArgumentType]
+            high="155.00",  # pyright: ignore[reportArgumentType]
+            low="149.00",  # pyright: ignore[reportArgumentType]
+            close="154.50",  # pyright: ignore[reportArgumentType]
             volume=1_000_000,
             adjusted=False,
-            cumulative_price_factor="1.0",
-            cumulative_volume_factor="1.0",
+            cumulative_price_factor="1.0",  # pyright: ignore[reportArgumentType]
+            cumulative_volume_factor="1.0",  # pyright: ignore[reportArgumentType]
             source="algoseek",
         )
 
@@ -332,7 +332,7 @@ class TestSchemaLoading:
 
     def test_load_and_compile_schema_success(self):
         """load_and_compile_schema should load valid schemas."""
-        validator = load_and_compile_schema("bar.v1.json")
+        validator = load_and_compile_schema("data/bar.v1.json")
 
         assert validator is not None
         assert hasattr(validator, "validate")
@@ -344,8 +344,8 @@ class TestSchemaLoading:
 
     def test_schema_loading_is_cached(self):
         """Schema loading should use caching."""
-        validator1 = load_and_compile_schema("bar.v1.json")
-        validator2 = load_and_compile_schema("bar.v1.json")
+        validator1 = load_and_compile_schema("data/bar.v1.json")
+        validator2 = load_and_compile_schema("data/bar.v1.json")
 
         # Should return same cached instance
         assert validator1 is validator2

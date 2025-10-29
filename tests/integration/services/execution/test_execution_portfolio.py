@@ -16,8 +16,8 @@ from qtrader.services.data.models import Bar
 from qtrader.services.execution.config import CommissionConfig, ExecutionConfig, SlippageConfig
 from qtrader.services.execution.models import Order, OrderSide, OrderState, TimeInForce
 from qtrader.services.execution.service import ExecutionService
-from qtrader.services.ledger.models import PortfolioConfig
-from qtrader.services.ledger.service import PortfolioService
+from qtrader.services.portfolio.models import PortfolioConfig
+from qtrader.services.portfolio.service import PortfolioService
 
 
 @pytest.fixture

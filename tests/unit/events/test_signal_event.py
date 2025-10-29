@@ -179,7 +179,7 @@ class TestSignalEventValidation:
 
         # Assert - validation passed
         assert event.event_type == "signal"
-        assert event.SCHEMA_BASE == "signal"
+        assert event.SCHEMA_BASE == "strategy/signal"
 
     def test_invalid_intention_fails(self) -> None:
         """SignalEvent with invalid intention value fails validation."""

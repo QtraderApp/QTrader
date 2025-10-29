@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from qtrader.services.ledger.lot_tracker import LotTracker
-from qtrader.services.ledger.models import Lot, LotSide
+from qtrader.services.portfolio.lot_tracker import LotTracker
+from qtrader.services.portfolio.models import Lot, LotSide
 
 
 @pytest.fixture

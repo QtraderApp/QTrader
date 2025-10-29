@@ -11,22 +11,29 @@ from jsonschema import ValidationError, validate
 
 @pytest.fixture
 def bar_schema():
-    """Load the bar.v1.json schema."""
+    """Load the data/bar.v1.json schema."""
     schema_path = (
-        Path(__file__).parent.parent.parent.parent / "src" / "qtrader" / "contracts" / "schemas" / "bar.v1.json"
+        Path(__file__).parent.parent.parent.parent
+        / "src"
+        / "qtrader"
+        / "contracts"
+        / "schemas"
+        / "data"
+        / "bar.v1.json"
     )
     return json.loads(schema_path.read_text())
 
 
 @pytest.fixture
 def bar_example():
-    """Load the bar.v1.example.json file."""
+    """Load the data/bar.v1.example.json file."""
     example_path = (
         Path(__file__).parent.parent.parent.parent
         / "src"
         / "qtrader"
         / "contracts"
         / "examples"
+        / "data"
         / "bar.v1.example.json"
     )
     return json.loads(example_path.read_text())

@@ -11,13 +11,14 @@ from jsonschema import ValidationError, validate
 
 @pytest.fixture
 def corporate_action_schema():
-    """Load the corporate_action.v1.json schema."""
+    """Load the data/corporate_action.v1.json schema."""
     schema_path = (
         Path(__file__).parent.parent.parent.parent
         / "src"
         / "qtrader"
         / "contracts"
         / "schemas"
+        / "data"
         / "corporate_action.v1.json"
     )
     return json.loads(schema_path.read_text())
@@ -25,13 +26,14 @@ def corporate_action_schema():
 
 @pytest.fixture
 def corporate_action_example():
-    """Load the corporate_action.v1.example.json file."""
+    """Load the data/corporate_action.v1.example.json file."""
     example_path = (
         Path(__file__).parent.parent.parent.parent
         / "src"
         / "qtrader"
         / "contracts"
         / "examples"
+        / "data"
         / "corporate_action.v1.example.json"
     )
     return json.loads(example_path.read_text())
