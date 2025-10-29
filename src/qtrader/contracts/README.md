@@ -6,9 +6,35 @@ Language-neutral event contracts using JSON Schema for cross-platform compatibil
 
 Contracts define the structure of events published by QTrader services. Each contract consists of:
 
-- **Schema** (`schemas/*.json`): JSON Schema defining structure, types, and validation rules
-- **Example** (`examples/*.json`): Sample event showing the envelope + payload pattern
+- **Schema** (`schemas/{service}/*.json`): JSON Schema defining structure, types, and validation rules
+- **Example** (`examples/{service}/*.json`): Sample event showing the envelope + payload pattern
 - **Version**: Semantic versioning embedded in filename (e.g., `bar.v1.json`, `bar.v2.json`)
+
+## Directory Structure
+
+Contracts are organized by the service that emits them:
+
+```
+contracts/
+├── schemas/
+│   ├── envelope.v1.json          # Common envelope pattern
+│   ├── data/                     # DataService events
+│   │   ├── bar.v1.json           # OHLCV price bars
+│   │   └── corporate_action.v1.json  # Corporate actions (splits, dividends)
+│   ├── strategy/                 # StrategyService events
+│   │   └── signal.v1.json        # Trading signals
+│   └── execution/                # ExecutionService events
+│       └── fill.v1.json          # Order fills
+└── examples/
+    ├── envelope.v1.example.json
+    ├── data/
+    │   ├── bar.v1.example.json
+    │   └── corporate_action.v1.example.json
+    ├── strategy/
+    │   └── signal.v1.example.json
+    └── execution/
+        └── fill.v1.example.json
+```
 
 ## Architecture
 
@@ -47,7 +73,9 @@ The `payload` field contains contract-specific data validated against the schema
 
 ## Available Contracts
 
-### bar.v1 - OHLCV Bars
+### DataService Events
+
+#### data/bar.v1 - OHLCV Bars
 
 Market data bars with adjustment factors.
 
@@ -66,9 +94,10 @@ Market data bars with adjustment factors.
 - `price_adjustment_factor`: Instantaneous factor for this bar (null when no adjustment)
 - Consumers apply factors on-the-fly: `adjusted_price = price * cumulative_price_factor`
 
-**Schema**: `schemas/bar.v1.json` **Example**: `examples/bar.v1.example.json`
+**Schema**: `schemas/data/bar.v1.json`\
+**Example**: `examples/data/bar.v1.example.json`
 
-### corporate_action.v1 - Corporate Actions
+#### data/corporate_action.v1 - Corporate Actions
 
 Splits, dividends, mergers, and other corporate events.
 
@@ -81,9 +110,12 @@ Splits, dividends, mergers, and other corporate events.
 
 **Use case**: Ledger/portfolio systems consume these to update positions, cost basis, and lot tracking.
 
-**Schema**: `schemas/corporate_action.v1.json` **Example**: `examples/corporate_action.v1.example.json`
+**Schema**: `schemas/data/corporate_action.v1.json`\
+**Example**: `examples/data/corporate_action.v1.example.json`
 
-### signal.v1 - Trading Signals
+### StrategyService Events
+
+#### strategy/signal.v1 - Trading Signals
 
 Trading signals emitted by strategies indicating intent to trade.
 
@@ -107,7 +139,30 @@ Trading signals emitted by strategies indicating intent to trade.
 - Stop loss and take profit are **recommendations** from the strategy, not hard requirements
 - Signals are immutable facts - they record what the strategy wanted at a point in time
 
-**Schema**: `schemas/signal.v1.json` **Example**: `examples/signal.v1.example.json`
+**Schema**: `schemas/strategy/signal.v1.json`\
+**Example**: `examples/strategy/signal.v1.example.json`
+
+### ExecutionService Events
+
+#### execution/fill.v1 - Order Fills
+
+Order fill events indicating completed trades with execution details.
+
+**Key fields**:
+
+- `fill_id`: Unique identifier (UUID)
+- `source_order_id`: Originating order ID
+- `timestamp`: Execution timestamp (UTC RFC3339)
+- `symbol`: Instrument identifier
+- `side`: "buy" or "sell"
+- `filled_quantity`: Shares/units filled (positive integer)
+- `fill_price`: Execution price per share/unit (includes slippage)
+- **Optional**: `strategy_id` (for attribution), `commission`, `slippage_bps`, `gross_value`, `net_value`
+
+**Use case**: Portfolio/ledger services consume fills to update positions, cash balances, and calculate realized P&L.
+
+**Schema**: `schemas/execution/fill.v1.json`\
+**Example**: `examples/execution/fill.v1.example.json`
 
 ## Versioning Strategy
 
@@ -158,7 +213,7 @@ Modify the existing schema file directly:
 
 ### Version History
 
-#### bar.v1.json
+#### data/bar.v1.json
 
 **v1.0** (2025-10-23)
 
@@ -167,7 +222,7 @@ Modify the existing schema file directly:
 - Maps to Algoseek data format
 - Fields: `cumulative_price_factor`, `cumulative_volume_factor`, `price_adjustment_factor`, `volume_adjustment_factor`, `adjustment_reason`
 
-#### corporate_action.v1.json
+#### data/corporate_action.v1.json
 
 **v1.0** (2025-10-23)
 
@@ -175,7 +230,7 @@ Modify the existing schema file directly:
 - Supports: splits, dividends, mergers, spinoffs, symbol changes, delistings
 - Key dates: announcement, ex-date, record, payment, effective
 
-#### signal.v1.json
+#### strategy/signal.v1.json
 
 **v1.0** (2025-10-28)
 
@@ -185,6 +240,15 @@ Modify the existing schema file directly:
 - Optional: reason, metadata, stop_loss, take_profit
 - Intention enum: OPEN_LONG, CLOSE_LONG, OPEN_SHORT, CLOSE_SHORT
 - Confidence as decimal [0.0, 1.0]
+
+#### execution/fill.v1.json
+
+**v1.0** (2025-10-23)
+
+- Initial release
+- Order fill events from ExecutionService
+- Required: fill_id, source_order_id, timestamp, symbol, side, filled_quantity, fill_price
+- Optional: strategy_id, commission, slippage_bps, gross_value, net_value
 
 ## Validation
 
@@ -230,11 +294,13 @@ Validation tests run automatically on:
 
 ## Creating New Contracts
 
+1. **Determine the service** that will emit the event (data, strategy, execution, etc.)
+
 1. **Define the schema**:
 
    ```bash
-   # Create schema file
-   touch schemas/my_contract.v1.json
+   # Create schema file in appropriate service directory
+   touch schemas/{service}/my_contract.v1.json
    ```
 
 1. **Follow the structure**:
@@ -242,7 +308,7 @@ Validation tests run automatically on:
    ```json
    {
      "$schema": "https://json-schema.org/draft/2020-12/schema",
-     "$id": "contracts.schemas.my_contract.v1.json",
+     "$id": "contracts.schemas.{service}.my_contract.v1.json",
      "title": "My Contract v1",
      "type": "object",
      "required": ["field1", "field2"],
@@ -257,7 +323,7 @@ Validation tests run automatically on:
 1. **Create an example**:
 
    ```bash
-   touch examples/my_contract.v1.example.json
+   touch examples/{service}/my_contract.v1.example.json
    ```
 
 1. **Include envelope**:
@@ -281,10 +347,30 @@ Validation tests run automatically on:
    touch tests/unit/contracts/test_my_contract_schema.py
    ```
 
+1. **Update event class** in `src/qtrader/events/events.py`:
+
+   ```python
+   class MyContractEvent(ValidatedEvent):
+       """My contract event - validates against {service}/my_contract.v{version}.json."""
+
+       SCHEMA_BASE: ClassVar[Optional[str]] = "{service}/my_contract"
+       event_type: str = "my_contract"
+
+       # Domain fields...
+   ```
+
 1. **Document in README**:
 
-   - Add to "Available Contracts" section
+   - Add to "Available Contracts" section under appropriate service
    - Document key fields and use cases
+
+## Service-to-Contract Mapping
+
+| Service              | Events                                    | Purpose                                    |
+| -------------------- | ----------------------------------------- | ------------------------------------------ |
+| **DataService**      | `data/bar.v1`, `data/corporate_action.v1` | Market data streaming and corporate events |
+| **StrategyService**  | `strategy/signal.v1`                      | Trading signal generation                  |
+| **ExecutionService** | `execution/fill.v1`                       | Order execution and fill confirmation      |
 
 ## Best Practices
 
@@ -299,10 +385,11 @@ Validation tests run automatically on:
 
 ### Naming Conventions
 
-- **Schema files**: `{contract_name}.v{version}.json` (lowercase, underscores)
-- **Example files**: `{contract_name}.v{version}.example.json`
+- **Schema files**: `{service}/{contract_name}.v{version}.json` (lowercase, underscores)
+- **Example files**: `{service}/{contract_name}.v{version}.example.json`
 - **Field names**: `snake_case` (lowercase with underscores)
 - **Event types**: `snake_case` matching contract name
+- **Service directories**: `data/`, `strategy/`, `execution/`, etc.
 
 ### Versioning
 
