@@ -204,10 +204,14 @@ class ValidatedEvent(BaseEvent):
         if self.SCHEMA_BASE is None:
             raise ValueError(f"{self.__class__.__name__} must specify SCHEMA_BASE")
 
-        # Verify event_type matches SCHEMA_BASE (fixed: removed no-op replace)
-        if self.event_type != self.SCHEMA_BASE:
+        # Extract contract name from SCHEMA_BASE (handles both "bar" and "data/bar")
+        schema_base_name = self.SCHEMA_BASE.split("/")[-1]
+
+        # Verify event_type matches contract name (not full path)
+        if self.event_type != schema_base_name:
             raise ValueError(
-                f"{self.__class__.__name__}: event_type '{self.event_type}' must equal SCHEMA_BASE '{self.SCHEMA_BASE}'"
+                f"{self.__class__.__name__}: event_type '{self.event_type}' must equal contract name '{schema_base_name}' "
+                f"(from SCHEMA_BASE '{self.SCHEMA_BASE}')"
             )
 
         # Serialize to dict for validation
@@ -252,13 +256,13 @@ class ControlEvent(BaseEvent):
 
 class PriceBarEvent(ValidatedEvent):
     """
-    Price bar event - validates against bar.v{version}.json.
+    Price bar event - validates against data/bar.v{version}.json.
 
     Wire format uses strings for decimals to avoid floating point issues.
     Pydantic auto-converts to Decimal for Python domain use.
     """
 
-    SCHEMA_BASE: ClassVar[Optional[str]] = "bar"
+    SCHEMA_BASE: ClassVar[Optional[str]] = "data/bar"
     event_type: str = "bar"  # Must match SCHEMA_BASE
 
     # Domain fields (wire uses strings, Pydantic converts)
@@ -315,10 +319,10 @@ class PriceBarEvent(ValidatedEvent):
 
 class CorporateActionEvent(ValidatedEvent):
     """
-    Corporate action event - validates against corporate_action.v{version}.json.
+    Corporate action event - validates against data/corporate_action.v{version}.json.
     """
 
-    SCHEMA_BASE: ClassVar[Optional[str]] = "corporate_action"
+    SCHEMA_BASE: ClassVar[Optional[str]] = "data/corporate_action"
     event_type: str = "corporate_action"
 
     # Required domain fields (per schema)
@@ -359,7 +363,7 @@ class CorporateActionEvent(ValidatedEvent):
 
 class SignalEvent(ValidatedEvent):
     """
-    Trading signal event - validates against signal.v{version}.json.
+    Trading signal event - validates against strategy/signal.v{version}.json.
 
     Wire format uses strings for decimals and enums to avoid floating point issues
     and ensure cross-language compatibility. Pydantic auto-converts to proper types
@@ -369,7 +373,7 @@ class SignalEvent(ValidatedEvent):
     but serializes to string for wire format.
     """
 
-    SCHEMA_BASE: ClassVar[Optional[str]] = "signal"
+    SCHEMA_BASE: ClassVar[Optional[str]] = "strategy/signal"
     event_type: str = "signal"  # Must match SCHEMA_BASE
 
     # Required domain fields
@@ -411,9 +415,75 @@ class SignalEvent(ValidatedEvent):
         return format(v, "f") if v is not None else None
 
 
+class OrderEvent(ValidatedEvent):
+    """
+    Order event - validates against manager/order.v{version}.json.
+
+    Emitted by ManagerService when an order is created and sent to execution.
+    Represents order placement details before execution.
+
+    Wire format uses strings for decimals to avoid floating point issues
+    and ensure cross-language compatibility. Pydantic auto-converts to proper
+    types for Python domain use.
+
+    Attributes:
+        order_id: Unique order identifier (for tracking and matching fills)
+        timestamp: Order creation timestamp (ISO8601 UTC)
+        symbol: Instrument identifier
+        side: "buy" or "sell"
+        quantity: Shares/units to order (always positive)
+        order_type: "market", "limit", "stop", or "stop_limit"
+        limit_price: Limit price (required for limit/stop_limit orders)
+        stop_price: Stop trigger price (required for stop/stop_limit orders)
+        time_in_force: "GTC", "DAY", "IOC", or "FOK" (defaults to GTC)
+        source_strategy_id: Strategy attribution (optional)
+        source_signal_id: Signal that originated this order (optional)
+        stop_loss: Stop loss price (optional)
+        take_profit: Take profit price (optional)
+
+    Example:
+        >>> from decimal import Decimal
+        >>> order = OrderEvent(
+        ...     order_id="order-2024-03-15-001",
+        ...     timestamp="2024-03-15T14:30:15.123Z",
+        ...     symbol="AAPL",
+        ...     side="buy",
+        ...     quantity=Decimal("100"),
+        ...     order_type="limit",
+        ...     limit_price=Decimal("145.50"),
+        ...     time_in_force="GTC"
+        ... )
+    """
+
+    SCHEMA_BASE: ClassVar[Optional[str]] = "manager/order"
+    event_type: str = "order"  # Must match SCHEMA_BASE
+
+    # Required domain fields
+    order_id: str
+    timestamp: str  # ISO8601 string (UTC RFC3339 with Z suffix)
+    symbol: str
+    side: str  # "buy" or "sell" (validated by schema)
+    quantity: Decimal  # String on wire, Decimal in Python
+    order_type: str  # "market", "limit", "stop", "stop_limit" (validated by schema)
+
+    # Optional fields
+    limit_price: Optional[Decimal] = None  # String on wire, Decimal in Python
+    stop_price: Optional[Decimal] = None  # String on wire, Decimal in Python
+    time_in_force: str = "GTC"  # "GTC", "DAY", "IOC", "FOK" (validated by schema)
+    source_strategy_id: Optional[str] = None
+    source_signal_id: Optional[str] = None
+    stop_loss: Optional[Decimal] = None  # String on wire, Decimal in Python
+    take_profit: Optional[Decimal] = None  # String on wire, Decimal in Python
+
+    @field_serializer("quantity", "limit_price", "stop_price", "stop_loss", "take_profit")
+    def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
+        """Serialize Decimal to string for wire format."""
+        return format(v, "f") if v is not None else None
+
+
 class FillEvent(ValidatedEvent):
     """
-    Order fill event - validates against fill.v{version}.json.
+    Order fill event - validates against execution/fill.v{version}.json.
 
     Emitted by ExecutionService when an order is filled. Contains execution
     details only - portfolio-level position state is tracked separately.
@@ -451,7 +521,7 @@ class FillEvent(ValidatedEvent):
         ... )
     """
 
-    SCHEMA_BASE: ClassVar[Optional[str]] = "fill"
+    SCHEMA_BASE: ClassVar[Optional[str]] = "execution/fill"
     event_type: str = "fill"  # Must match SCHEMA_BASE
 
     # Required domain fields
@@ -475,6 +545,210 @@ class FillEvent(ValidatedEvent):
     def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
         """Serialize Decimal to string for wire format."""
         return format(v, "f") if v is not None else None
+
+
+# ============================================
+# Portfolio Events
+# ============================================
+
+
+class PortfolioPosition(BaseModel):
+    """
+    Individual position within a portfolio snapshot.
+
+    Nested model used within ConsolidatedPortfolioEvent.
+    Represents a single symbol position (open, closed, or flat).
+
+    Attributes:
+        symbol: Instrument identifier
+        side: Position side ("long", "short", or "flat")
+        open_quantity: Current quantity (positive=long, negative=short, zero=flat)
+        average_fill_price: Average entry price per share/unit
+        commission_paid: Total commission on current open position
+        cost_basis: Total cost including commission
+        market_price: Current market price per share/unit
+        gross_market_value: Current market value (can be negative for shorts)
+        unrealized_pl: Unrealized P&L from current open position
+        realized_pl: Lifetime realized P&L for this symbol
+        dividends_received: Cumulative dividends received (longs)
+        dividends_paid: Cumulative dividends paid (shorts)
+        total_position_value: Total value including dividends
+        sector: Optional sector classification
+        country: Optional country of listing
+        asset_class: Optional asset class
+        currency: ISO 4217 currency code
+        last_updated: Last modification timestamp
+    """
+
+    symbol: str
+    side: str  # "long", "short", or "flat"
+    open_quantity: int
+    average_fill_price: Decimal
+    commission_paid: Decimal
+    cost_basis: Decimal
+    market_price: Decimal
+    gross_market_value: Decimal
+    unrealized_pl: Decimal
+    realized_pl: Decimal
+    dividends_received: Decimal
+    dividends_paid: Decimal
+    total_position_value: Decimal
+    sector: Optional[str] = None
+    country: Optional[str] = None
+    asset_class: Optional[str] = None
+    currency: str
+    last_updated: str  # ISO8601 string
+
+    model_config = {"frozen": True}
+
+    @field_serializer(
+        "average_fill_price",
+        "commission_paid",
+        "cost_basis",
+        "market_price",
+        "gross_market_value",
+        "unrealized_pl",
+        "realized_pl",
+        "dividends_received",
+        "dividends_paid",
+        "total_position_value",
+    )
+    def _serialize_decimal(self, v: Decimal) -> str:
+        """Serialize Decimal to string for wire format."""
+        return format(v, "f")
+
+
+class StrategyGroup(BaseModel):
+    """
+    Strategy group containing positions owned by a single strategy.
+
+    Nested model used within ConsolidatedPortfolioEvent.
+
+    Attributes:
+        strategy_id: Unique identifier for the strategy
+        positions: List of positions owned by this strategy
+    """
+
+    strategy_id: str
+    positions: list[PortfolioPosition]
+
+    model_config = {"frozen": True}
+
+
+class ConsolidatedPortfolioEvent(ValidatedEvent):
+    """
+    Consolidated portfolio snapshot event - validates against portfolio/consolidated_portfolio.v{version}.json.
+
+    Emitted by PortfolioService at regular intervals. Contains complete portfolio
+    state including positions grouped by strategy, P&L, exposures, and fees.
+
+    This is a static point-in-time snapshot published for:
+    - Risk monitoring
+    - Performance tracking
+    - Portfolio reporting
+    - Strategy attribution
+
+    Wire format uses strings for decimals to avoid floating point issues
+    and ensure cross-language compatibility. Pydantic auto-converts to proper
+    types for Python domain use.
+
+    Attributes:
+        portfolio_id: Unique portfolio identifier
+        start_datetime: Backtest/simulation start timestamp (ISO8601 UTC)
+        snapshot_datetime: Snapshot generation timestamp (ISO8601 UTC)
+        reporting_currency: ISO 4217 currency code for all values
+        initial_portfolio_equity: Starting capital for performance tracking
+        cash_balance: Current cash (can be negative with margin)
+        current_portfolio_equity: Current equity (cash + total_market_value)
+        total_market_value: Sum of all position values
+        total_unrealized_pl: Total unrealized P&L from open positions
+        total_realized_pl: Lifetime realized P&L
+        total_pl: Total P&L (realized + unrealized)
+        long_exposure: Sum of long position values
+        short_exposure: Sum of short position values (absolute)
+        net_exposure: Long - short exposure
+        gross_exposure: Long + short exposure (absolute)
+        leverage: Gross exposure / equity ratio
+        total_commissions_paid: Cumulative commissions from inception
+        total_dividends_received: Cumulative dividends from longs
+        total_dividends_paid: Cumulative dividends paid on shorts
+        total_borrow_fees: Cumulative short borrow fees
+        total_margin_interest: Cumulative margin interest on negative cash
+        strategies_groups: Positions grouped by strategy
+        currency_conversion_rates: Currency conversion rates to reporting currency
+
+    Example:
+        >>> from decimal import Decimal
+        >>> snapshot = ConsolidatedPortfolioEvent(
+        ...     portfolio_id="PORT123",
+        ...     start_datetime="2025-01-01T00:00:00Z",
+        ...     snapshot_datetime="2025-10-29T11:45:00Z",
+        ...     reporting_currency="USD",
+        ...     initial_portfolio_equity=Decimal("100000.00"),
+        ...     cash_balance=Decimal("50000.00"),
+        ...     current_portfolio_equity=Decimal("546400.00"),
+        ...     strategies_groups=[...],
+        ...     source_service="portfolio_service"
+        ... )
+    """
+
+    SCHEMA_BASE: ClassVar[Optional[str]] = "portfolio/consolidated_portfolio"
+    event_type: str = "consolidated_portfolio"  # Must match SCHEMA_BASE
+
+    # Required domain fields
+    portfolio_id: str
+    start_datetime: str  # ISO8601 string (UTC RFC3339 with Z suffix)
+    snapshot_datetime: str  # ISO8601 string (UTC RFC3339 with Z suffix)
+    reporting_currency: str  # ISO 4217 code (e.g., "USD")
+    initial_portfolio_equity: Decimal  # String on wire, Decimal in Python
+    cash_balance: Decimal  # String on wire, Decimal in Python
+    current_portfolio_equity: Decimal  # String on wire, Decimal in Python
+    total_market_value: Decimal  # String on wire, Decimal in Python
+    total_unrealized_pl: Decimal  # String on wire, Decimal in Python
+    total_realized_pl: Decimal  # String on wire, Decimal in Python
+    total_pl: Decimal  # String on wire, Decimal in Python
+    long_exposure: Decimal  # String on wire, Decimal in Python
+    short_exposure: Decimal  # String on wire, Decimal in Python
+    net_exposure: Decimal  # String on wire, Decimal in Python
+    gross_exposure: Decimal  # String on wire, Decimal in Python
+    leverage: Decimal  # String on wire, Decimal in Python
+    strategies_groups: list[StrategyGroup]
+
+    # Optional fields
+    total_commissions_paid: Decimal = Decimal("0")  # String on wire, Decimal in Python
+    total_dividends_received: Decimal = Decimal("0")  # String on wire, Decimal in Python
+    total_dividends_paid: Decimal = Decimal("0")  # String on wire, Decimal in Python
+    total_borrow_fees: Decimal = Decimal("0")  # String on wire, Decimal in Python
+    total_margin_interest: Decimal = Decimal("0")  # String on wire, Decimal in Python
+    currency_conversion_rates: dict[str, Decimal] = Field(default_factory=dict)
+
+    @field_serializer(
+        "initial_portfolio_equity",
+        "cash_balance",
+        "current_portfolio_equity",
+        "total_market_value",
+        "total_unrealized_pl",
+        "total_realized_pl",
+        "total_pl",
+        "long_exposure",
+        "short_exposure",
+        "net_exposure",
+        "gross_exposure",
+        "leverage",
+        "total_commissions_paid",
+        "total_dividends_received",
+        "total_dividends_paid",
+        "total_borrow_fees",
+        "total_margin_interest",
+    )
+    def _serialize_decimal(self, v: Decimal) -> str:
+        """Serialize Decimal to string for wire format."""
+        return format(v, "f")
+
+    @field_serializer("currency_conversion_rates")
+    def _serialize_currency_rates(self, v: dict[str, Decimal]) -> dict[str, str]:
+        """Serialize currency conversion rates (Decimal values to strings)."""
+        return {k: format(val, "f") for k, val in v.items()}
 
 
 # ============================================
