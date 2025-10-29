@@ -8,7 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Protocol
 
-from qtrader.services.ledger.models import LedgerEntry, LedgerEntryType, PortfolioState, Position
+from qtrader.services.portfolio.models import LedgerEntry, LedgerEntryType, PortfolioState, Position
 
 
 class IPortfolioService(Protocol):

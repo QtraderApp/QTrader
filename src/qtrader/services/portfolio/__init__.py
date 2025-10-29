@@ -34,8 +34,8 @@ Example:
     >>> print(f"Equity: ${portfolio.get_equity()}")
 """
 
-from qtrader.services.ledger.interface import IPortfolioService
-from qtrader.services.ledger.models import (
+from qtrader.services.portfolio.interface import IPortfolioService
+from qtrader.services.portfolio.models import (
     Ledger,
     LedgerEntry,
     LedgerEntryType,
@@ -45,7 +45,7 @@ from qtrader.services.ledger.models import (
     PortfolioState,
     Position,
 )
-from qtrader.services.ledger.service import PortfolioService
+from qtrader.services.portfolio.service import PortfolioService
 
 __all__ = [
     # Service

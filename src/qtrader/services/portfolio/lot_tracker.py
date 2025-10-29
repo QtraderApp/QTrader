@@ -11,7 +11,7 @@ Week 2: Complete implementation with lot matching
 from collections import deque
 from decimal import Decimal
 
-from qtrader.services.ledger.models import Lot, LotSide
+from qtrader.services.portfolio.models import Lot, LotSide
 
 
 class LotTracker:
