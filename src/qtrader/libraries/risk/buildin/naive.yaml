@@ -1,10 +1,86 @@
 portfolio_risk_policy:
+  #############################################################################
+  # Metadata
+  #############################################################################
   name: "naive"
-  max_pct_position_size: 0.90  # Max 90% position size
-  max_drawdown: 0.25  # Max 25% drawdown
-  allow_short_positions: false
-  allow-negative_cash: false
-  allow_leveraged_positions: false
-  daily_loss_limit_pct: 0.0  # 0.0 means no limit
-  min_cash_reserve_pct: 0.0  # No minimum cash reserve
-  max_positions : null  # No limit on number of positions
+  description: "A basic risk policy with simple constraints."
+  version: "1.0.0"
+  date_created: "2025-10-29"
+  author: "QTrader Team"
+
+  #############################################################################
+  # Aggregate Exposure Limits
+  # These limits apply to the entire portfolio.
+  #############################################################################
+
+  aggregate_exposure_limits:
+    # Sizing Algorithm Options:
+    # fixed_equity_pct - fixed percentage of capital per position
+    # volatility_targeting - adjusts position size based on asset or portfolio volatility
+    # kelly_criterion - mathematically optimized sizing considering win rates
+    # risk_parity - equal risk contribution sizing per asset or strategy
+    # equal_weighting - equal capital allocation across assets
+    sizing_algorithm: "fixed_equity_pct"
+
+    # Maximum position size per asset as a fraction of portfolio equity (e.g., 0.10 = 10%)
+    max_position_size_pct: 1.0
+
+    # Risk Evaluation Frequency options:
+    # end_of_day - assess risk once per day
+    # bar_close - assess risk at the close of each bar. For daily bars, same as end_of_day
+    # intraday - multiple assessments within a day for higher frequency strategies
+    risk_evaluation_frequency: "end_of_day"
+
+    # Whether to rebalance portfolio upon breaching risk constraints
+    rebalance_on_risk_breach: false
+
+    # Rebalancing Strategies:
+    # proportional_reduction - reduce all positions proportionally
+    # largest_first - reduce largest positions first to meet constraints
+    rebalance_strategy: null
+
+    # Target portfolio volatility percentage, used with volatility targeting
+    # Use null if not applicable
+    target_volatility_pct: null
+
+    # Enables or disables short positions
+    allow_short_positions: false
+
+    # Allows portfolio cash balance to go negative (margin)
+    allow_negative_cash: false
+
+    # Allows leveraged positions, i.e., exposure greater than equity
+    allow_leveraged_positions: false
+
+    # Max allowable portfolio drawdown as fraction, e.g. 0.15 = 15%
+    max_drawdown_pct: null
+
+    # Max allowable daily loss as fraction, e.g. 0.05 = 5%
+    daily_loss_limit_pct: null
+
+    # Maximum number of open positions allowed in the portfolio
+    max_positions: null
+
+    # Optional diversification control: max correlation allowed between positions
+    # Set null if not used
+    max_correlation_between_positions: null
+
+  #############################################################################
+  # Per Strategy Exposure Limits
+  #############################################################################
+
+  per_strategy_exposure_limits:
+    # Maximum drawdown allowed for individual strategy
+    max_drawdown_pct: null
+
+    # Enforce use of stop-loss orders per trade (true/false)
+    enforce_stop_loss: false
+
+    # Maximum stop loss percentage per trade ( e.g., 0.05 = 5%)
+    max_stop_loss_pct: null
+
+    # Enforce use of take-profit orders per trade (true/false)
+    enforce_take_profit: false
+
+    # Minimum take profit percentage target per trade (e.g., 0.05 = 5%)
+    min_take_profit_pct: null
