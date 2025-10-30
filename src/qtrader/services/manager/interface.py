@@ -95,7 +95,7 @@ class IManagerService(Protocol):
         """
         Cache portfolio state for use in risk checks.
 
-        Phase 5: Subscribe to PortfolioStateEvent from PortfolioService.
+        Subscribe to PortfolioStateEvent from PortfolioService.
         This event is published after mark-to-market on each bar.
 
         Args:

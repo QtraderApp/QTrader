@@ -128,9 +128,7 @@ class ManagerService:
         # Load risk policy from library
         risk_config = load_policy(policy_name)
 
-        # TODO: Apply overrides from config_dict["config"]
-        # This will allow users to override specific risk parameters
-        # without creating a new policy file
+        # Apply overrides from config (future enhancement: allow parameter overrides)
         if policy_overrides:
             logger = LoggerFactory.get_logger("manager.service")
             logger.warning(
