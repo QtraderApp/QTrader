@@ -206,19 +206,83 @@ class TestSignalToOrderFlow:
         )
         context.cache_bar(bar)
 
-        # Test cases: (intention, expected_side)
+        # Create portfolio state with positions for close signals
+        from qtrader.events.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
+
+        portfolio_state = PortfolioStateEvent(
+            portfolio_id="test_portfolio",
+            start_datetime="2020-01-01T00:00:00Z",
+            snapshot_datetime="2020-01-02T16:00:00Z",
+            reporting_currency="USD",
+            initial_portfolio_equity=Decimal("100000"),
+            cash_balance=Decimal("75000"),
+            current_portfolio_equity=Decimal("120000"),
+            total_market_value=Decimal("45000"),
+            total_unrealized_pl=Decimal("20000"),
+            total_realized_pl=Decimal("0"),
+            total_pl=Decimal("20000"),
+            long_exposure=Decimal("35000"),
+            short_exposure=Decimal("10000"),
+            net_exposure=Decimal("25000"),
+            gross_exposure=Decimal("45000"),
+            leverage=Decimal("0.375"),
+            strategies_groups=[
+                StrategyGroup(
+                    strategy_id="test_strategy",
+                    positions=[
+                        PortfolioPosition(
+                            symbol="AAPL",
+                            side="long",
+                            open_quantity=100,  # Long position for CLOSE_LONG
+                            average_fill_price=Decimal("150.00"),
+                            commission_paid=Decimal("10.00"),
+                            cost_basis=Decimal("15010.00"),
+                            market_price=Decimal("151.00"),
+                            gross_market_value=Decimal("15100.00"),
+                            unrealized_pl=Decimal("90.00"),
+                            realized_pl=Decimal("0"),
+                            dividends_received=Decimal("0"),
+                            dividends_paid=Decimal("0"),
+                            total_position_value=Decimal("15100.00"),
+                            currency="USD",
+                            last_updated="2020-01-02T16:00:00Z",
+                        ),
+                        PortfolioPosition(
+                            symbol="TSLA",
+                            side="short",
+                            open_quantity=-50,  # Short position for CLOSE_SHORT
+                            average_fill_price=Decimal("200.00"),
+                            commission_paid=Decimal("10.00"),
+                            cost_basis=Decimal("10010.00"),  # Positive for shorts (absolute value + commission)
+                            market_price=Decimal("200.00"),
+                            gross_market_value=Decimal("-10000.00"),
+                            unrealized_pl=Decimal("-10.00"),
+                            realized_pl=Decimal("0"),
+                            dividends_received=Decimal("0"),
+                            dividends_paid=Decimal("0"),
+                            total_position_value=Decimal("-10000.00"),
+                            currency="USD",
+                            last_updated="2020-01-02T16:00:00Z",
+                        ),
+                    ],
+                )
+            ],
+        )
+        manager_service.on_portfolio_state(portfolio_state)
+
+        # Test cases: (symbol, intention, expected_side)
         test_cases = [
-            (SignalIntention.OPEN_LONG, "buy"),
-            (SignalIntention.CLOSE_LONG, "sell"),
-            (SignalIntention.OPEN_SHORT, "sell"),
-            (SignalIntention.CLOSE_SHORT, "buy"),
+            ("AAPL", SignalIntention.OPEN_LONG, "buy"),
+            ("AAPL", SignalIntention.CLOSE_LONG, "sell"),
+            ("AAPL", SignalIntention.OPEN_SHORT, "sell"),
+            ("TSLA", SignalIntention.CLOSE_SHORT, "buy"),
         ]
 
         # Act: Emit signal for each intention
-        for intention, expected_side in test_cases:
+        for symbol, intention, expected_side in test_cases:
             context.emit_signal(
                 timestamp="2020-01-02T16:00:00Z",
-                symbol="AAPL",
+                symbol=symbol,
                 intention=intention,
                 confidence=Decimal("0.80"),
                 price=Decimal("151.00"),
@@ -229,7 +293,7 @@ class TestSignalToOrderFlow:
         # Assert: Verify each order has correct side
         assert len(orders_received) == 4, "Expected 4 orders (one per intention)"
 
-        for idx, (intention, expected_side) in enumerate(test_cases):
+        for idx, (symbol, intention, expected_side) in enumerate(test_cases):
             order = orders_received[idx]
             assert order.side == expected_side, (
                 f"Intention {intention} should map to side={expected_side}, got {order.side}"

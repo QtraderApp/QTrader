@@ -95,7 +95,7 @@ class TestManagerServiceSignalToOrder:
         assert order.quantity > 0
 
     def test_close_long_signal_emits_sell_order(self, manager_service, event_bus):
-        """Test CLOSE_LONG intention maps to sell order."""
+        """Test CLOSE_LONG intention maps to sell order and uses position size."""
         # Arrange
         orders_received = []
 
@@ -104,6 +104,53 @@ class TestManagerServiceSignalToOrder:
 
         event_bus.subscribe("order", capture_order)
 
+        # First, publish portfolio state with a long position
+        from qtrader.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
+
+        portfolio_state = PortfolioStateEvent(
+            portfolio_id="test_portfolio",
+            start_datetime="2020-01-01T00:00:00Z",
+            snapshot_datetime="2020-01-03T15:00:00Z",
+            reporting_currency="USD",
+            initial_portfolio_equity=Decimal("100000"),
+            cash_balance=Decimal("85000"),
+            current_portfolio_equity=Decimal("101000"),
+            total_market_value=Decimal("16000"),
+            total_unrealized_pl=Decimal("1000"),
+            total_realized_pl=Decimal("0"),
+            total_pl=Decimal("1000"),
+            long_exposure=Decimal("16000"),
+            short_exposure=Decimal("0"),
+            net_exposure=Decimal("16000"),
+            gross_exposure=Decimal("16000"),
+            leverage=Decimal("0.16"),
+            strategies_groups=[
+                StrategyGroup(
+                    strategy_id="test_strategy",
+                    positions=[
+                        PortfolioPosition(
+                            symbol="AAPL",
+                            side="long",
+                            open_quantity=100,  # Strategy has 100 shares long
+                            average_fill_price=Decimal("150.00"),
+                            commission_paid=Decimal("10.00"),
+                            cost_basis=Decimal("15010.00"),
+                            market_price=Decimal("160.00"),
+                            gross_market_value=Decimal("16000.00"),
+                            unrealized_pl=Decimal("990.00"),
+                            realized_pl=Decimal("0"),
+                            dividends_received=Decimal("0"),
+                            dividends_paid=Decimal("0"),
+                            total_position_value=Decimal("16000.00"),
+                            currency="USD",
+                            last_updated="2020-01-03T15:00:00Z",
+                        )
+                    ],
+                )
+            ],
+        )
+        manager_service.on_portfolio_state(portfolio_state)
+
         signal = SignalEvent(
             signal_id="sig-002",
             timestamp="2020-01-03T16:00:00Z",
@@ -111,7 +158,7 @@ class TestManagerServiceSignalToOrder:
             symbol="AAPL",
             intention="CLOSE_LONG",
             price=Decimal("155.00"),
-            confidence=Decimal("0.90"),
+            confidence=Decimal("0.90"),  # 90% confidence = close 90% of position
             metadata={"equity": 100000.0},
         )
 
@@ -124,6 +171,8 @@ class TestManagerServiceSignalToOrder:
         assert order.symbol == "AAPL"
         assert order.side == "sell"
         assert order.intent_id == "sig-002"
+        # Quantity should be 90 (90% of 100 shares due to confidence=0.90)
+        assert order.quantity == Decimal("90")
 
     def test_open_short_signal_emits_sell_order(self, manager_service, event_bus):
         """Test OPEN_SHORT intention maps to sell order."""
@@ -155,7 +204,7 @@ class TestManagerServiceSignalToOrder:
         assert order.side == "sell"
 
     def test_close_short_signal_emits_buy_order(self, manager_service, event_bus):
-        """Test CLOSE_SHORT intention maps to buy order."""
+        """Test CLOSE_SHORT intention maps to buy order and uses position size."""
         # Arrange
         orders_received = []
 
@@ -164,6 +213,53 @@ class TestManagerServiceSignalToOrder:
 
         event_bus.subscribe("order", capture_order)
 
+        # First, publish portfolio state with a short position
+        from qtrader.events import PortfolioPosition, PortfolioStateEvent, StrategyGroup
+
+        portfolio_state = PortfolioStateEvent(
+            portfolio_id="test_portfolio",
+            start_datetime="2020-01-01T00:00:00Z",
+            snapshot_datetime="2020-01-05T15:00:00Z",
+            reporting_currency="USD",
+            initial_portfolio_equity=Decimal("100000"),
+            cash_balance=Decimal("150000"),  # Cash increased from short sale
+            current_portfolio_equity=Decimal("102000"),
+            total_market_value=Decimal("-48000"),  # Short position negative value
+            total_unrealized_pl=Decimal("2000"),
+            total_realized_pl=Decimal("0"),
+            total_pl=Decimal("2000"),
+            long_exposure=Decimal("0"),
+            short_exposure=Decimal("48000"),
+            net_exposure=Decimal("-48000"),
+            gross_exposure=Decimal("48000"),
+            leverage=Decimal("0.48"),
+            strategies_groups=[
+                StrategyGroup(
+                    strategy_id="test_strategy",
+                    positions=[
+                        PortfolioPosition(
+                            symbol="TSLA",
+                            side="short",
+                            open_quantity=-100,  # Strategy has 100 shares short
+                            average_fill_price=Decimal("500.00"),
+                            commission_paid=Decimal("10.00"),
+                            cost_basis=Decimal("50010.00"),
+                            market_price=Decimal("480.00"),
+                            gross_market_value=Decimal("-48000.00"),
+                            unrealized_pl=Decimal("1990.00"),
+                            realized_pl=Decimal("0"),
+                            dividends_received=Decimal("0"),
+                            dividends_paid=Decimal("0"),
+                            total_position_value=Decimal("-48000.00"),
+                            currency="USD",
+                            last_updated="2020-01-05T15:00:00Z",
+                        )
+                    ],
+                )
+            ],
+        )
+        manager_service.on_portfolio_state(portfolio_state)
+
         signal = SignalEvent(
             signal_id="sig-004",
             timestamp="2020-01-05T16:00:00Z",
@@ -171,7 +267,7 @@ class TestManagerServiceSignalToOrder:
             symbol="TSLA",
             intention="CLOSE_SHORT",
             price=Decimal("480.00"),
-            confidence=Decimal("0.85"),
+            confidence=Decimal("0.85"),  # 85% confidence = close 85% of position
             metadata={"equity": 100000.0},
         )
 
@@ -183,6 +279,7 @@ class TestManagerServiceSignalToOrder:
         order = orders_received[0]
         assert order.symbol == "TSLA"
         assert order.side == "buy"
+        assert order.quantity == Decimal("85")  # 85% of 100 share short position
 
     def test_signal_without_equity_rejected(self, manager_service, event_bus):
         """Test signal is rejected when no portfolio state cached (equity unknown).

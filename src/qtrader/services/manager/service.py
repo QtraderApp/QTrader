@@ -79,7 +79,8 @@ class ManagerService:
 
         # Portfolio state cache (updated by PortfolioStateEvent)
         self._cached_equity: Decimal | None = None
-        self._cached_positions: list[risk_limits.Position] = []
+        self._cached_positions: list[risk_limits.Position] = []  # Flattened for risk checks
+        self._cached_strategy_positions: dict[str, dict[str, int]] = {}  # {strategy_id: {symbol: quantity}}
 
         self._logger.info(
             "ManagerService initialized",
@@ -137,6 +138,24 @@ class ManagerService:
             )
 
         return cls(risk_config=risk_config, event_bus=event_bus)
+
+    def _get_position_quantity(self, strategy_id: str, symbol: str) -> int:
+        """
+        Get current position quantity for a strategy-symbol pair.
+
+        Args:
+            strategy_id: Strategy identifier
+            symbol: Symbol to check
+
+        Returns:
+            Quantity held by strategy (positive=long, negative=short, 0=flat)
+
+        Example:
+            >>> quantity = manager._get_position_quantity("sma_crossover", "AAPL")
+            >>> # Returns 100 if strategy has long position of 100 shares
+        """
+        strategy_positions = self._cached_strategy_positions.get(strategy_id, {})
+        return strategy_positions.get(symbol, 0)
 
     def on_signal(self, event: SignalEvent) -> None:
         """
@@ -252,50 +271,124 @@ class ManagerService:
             )
             return
 
-        # Step 3: Calculate position size using risk library
-        # Use strategy's allocated capital (full equity minus cash buffer)
-        # Future: Multi-strategy capital allocation
-        allocated_capital = current_equity * (Decimal("1.0") - Decimal(str(self._config.cash_buffer_pct)))
+        # Step 3: Determine quantity based on intention
+        # For CLOSE signals: use actual position size (optionally scaled by confidence)
+        # For OPEN signals: calculate size using risk library
+        quantity: int = 0
 
-        quantity: int = 0  # Will always be assigned in try block (sizing_config.model is exhaustive)
-        try:
-            if sizing_config.model == "fixed_fraction":
-                quantity = risk_sizing.calculate_fixed_fraction_size(
-                    allocated_capital=allocated_capital,
-                    signal_strength=float(event.confidence),  # Use confidence as signal strength
-                    current_price=current_price,
-                    fraction=sizing_config.fraction,
-                    lot_size=sizing_config.lot_size,
-                    min_quantity=sizing_config.min_quantity,
-                )
-            elif sizing_config.model == "equal_weight":
-                # Equal weight needs position count - not yet implemented
-                # Fallback to fixed fraction for now
+        if event.intention in ("CLOSE_LONG", "CLOSE_SHORT"):
+            # Get current position for this strategy-symbol pair
+            current_quantity = self._get_position_quantity(event.strategy_id, event.symbol)
+
+            if current_quantity == 0:
                 self._logger.warning(
-                    "Equal weight sizing not yet supported, using fixed fraction",
-                    extra={"strategy_id": event.strategy_id},
+                    "Signal rejected: close signal but no position exists",
+                    extra={
+                        "signal_id": event.signal_id,
+                        "strategy_id": event.strategy_id,
+                        "symbol": event.symbol,
+                        "intention": event.intention,
+                    },
                 )
-                quantity = risk_sizing.calculate_fixed_fraction_size(
-                    allocated_capital=allocated_capital,
-                    signal_strength=float(event.confidence),
-                    current_price=current_price,
-                    fraction=Decimal("0.10"),  # Default fallback
-                    lot_size=sizing_config.lot_size,
-                    min_quantity=sizing_config.min_quantity,
-                )
-            # Note: No else needed - sizing_config.model is Literal["fixed_fraction", "equal_weight"]
+                return
 
-        except (ValueError, TypeError) as e:
-            # Sizing calculation failed - reject signal
-            self._logger.warning(
-                "Signal rejected: sizing calculation failed",
-                extra={
-                    "signal_id": event.signal_id,
-                    "strategy_id": event.strategy_id,
-                    "error": str(e),
-                },
-            )
-            return
+            # Validate position direction matches intention
+            if event.intention == "CLOSE_LONG" and current_quantity <= 0:
+                self._logger.warning(
+                    "Signal rejected: CLOSE_LONG but position is not long",
+                    extra={
+                        "signal_id": event.signal_id,
+                        "strategy_id": event.strategy_id,
+                        "symbol": event.symbol,
+                        "current_quantity": current_quantity,
+                    },
+                )
+                return
+
+            if event.intention == "CLOSE_SHORT" and current_quantity >= 0:
+                self._logger.warning(
+                    "Signal rejected: CLOSE_SHORT but position is not short",
+                    extra={
+                        "signal_id": event.signal_id,
+                        "strategy_id": event.strategy_id,
+                        "symbol": event.symbol,
+                        "current_quantity": current_quantity,
+                    },
+                )
+                return
+
+            # Use absolute value of position (will be sized correctly by side later)
+            base_quantity = abs(current_quantity)
+
+            # Optionally scale by confidence for partial exits
+            # confidence=1.0 → close full position
+            # confidence=0.5 → close 50% of position
+            if event.confidence < Decimal("1.0"):
+                quantity = int(base_quantity * float(event.confidence))
+                # Ensure at least minimum quantity if scaled down
+                if quantity == 0 and base_quantity > 0:
+                    quantity = min(base_quantity, sizing_config.min_quantity)
+
+                self._logger.debug(
+                    "Close signal scaled by confidence",
+                    extra={
+                        "signal_id": event.signal_id,
+                        "strategy_id": event.strategy_id,
+                        "symbol": event.symbol,
+                        "position_quantity": base_quantity,
+                        "confidence": float(event.confidence),
+                        "scaled_quantity": quantity,
+                    },
+                )
+            else:
+                # Full position close
+                quantity = base_quantity
+
+        else:  # OPEN_LONG or OPEN_SHORT
+            # Calculate position size using risk library
+            # Step 3: Calculate position size using risk library
+            # Use strategy's allocated capital (full equity minus cash buffer)
+            # Future: Multi-strategy capital allocation
+            allocated_capital = current_equity * (Decimal("1.0") - Decimal(str(self._config.cash_buffer_pct)))
+
+            try:
+                if sizing_config.model == "fixed_fraction":
+                    quantity = risk_sizing.calculate_fixed_fraction_size(
+                        allocated_capital=allocated_capital,
+                        signal_strength=float(event.confidence),  # Use confidence as signal strength
+                        current_price=current_price,
+                        fraction=sizing_config.fraction,
+                        lot_size=sizing_config.lot_size,
+                        min_quantity=sizing_config.min_quantity,
+                    )
+                elif sizing_config.model == "equal_weight":
+                    # Equal weight needs position count - not yet implemented
+                    # Fallback to fixed fraction for now
+                    self._logger.warning(
+                        "Equal weight sizing not yet supported, using fixed fraction",
+                        extra={"strategy_id": event.strategy_id},
+                    )
+                    quantity = risk_sizing.calculate_fixed_fraction_size(
+                        allocated_capital=allocated_capital,
+                        signal_strength=float(event.confidence),
+                        current_price=current_price,
+                        fraction=Decimal("0.10"),  # Default fallback
+                        lot_size=sizing_config.lot_size,
+                        min_quantity=sizing_config.min_quantity,
+                    )
+                # Note: No else needed - sizing_config.model is Literal["fixed_fraction", "equal_weight"]
+
+            except (ValueError, TypeError) as e:
+                # Sizing calculation failed - reject signal
+                self._logger.warning(
+                    "Signal rejected: sizing calculation failed",
+                    extra={
+                        "signal_id": event.signal_id,
+                        "strategy_id": event.strategy_id,
+                        "error": str(e),
+                    },
+                )
+                return
 
         # If we reach here, quantity was successfully calculated
         if quantity == 0:
@@ -422,10 +515,18 @@ class ManagerService:
         # Convert Portfolio positions to risk_limits.Position format
         # Flatten all strategy positions into a single list for risk checks
         converted_positions: list[risk_limits.Position] = []
+
+        # Also maintain strategy-grouped positions for close signal processing
+        strategy_positions_map: dict[str, dict[str, int]] = {}
+
         for strategy_group in event.strategies_groups:
+            strategy_id = strategy_group.strategy_id
+            strategy_positions_map[strategy_id] = {}
+
             for portfolio_pos in strategy_group.positions:
                 # Only include open positions (skip flat/closed positions)
                 if portfolio_pos.open_quantity != 0:
+                    # Add to flattened list for risk checks
                     converted_positions.append(
                         risk_limits.Position(
                             symbol=portfolio_pos.symbol,
@@ -434,7 +535,11 @@ class ManagerService:
                         )
                     )
 
+                    # Add to strategy-grouped map for close signal lookup
+                    strategy_positions_map[strategy_id][portfolio_pos.symbol] = portfolio_pos.open_quantity
+
         self._cached_positions = converted_positions
+        self._cached_strategy_positions = strategy_positions_map
 
         self._logger.debug(
             "Portfolio state cached",
