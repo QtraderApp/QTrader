@@ -5,7 +5,6 @@
     "description": "Represents an order event from the manager service. Contains order placement details before execution.",
     "type": "object",
     "required": [
-        "order_id",
         "timestamp",
         "symbol",
         "side",
@@ -15,11 +14,6 @@
         "idempotency_key"
     ],
     "properties": {
-        "order_id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Unique identifier for this order. Used to track order lifecycle and match fills."
-        },
         "intent_id": {
             "type": "string",
             "minLength": 1,

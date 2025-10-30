@@ -29,7 +29,6 @@ class TestOrderEventCreation:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-001",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -39,7 +38,7 @@ class TestOrderEventCreation:
         )
 
         # Assert
-        assert event.order_id == "order-001"
+        # order_id removed - ExecutionService generates it
         assert event.symbol == "AAPL"
         assert event.side == "buy"
         assert event.quantity == Decimal("100")
@@ -57,7 +56,6 @@ class TestOrderEventCreation:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-002",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="MSFT",
             side="sell",
@@ -79,7 +77,6 @@ class TestOrderEventCreation:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-003",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="GOOGL",
             side="buy",
@@ -99,7 +96,6 @@ class TestOrderEventCreation:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-004",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -133,7 +129,6 @@ class TestOrderEventSerialization:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-005",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -160,7 +155,6 @@ class TestOrderEventSerialization:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-006",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -189,7 +183,6 @@ class TestOrderEventValidation:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-007",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -210,7 +203,6 @@ class TestOrderEventValidation:
             OrderEvent(
                 intent_id="signal-test-123",
                 idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-                order_id="order-008",
                 timestamp="2024-03-15T14:30:15.123Z",
                 symbol="AAPL",
                 side="invalid_side",
@@ -226,7 +218,6 @@ class TestOrderEventValidation:
             OrderEvent(
                 intent_id="signal-test-123",
                 idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-                order_id="order-009",
                 timestamp="2024-03-15T14:30:15.123Z",
                 symbol="AAPL",
                 side="buy",
@@ -242,7 +233,6 @@ class TestOrderEventValidation:
             OrderEvent(
                 intent_id="signal-test-123",
                 idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-                order_id="order-010",
                 timestamp="2024-03-15T14:30:15.123Z",
                 symbol="AAPL",
                 side="buy",
@@ -259,7 +249,6 @@ class TestOrderEventValidation:
             OrderEvent(
                 intent_id="signal-test-123",
                 idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-                order_id="order-011",
                 timestamp="2024-03-15T14:30:15.123Z",
                 symbol="AAPL",
                 side="buy",
@@ -278,7 +267,6 @@ class TestOrderEventEnvelope:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-012",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -302,7 +290,6 @@ class TestOrderEventEnvelope:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-013",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -330,7 +317,6 @@ class TestOrderEventImmutability:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id="order-014",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -341,7 +327,7 @@ class TestOrderEventImmutability:
 
         # Act & Assert - should raise ValidationError
         with pytest.raises(Exception):
-            event.order_id = "modified"
+            event.idempotency_key = "modified"
 
 
 class TestOrderEventTypes:
@@ -357,7 +343,6 @@ class TestOrderEventTypes:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id=f"order-{order_type}",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",
@@ -381,7 +366,6 @@ class TestOrderEventTypes:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id=f"order-{side}",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side=side,
@@ -403,7 +387,6 @@ class TestOrderEventTypes:
         event = OrderEvent(
             intent_id="signal-test-123",
             idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
-            order_id=f"order-{time_in_force}",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
             side="buy",

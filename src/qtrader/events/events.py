@@ -250,7 +250,7 @@ class ControlEvent(BaseEvent):
 
 
 # ============================================
-# Market Data Events
+# data Events
 # ============================================
 
 
@@ -361,6 +361,11 @@ class CorporateActionEvent(ValidatedEvent):
         return format(v, "f") if v is not None else None
 
 
+# ============================================
+# Strategy Events
+# ============================================
+
+
 class SignalEvent(ValidatedEvent):
     """
     Trading signal event - validates against strategy/signal.v{version}.json.
@@ -441,6 +446,11 @@ class SignalEvent(ValidatedEvent):
         return format(v, "f") if v is not None else None
 
 
+# ============================================
+# Manager Events
+# ============================================
+
+
 class OrderEvent(ValidatedEvent):
     """
     Order event - validates against manager/order.v{version}.json.
@@ -453,7 +463,6 @@ class OrderEvent(ValidatedEvent):
     types for Python domain use.
 
     Attributes:
-        order_id: Unique order identifier (for tracking and matching fills)
         intent_id: Links back to SignalEvent.signal_id (audit trail: signal → order)
         idempotency_key: Replay protection key (prevents duplicate orders)
         timestamp: Order creation timestamp (ISO8601 UTC)
@@ -471,7 +480,6 @@ class OrderEvent(ValidatedEvent):
     Example:
         >>> from decimal import Decimal
         >>> order = OrderEvent(
-        ...     order_id="order-2024-03-15-001",
         ...     intent_id="signal-550e8400-e29b-41d4-a716-446655440001",
         ...     idempotency_key="sma_crossover-signal-550e8400-e29b-41d4-a716-446655440001-2024-03-15T14:30:15.123Z",
         ...     timestamp="2024-03-15T14:30:15.123Z",
@@ -489,7 +497,6 @@ class OrderEvent(ValidatedEvent):
     event_type: str = "order"  # Must match SCHEMA_BASE
 
     # Required domain fields
-    order_id: str
     intent_id: str  # Links to SignalEvent.signal_id (audit trail)
     idempotency_key: str  # Replay protection
     timestamp: str  # ISO8601 string (UTC RFC3339 with Z suffix)
@@ -510,6 +517,11 @@ class OrderEvent(ValidatedEvent):
     def _serialize_decimal(self, v: Optional[Decimal]) -> Optional[str]:
         """Serialize Decimal to string for wire format."""
         return format(v, "f") if v is not None else None
+
+
+# ============================================
+# Execution Events
+# ============================================
 
 
 class FillEvent(ValidatedEvent):
@@ -587,7 +599,7 @@ class PortfolioPosition(BaseModel):
     """
     Individual position within a portfolio snapshot.
 
-    Nested model used within ConsolidatedPortfolioEvent.
+    Nested model used within PortfolioStateEvent.
     Represents a single symbol position (open, closed, or flat).
 
     Attributes:
@@ -653,7 +665,7 @@ class StrategyGroup(BaseModel):
     """
     Strategy group containing positions owned by a single strategy.
 
-    Nested model used within ConsolidatedPortfolioEvent.
+    Nested model used within PortfolioStateEvent.
 
     Attributes:
         strategy_id: Unique identifier for the strategy
@@ -666,15 +678,26 @@ class StrategyGroup(BaseModel):
     model_config = {"frozen": True}
 
 
-class ConsolidatedPortfolioEvent(ValidatedEvent):
-    """
-    Consolidated portfolio snapshot event - validates against portfolio/consolidated_portfolio.v{version}.json.
+# ============================================
+# Control Events (No Payload Validation)
+# ============================================
 
-    Emitted by PortfolioService at regular intervals. Contains complete portfolio
+
+class ValuationTriggerEvent(ControlEvent):
+    """Barrier event - triggers portfolio valuation."""
+
+    event_type: str = "valuation_trigger"
+
+
+class PortfolioStateEvent(ValidatedEvent):
+    """
+    Portfolio state snapshot event - validates against portfolio/portfolio_state.v{version}.json.
+
+    Published by PortfolioService at regular intervals. Contains complete portfolio
     state including positions grouped by strategy, P&L, exposures, and fees.
 
     This is a static point-in-time snapshot published for:
-    - Risk monitoring
+    - Risk monitoring (ManagerService uses this for real-time risk checks)
     - Performance tracking
     - Portfolio reporting
     - Strategy attribution
@@ -707,24 +730,10 @@ class ConsolidatedPortfolioEvent(ValidatedEvent):
         total_margin_interest: Cumulative margin interest on negative cash
         strategies_groups: Positions grouped by strategy
         currency_conversion_rates: Currency conversion rates to reporting currency
-
-    Example:
-        >>> from decimal import Decimal
-        >>> snapshot = ConsolidatedPortfolioEvent(
-        ...     portfolio_id="PORT123",
-        ...     start_datetime="2025-01-01T00:00:00Z",
-        ...     snapshot_datetime="2025-10-29T11:45:00Z",
-        ...     reporting_currency="USD",
-        ...     initial_portfolio_equity=Decimal("100000.00"),
-        ...     cash_balance=Decimal("50000.00"),
-        ...     current_portfolio_equity=Decimal("546400.00"),
-        ...     strategies_groups=[...],
-        ...     source_service="portfolio_service"
-        ... )
     """
 
-    SCHEMA_BASE: ClassVar[Optional[str]] = "portfolio/consolidated_portfolio"
-    event_type: str = "consolidated_portfolio"  # Must match SCHEMA_BASE
+    SCHEMA_BASE: ClassVar[Optional[str]] = "portfolio/portfolio_state"
+    event_type: str = "portfolio_state"
 
     # Required domain fields
     portfolio_id: str
@@ -780,17 +789,6 @@ class ConsolidatedPortfolioEvent(ValidatedEvent):
     def _serialize_currency_rates(self, v: dict[str, Decimal]) -> dict[str, str]:
         """Serialize currency conversion rates (Decimal values to strings)."""
         return {k: format(val, "f") for k, val in v.items()}
-
-
-# ============================================
-# Control Events (No Payload Validation)
-# ============================================
-
-
-class ValuationTriggerEvent(ControlEvent):
-    """Barrier event - triggers portfolio valuation."""
-
-    event_type: str = "valuation_trigger"
 
 
 class RiskEvaluationTriggerEvent(ControlEvent):

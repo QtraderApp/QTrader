@@ -48,7 +48,6 @@ def test_order_example_validates_against_schema(order_schema, order_example):
 def test_order_schema_requires_essential_fields(order_schema):
     """Verify that required fields are enforced by the schema."""
     required_fields = [
-        "order_id",
         "intent_id",
         "idempotency_key",
         "timestamp",
@@ -60,25 +59,9 @@ def test_order_schema_requires_essential_fields(order_schema):
     assert set(order_schema["required"]) == set(required_fields)
 
 
-def test_order_schema_rejects_missing_order_id(order_schema):
-    """Missing order_id should fail validation."""
-    invalid_order = {
-        "intent_id": "signal-123",
-        "idempotency_key": "strategy-signal-123-2024-01-01T00:00:00.000Z",
-        "timestamp": "2024-01-01T09:30:00.000Z",
-        "symbol": "AAPL",
-        "side": "buy",
-        "quantity": "100",
-        "order_type": "market",
-    }
-    with pytest.raises(ValidationError):
-        validate(instance=invalid_order, schema=order_schema)
-
-
 def test_order_schema_rejects_missing_intent_id(order_schema):
     """Missing intent_id should fail validation."""
     invalid_order = {
-        "order_id": "order-123",
         "idempotency_key": "strategy-signal-123-2024-01-01T00:00:00.000Z",
         "timestamp": "2024-01-01T09:30:00.000Z",
         "symbol": "AAPL",
@@ -93,7 +76,6 @@ def test_order_schema_rejects_missing_intent_id(order_schema):
 def test_order_schema_rejects_missing_idempotency_key(order_schema):
     """Missing idempotency_key should fail validation."""
     invalid_order = {
-        "order_id": "order-123",
         "intent_id": "signal-123",
         "timestamp": "2024-01-01T09:30:00.000Z",
         "symbol": "AAPL",
@@ -108,7 +90,6 @@ def test_order_schema_rejects_missing_idempotency_key(order_schema):
 def test_order_schema_accepts_valid_market_order(order_schema):
     """Valid market order should pass validation."""
     valid_order = {
-        "order_id": "order-123",
         "intent_id": "signal-123",
         "idempotency_key": "strategy-signal-123-2024-01-01T00:00:00.000Z",
         "timestamp": "2024-01-01T09:30:00.000Z",
@@ -129,7 +110,6 @@ def test_order_schema_accepts_valid_market_order(order_schema):
 def test_order_schema_accepts_valid_limit_order(order_schema):
     """Valid limit order with limit_price should pass validation."""
     valid_order = {
-        "order_id": "order-123",
         "intent_id": "signal-123",
         "idempotency_key": "strategy-signal-123-2024-01-01T00:00:00.000Z",
         "timestamp": "2024-01-01T09:30:00.000Z",
@@ -150,7 +130,6 @@ def test_order_schema_accepts_valid_limit_order(order_schema):
 def test_order_schema_rejects_invalid_side(order_schema):
     """Invalid side value should fail validation."""
     invalid_order = {
-        "order_id": "order-123",
         "intent_id": "signal-123",
         "idempotency_key": "strategy-signal-123-2024-01-01T00:00:00.000Z",
         "timestamp": "2024-01-01T09:30:00.000Z",
@@ -182,8 +161,7 @@ def test_order_schema_rejects_invalid_order_type(order_schema):
 def test_order_schema_rejects_empty_strings(order_schema):
     """Empty strings for required fields should fail validation."""
     invalid_order = {
-        "order_id": "",  # Empty string
-        "intent_id": "signal-123",
+        "intent_id": "",  # Empty string
         "idempotency_key": "strategy-signal-123-2024-01-01T00:00:00.000Z",
         "timestamp": "2024-01-01T09:30:00.000Z",
         "symbol": "AAPL",
@@ -198,7 +176,6 @@ def test_order_schema_rejects_empty_strings(order_schema):
 def test_order_schema_rejects_additional_properties(order_schema):
     """Additional properties not in schema should fail validation."""
     invalid_order = {
-        "order_id": "order-123",
         "intent_id": "signal-123",
         "idempotency_key": "strategy-signal-123-2024-01-01T00:00:00.000Z",
         "timestamp": "2024-01-01T09:30:00.000Z",
