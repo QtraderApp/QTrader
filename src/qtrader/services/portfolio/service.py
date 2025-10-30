@@ -74,8 +74,8 @@ class PortfolioService:
 
         # Core state
         self._cash: Decimal = config.initial_cash
-        self._positions: dict[str, Position] = {}
-        self._lot_tracker: dict[str, LotTracker] = {}  # symbol → LotTracker
+        self._positions: dict[tuple[str, str], Position] = {}  # (strategy_id, symbol) → Position
+        self._lot_tracker: dict[tuple[str, str], LotTracker] = {}  # (strategy_id, symbol) → LotTracker
 
         # Ledger
         self._ledger = Ledger(max_entries=config.max_ledger_entries)
@@ -146,9 +146,9 @@ class PortfolioService:
         # Validate inputs
         self._validate_fill_inputs(fill_id, quantity, price, commission)
 
-        # Determine action
-        has_long = self._has_long_position(symbol)
-        has_short = self._has_short_position(symbol)
+        # Determine action based on strategy-specific position
+        has_long = self._has_long_position(symbol, strategy_id)
+        has_short = self._has_short_position(symbol, strategy_id)
         is_buy = side == "buy"
         is_sell = side == "sell"
 
@@ -160,10 +160,10 @@ class PortfolioService:
             self._open_short_position(fill_id, timestamp, symbol, quantity, price, commission, strategy_id)
         elif is_sell and has_long:
             # Close long position (FIFO)
-            self._close_long_position(fill_id, timestamp, symbol, quantity, price, commission)
+            self._close_long_position(fill_id, timestamp, symbol, quantity, price, commission, strategy_id)
         elif is_buy and has_short:
             # Close short position (LIFO)
-            self._close_short_position(fill_id, timestamp, symbol, quantity, price, commission)
+            self._close_short_position(fill_id, timestamp, symbol, quantity, price, commission, strategy_id)
         else:
             # Should never reach here
             raise ValueError(f"Invalid state: side={side}, has_long={has_long}, has_short={has_short}")
@@ -213,26 +213,26 @@ class PortfolioService:
             entry_commission=commission,
         )
 
+        # Use strategy_id or "unattributed" for keying
+        strat_id = strategy_id or "unattributed"
+        key = (strat_id, symbol)
+
         # Add to lot tracker
-        if symbol not in self._lot_tracker:
-            self._lot_tracker[symbol] = LotTracker()
-        self._lot_tracker[symbol].add_lot(lot)
+        if key not in self._lot_tracker:
+            self._lot_tracker[key] = LotTracker()
+        self._lot_tracker[key].add_lot(lot)
 
         # Update position
-        if symbol not in self._positions:
-            self._positions[symbol] = Position(
+        if key not in self._positions:
+            self._positions[key] = Position(
                 symbol=symbol,
                 quantity=Decimal("0"),
                 lots=[],
-                strategy_id=strategy_id,
+                strategy_id=strat_id,
                 last_updated=timestamp,
             )
 
-        position = self._positions[symbol]
-
-        # Set strategy_id if not already set (first fill for this position)
-        if position.strategy_id is None and strategy_id is not None:
-            position.strategy_id = strategy_id
+        position = self._positions[key]
 
         position.quantity += quantity
         position.lots.append(lot)
@@ -296,26 +296,26 @@ class PortfolioService:
             entry_commission=commission,
         )
 
+        # Use strategy_id or "unattributed" for keying
+        strat_id = strategy_id or "unattributed"
+        key = (strat_id, symbol)
+
         # Add to lot tracker
-        if symbol not in self._lot_tracker:
-            self._lot_tracker[symbol] = LotTracker()
-        self._lot_tracker[symbol].add_lot(lot)
+        if key not in self._lot_tracker:
+            self._lot_tracker[key] = LotTracker()
+        self._lot_tracker[key].add_lot(lot)
 
         # Update position
-        if symbol not in self._positions:
-            self._positions[symbol] = Position(
+        if key not in self._positions:
+            self._positions[key] = Position(
                 symbol=symbol,
                 quantity=Decimal("0"),
                 lots=[],
-                strategy_id=strategy_id,
+                strategy_id=strat_id,
                 last_updated=timestamp,
             )
 
-        position = self._positions[symbol]
-
-        # Set strategy_id if not already set (first fill for this position)
-        if position.strategy_id is None and strategy_id is not None:
-            position.strategy_id = strategy_id
+        position = self._positions[key]
 
         position.quantity -= quantity  # Negative for short
         position.lots.append(lot)
@@ -353,6 +353,7 @@ class PortfolioService:
         quantity: Decimal,
         price: Decimal,
         commission: Decimal,
+        strategy_id: str | None = None,
     ) -> None:
         """
         Close long position using FIFO lot matching.
@@ -367,12 +368,17 @@ class PortfolioService:
             quantity: Shares to sell (positive)
             price: Sale price per share
             commission: Commission paid
+            strategy_id: Strategy attribution (optional)
 
         Raises:
             ValueError: If insufficient long quantity to close
         """
+        # Use strategy_id or "unattributed" for keying
+        strat_id = strategy_id or "unattributed"
+        key = (strat_id, symbol)
+
         # Match lots using FIFO
-        tracker = self._lot_tracker[symbol]
+        tracker = self._lot_tracker[key]
         matches = tracker.match_close_long(quantity)
 
         total_realized_pnl = Decimal("0")
@@ -401,7 +407,7 @@ class PortfolioService:
             )
 
         # Update position
-        position = self._positions[symbol]
+        position = self._positions[key]
         position.quantity -= quantity
 
         # Track realized P&L on this position
@@ -474,6 +480,7 @@ class PortfolioService:
         quantity: Decimal,
         price: Decimal,
         commission: Decimal,
+        strategy_id: str | None = None,
     ) -> None:
         """
         Close short position using LIFO lot matching.
@@ -488,12 +495,17 @@ class PortfolioService:
             quantity: Shares to buy to cover (positive)
             price: Buy price per share
             commission: Commission paid
+            strategy_id: Strategy attribution (optional)
 
         Raises:
             ValueError: If insufficient short quantity to close
         """
+        # Use strategy_id or "unattributed" for keying
+        strat_id = strategy_id or "unattributed"
+        key = (strat_id, symbol)
+
         # Match lots using LIFO
-        tracker = self._lot_tracker[symbol]
+        tracker = self._lot_tracker[key]
         matches = tracker.match_close_short(quantity)
 
         total_realized_pnl = Decimal("0")
@@ -523,7 +535,7 @@ class PortfolioService:
             )
 
         # Update position
-        position = self._positions[symbol]
+        position = self._positions[key]
         position.quantity += quantity  # Add back (shorts are negative)
 
         # Track realized P&L on this position
@@ -598,8 +610,11 @@ class PortfolioService:
             prices: Dict mapping symbol → current price
         """
         for symbol, price in prices.items():
-            if symbol in self._positions:
-                self._positions[symbol].update_market_value(price)
+            # Update all positions for this symbol across all strategies
+            for key in self._positions:
+                strategy_id, sym = key
+                if sym == symbol:
+                    self._positions[key].update_market_value(price)
 
         logger.debug(
             "portfolio_service.prices_updated",
@@ -630,7 +645,8 @@ class PortfolioService:
 
         # 2. Accrue borrow fees on short positions
         total_borrow_fee = Decimal("0")
-        for symbol, position in self._positions.items():
+        for key, position in self._positions.items():
+            strategy_id, symbol = key
             if position.quantity < 0 and position.current_price is not None:
                 # Short position - charge borrow fee
                 # Daily fee = abs(market_value) * annual_rate / day_count
@@ -728,79 +744,84 @@ class PortfolioService:
         if ratio <= 0:
             raise ValueError(f"Split ratio must be positive, got {ratio}")
 
-        # Check position exists
-        if symbol not in self._positions:
+        # Find all positions for this symbol (across all strategies)
+        positions_to_split = [(key, pos) for key, pos in self._positions.items() if key[1] == symbol]
+
+        if not positions_to_split:
             raise ValueError(f"No position found for symbol {symbol}")
 
-        position = self._positions[symbol]
+        # Process each position
+        for key, position in positions_to_split:
+            strategy_id, _ = key
 
-        # Adjust all lots
-        for lot in position.lots:
-            # Adjust quantity: multiply by ratio
-            new_quantity = lot.quantity * ratio
-            # Adjust entry price: divide by ratio
-            new_entry_price = lot.entry_price / ratio
+            # Adjust all lots
+            for lot in position.lots:
+                # Adjust quantity: multiply by ratio
+                new_quantity = lot.quantity * ratio
+                # Adjust entry price: divide by ratio
+                new_entry_price = lot.entry_price / ratio
 
-            # Create new lot with adjusted values
-            # Note: We need to update the lot in place, but lots are immutable
-            # So we'll rebuild the lot with adjusted values
-            adjusted_lot = Lot(
-                lot_id=lot.lot_id,
-                symbol=lot.symbol,
-                side=lot.side,
-                quantity=new_quantity,
-                entry_price=new_entry_price,
-                entry_timestamp=lot.entry_timestamp,
-                entry_fill_id=lot.entry_fill_id,
-                entry_commission=lot.entry_commission,
-                realized_pnl=lot.realized_pnl,
+                # Create new lot with adjusted values
+                # Note: We need to update the lot in place, but lots are immutable
+                # So we'll rebuild the lot with adjusted values
+                adjusted_lot = Lot(
+                    lot_id=lot.lot_id,
+                    symbol=lot.symbol,
+                    side=lot.side,
+                    quantity=new_quantity,
+                    entry_price=new_entry_price,
+                    entry_timestamp=lot.entry_timestamp,
+                    entry_fill_id=lot.entry_fill_id,
+                    entry_commission=lot.entry_commission,
+                    realized_pnl=lot.realized_pnl,
+                )
+
+                # Replace old lot with adjusted lot in position
+                position.lots = [
+                    adjusted_lot if existing_lot.lot_id == lot.lot_id else existing_lot
+                    for existing_lot in position.lots
+                ]
+
+                # Update lot tracker (use tuple key)
+                if key in self._lot_tracker:
+                    tracker = self._lot_tracker[key]
+                    if lot.side == LotSide.LONG:
+                        tracker.remove_lot(lot.lot_id, LotSide.LONG)
+                        tracker.add_lot(adjusted_lot)
+                    elif lot.side == LotSide.SHORT:
+                        tracker.remove_lot(lot.lot_id, LotSide.SHORT)
+                        tracker.add_lot(adjusted_lot)
+
+            # Adjust position aggregate values
+            position.quantity = position.quantity * ratio
+            # total_cost stays the same (value preserved)
+            # avg_price = total_cost / new_quantity
+            if position.quantity != 0:
+                position.avg_price = position.total_cost / position.quantity
+            else:
+                position.avg_price = Decimal("0")
+
+            # Update market value if current price exists
+            if position.current_price is not None:
+                new_price = position.current_price / ratio
+                position.update_market_value(new_price)
+
+            position.last_updated = split_date
+
+            # Create ledger entry
+            split_type = "split" if ratio > 1 else "reverse split"
+            entry = LedgerEntry(
+                entry_id=f"{strategy_id}_{symbol}_split_{split_date.isoformat()}",
+                timestamp=split_date,
+                entry_type=LedgerEntryType.SPLIT,
+                symbol=symbol,
+                quantity=position.quantity,  # New quantity after split
+                price=position.avg_price,  # New avg price after split
+                cash_flow=Decimal("0"),  # No cash impact
+                description=f"{split_type} {ratio}:1 for {symbol} (strategy {strategy_id})",
+                metadata={"ratio": str(ratio), "split_type": split_type, "strategy_id": strategy_id},
             )
-
-            # Replace old lot with adjusted lot in position
-            position.lots = [
-                adjusted_lot if existing_lot.lot_id == lot.lot_id else existing_lot for existing_lot in position.lots
-            ]
-
-            # Update lot tracker
-            if symbol in self._lot_tracker:
-                tracker = self._lot_tracker[symbol]
-                if lot.side == LotSide.LONG:
-                    tracker.remove_lot(lot.lot_id, LotSide.LONG)
-                    tracker.add_lot(adjusted_lot)
-                elif lot.side == LotSide.SHORT:
-                    tracker.remove_lot(lot.lot_id, LotSide.SHORT)
-                    tracker.add_lot(adjusted_lot)
-
-        # Adjust position aggregate values
-        position.quantity = position.quantity * ratio
-        # total_cost stays the same (value preserved)
-        # avg_price = total_cost / new_quantity
-        if position.quantity != 0:
-            position.avg_price = position.total_cost / position.quantity
-        else:
-            position.avg_price = Decimal("0")
-
-        # Update market value if current price exists
-        if position.current_price is not None:
-            new_price = position.current_price / ratio
-            position.update_market_value(new_price)
-
-        position.last_updated = split_date
-
-        # Create ledger entry
-        split_type = "split" if ratio > 1 else "reverse split"
-        entry = LedgerEntry(
-            entry_id=f"{symbol}_split_{split_date.isoformat()}",
-            timestamp=split_date,
-            entry_type=LedgerEntryType.SPLIT,
-            symbol=symbol,
-            quantity=position.quantity,  # New quantity after split
-            price=position.avg_price,  # New avg price after split
-            cash_flow=Decimal("0"),  # No cash impact
-            description=f"{split_type} {ratio}:1 for {symbol}",
-            metadata={"ratio": str(ratio), "split_type": split_type},
-        )
-        self._ledger.add_entry(entry)
+            self._ledger.add_entry(entry)
 
         logger.info(
             "portfolio_service.split_processed",
@@ -840,70 +861,82 @@ class PortfolioService:
         if amount_per_share < 0:
             raise ValueError(f"Dividend amount cannot be negative, got {amount_per_share}")
 
-        # Check position exists
-        if symbol not in self._positions:
+        # Find all positions for this symbol (across all strategies)
+        positions_for_dividend = [(key, pos) for key, pos in self._positions.items() if key[1] == symbol]
+
+        if not positions_for_dividend:
             raise ValueError(f"No position found for symbol {symbol}")
 
-        position = self._positions[symbol]
+        # Process dividend for each position
+        for key, position in positions_for_dividend:
+            strategy_id, _ = key
 
-        # Calculate dividend cash flow
-        # Long positions receive dividends (positive cash flow)
-        # Short positions pay dividends (negative cash flow)
-        cash_flow = position.quantity * amount_per_share
+            # Calculate dividend cash flow
+            # Long positions receive dividends (positive cash flow)
+            # Short positions pay dividends (negative cash flow)
+            cash_flow = position.quantity * amount_per_share
 
-        # Update cash
-        self._cash += cash_flow
+            # Update cash
+            self._cash += cash_flow
 
-        # Track cumulative dividends (global)
-        if cash_flow > 0:
-            self._total_dividends_received += cash_flow
-        else:
-            self._total_dividends_paid += abs(cash_flow)
+            # Track cumulative dividends (global)
+            if cash_flow > 0:
+                self._total_dividends_received += cash_flow
+            else:
+                self._total_dividends_paid += abs(cash_flow)
 
-        # Track dividends on position (per-symbol)
-        if cash_flow > 0:
-            position.dividends_received += cash_flow
-        else:
-            position.dividends_paid += abs(cash_flow)
+            # Track dividends on position (per-symbol)
+            if cash_flow > 0:
+                position.dividends_received += cash_flow
+            else:
+                position.dividends_paid += abs(cash_flow)
 
-        # Create ledger entry
-        entry = LedgerEntry(
-            entry_id=f"{symbol}_div_{ex_date.isoformat()}",
-            timestamp=ex_date,
-            entry_type=LedgerEntryType.DIVIDEND,
-            symbol=symbol,
-            quantity=position.quantity,
-            price=amount_per_share,
-            cash_flow=cash_flow,
-            description=f"Dividend ${amount_per_share}/share on {position.quantity} shares",
-            metadata={"amount_per_share": str(amount_per_share)},
-        )
-        self._ledger.add_entry(entry)
+            # Create ledger entry
+            entry = LedgerEntry(
+                entry_id=f"{strategy_id}_{symbol}_dividend_{ex_date.isoformat()}",
+                timestamp=ex_date,
+                entry_type=LedgerEntryType.DIVIDEND,
+                symbol=symbol,
+                quantity=position.quantity,
+                price=amount_per_share,
+                cash_flow=cash_flow,
+                description=f"Dividend ${amount_per_share}/share on {symbol} (strategy {strategy_id})",
+                metadata={"amount_per_share": str(amount_per_share), "strategy_id": strategy_id},
+            )
+            self._ledger.add_entry(entry)
 
         logger.info(
             "portfolio_service.dividend_processed",
             symbol=symbol,
             amount_per_share=float(amount_per_share),
-            quantity=float(position.quantity),
-            cash_flow=float(cash_flow),
         )
 
     # ==================== Queries ====================
 
-    def get_position(self, symbol: str) -> Position | None:
-        """Get current position for symbol."""
-        position = self._positions.get(symbol)
+    def get_position(self, symbol: str, strategy_id: str | None = None) -> Position | None:
+        """Get current position for symbol and strategy.
+
+        Args:
+            symbol: Symbol to look up
+            strategy_id: Strategy ID (uses "unattributed" if None)
+
+        Returns:
+            Position if found, None otherwise
+        """
+        strat_id = strategy_id or "unattributed"
+        key = (strat_id, symbol)
+        position = self._positions.get(key)
         if position and position.quantity == 0 and not self.config.keep_position_history:
             return None
         return position
 
-    def get_positions(self) -> dict[str, Position]:
-        """Get all current positions."""
+    def get_positions(self) -> dict[tuple[str, str], Position]:
+        """Get all current positions keyed by (strategy_id, symbol)."""
         if self.config.keep_position_history:
             return self._positions.copy()
         else:
             # Filter out flat positions
-            return {symbol: pos for symbol, pos in self._positions.items() if pos.quantity != 0}
+            return {key: pos for key, pos in self._positions.items() if pos.quantity != 0}
 
     def get_cash(self) -> Decimal:
         """Get current cash balance."""
@@ -1039,17 +1072,37 @@ class PortfolioService:
         if existing_entries:
             raise ValueError(f"Fill ID {fill_id} already exists in ledger")
 
-    def _has_long_position(self, symbol: str) -> bool:
-        """Check if symbol has long position."""
-        if symbol not in self._positions:
-            return False
-        return self._positions[symbol].quantity > 0
+    def _has_long_position(self, symbol: str, strategy_id: str | None = None) -> bool:
+        """Check if symbol has long position for given strategy.
 
-    def _has_short_position(self, symbol: str) -> bool:
-        """Check if symbol has short position."""
-        if symbol not in self._positions:
+        Args:
+            symbol: Symbol to check
+            strategy_id: Strategy ID (uses "unattributed" if None)
+
+        Returns:
+            True if long position exists for this strategy-symbol pair
+        """
+        strat_id = strategy_id or "unattributed"
+        key = (strat_id, symbol)
+        if key not in self._positions:
             return False
-        return self._positions[symbol].quantity < 0
+        return self._positions[key].quantity > 0
+
+    def _has_short_position(self, symbol: str, strategy_id: str | None = None) -> bool:
+        """Check if symbol has short position for given strategy.
+
+        Args:
+            symbol: Symbol to check
+            strategy_id: Strategy ID (uses "unattributed" if None)
+
+        Returns:
+            True if short position exists for this strategy-symbol pair
+        """
+        strat_id = strategy_id or "unattributed"
+        key = (strat_id, symbol)
+        if key not in self._positions:
+            return False
+        return self._positions[key].quantity < 0
 
     def _calculate_realized_pnl(self) -> Decimal:
         """Calculate total realized P&L from ledger."""
@@ -1088,11 +1141,12 @@ class PortfolioService:
 
         # Serialize positions with their lots
         positions_data = {}
-        for symbol, position in self._positions.items():
+        for key, position in self._positions.items():
+            strategy_id, symbol = key
             # Get lots from tracker
             lots_data = []
-            if symbol in self._lot_tracker:
-                tracker = self._lot_tracker[symbol]
+            if key in self._lot_tracker:
+                tracker = self._lot_tracker[key]
                 # Get lots for both long and short sides
                 all_lots = tracker.get_lots(LotSide.LONG) + tracker.get_lots(LotSide.SHORT)
                 lots_data = [
@@ -1108,7 +1162,10 @@ class PortfolioService:
                     for lot in all_lots
                 ]
 
-            positions_data[symbol] = {
+            # Use tuple key as string for JSON serialization
+            key_str = f"{strategy_id}:{symbol}"
+            positions_data[key_str] = {
+                "strategy_id": strategy_id,
                 "symbol": position.symbol,
                 "quantity": str(position.quantity),
                 "avg_price": str(position.avg_price),
@@ -1204,7 +1261,11 @@ class PortfolioService:
         self._positions = {}
         self._lot_tracker = {}
 
-        for symbol, pos_data in snapshot["positions"].items():
+        for key_str, pos_data in snapshot["positions"].items():
+            # Parse the key (format: "strategy_id:symbol")
+            strategy_id, symbol = key_str.split(":", 1)
+            key = (strategy_id, symbol)
+
             # Restore position
             position = Position(
                 symbol=symbol,
@@ -1213,8 +1274,9 @@ class PortfolioService:
                 market_value=Decimal(pos_data["market_value"]),
                 unrealized_pnl=Decimal(pos_data["unrealized_pnl"]),
                 current_price=Decimal(pos_data["current_price"]) if pos_data["current_price"] is not None else None,
+                strategy_id=strategy_id,
             )
-            self._positions[symbol] = position
+            self._positions[key] = position
 
             # Restore lots
             if pos_data["lots"]:
@@ -1234,7 +1296,7 @@ class PortfolioService:
                 tracker = LotTracker()
                 for lot in lots:
                     tracker.add_lot(lot)
-                self._lot_tracker[symbol] = tracker
+                self._lot_tracker[key] = tracker
 
         # Restore ledger
         self._ledger = Ledger(max_entries=self.config.max_ledger_entries)
@@ -1323,32 +1385,38 @@ class PortfolioService:
 
         return entries
 
-    def get_all_lots(self, symbol: str | None = None) -> list[Lot]:
+    def get_all_lots(self, symbol: str | None = None, strategy_id: str | None = None) -> list[Lot]:
         """
-        Get all current lots, optionally filtered by symbol.
+        Get all current lots, optionally filtered by symbol and/or strategy.
 
         Returns the current lot holdings for tracking purposes.
         Useful for debugging and detailed position analysis.
 
         Args:
             symbol: Filter by symbol (optional, returns all if None)
+            strategy_id: Filter by strategy (optional, returns all if None)
 
         Returns:
             List of Lot objects currently held
 
         Example:
-            >>> # Get all AAPL lots
-            >>> lots = portfolio.get_all_lots("AAPL")
+            >>> # Get all AAPL lots for strategy1
+            >>> lots = portfolio.get_all_lots("AAPL", "strategy1")
             >>> for lot in lots:
             ...     print(f"{lot.quantity} @ ${lot.entry_price}")
         """
-        if symbol is not None:
-            if symbol in self._lot_tracker:
-                tracker = self._lot_tracker[symbol]
-                return tracker.get_lots(LotSide.LONG) + tracker.get_lots(LotSide.SHORT)
-            return []
+        if symbol is not None or strategy_id is not None:
+            # Filter by symbol and/or strategy
+            filtered_lots = []
+            for key, tracker in self._lot_tracker.items():
+                strat_id, sym = key
+                # Check if matches filter criteria
+                if (symbol is None or sym == symbol) and (strategy_id is None or strat_id == strategy_id):
+                    filtered_lots.extend(tracker.get_lots(LotSide.LONG))
+                    filtered_lots.extend(tracker.get_lots(LotSide.SHORT))
+            return filtered_lots
 
-        # Return all lots across all symbols
+        # Return all lots across all symbols and strategies
         all_lots = []
         for tracker in self._lot_tracker.values():
             all_lots.extend(tracker.get_lots(LotSide.LONG))
@@ -1488,7 +1556,8 @@ class PortfolioService:
         from qtrader.events.events import PortfolioPosition, StrategyGroup
 
         # Update all positions with latest prices for accurate valuation
-        for symbol, position in self._positions.items():
+        for key, position in self._positions.items():
+            strategy_id, symbol = key
             if symbol in self._latest_prices:
                 position.update_market_value(self._latest_prices[symbol])
 
@@ -1513,14 +1582,15 @@ class PortfolioService:
         # Calculate leverage (handle zero equity)
         leverage = gross_exposure / current_portfolio_equity if current_portfolio_equity > 0 else Decimal("0")
 
-        # Group positions by strategy
+        # Group positions by strategy (now keyed by (strategy_id, symbol))
         strategies: dict[str, list[Position]] = {}
-        for position in self._positions.values():
+        for key, position in self._positions.items():
+            strategy_id, symbol = key
+
             # Skip flat positions unless keeping history
             if position.quantity == 0 and not self.config.keep_position_history:
                 continue
 
-            strategy_id = position.strategy_id or "unattributed"
             if strategy_id not in strategies:
                 strategies[strategy_id] = []
             strategies[strategy_id].append(position)

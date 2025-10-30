@@ -296,7 +296,7 @@ class PortfolioState(BaseModel):
     cash: Decimal
 
     # Positions
-    positions: dict[str, Position]  # symbol → Position
+    positions: dict[tuple[str, str], Position]  # (strategy_id, symbol) → Position
 
     # Valuations
     equity: Decimal  # Total portfolio value
