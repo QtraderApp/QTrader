@@ -23,12 +23,8 @@ strategies:
   - strategy_id: "buy_and_hold" # Registry name
     universe: ["AAPL"] # Symbols this strategy trades (subset of backtest universe)
     data_sources: ["algoseek-us-equity-1d-unadjusted"] # Data feeds this strategy uses
-    config: # Strategy-specific overrides
-      hold_period_days: null # null = hold forever
+    configs: {} # Strategy-specific config overrides
 
-# Risk policy (Portfolio Manager level)
 risk_policy:
   name: "naive" # Registry name
-  config: # Policy-specific overrides
-    max_pct_position_size: 0.90
-    max_drawdown: 0.25
+  configs: {} #policy overrides

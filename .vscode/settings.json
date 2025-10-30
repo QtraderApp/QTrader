@@ -3,5 +3,14 @@
         "tests"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "yaml.schemaStore.enable": false,
+    "yaml.schemas": {},
+    "[yaml]": {
+        "editor.defaultFormatter": "redhat.vscode-yaml"
+    },
+    "files.associations": {
+        "**/my_library/risk_policies/*.yaml": "yaml"
+    },
+    "yaml.disableDefaultProperties": true
 }
