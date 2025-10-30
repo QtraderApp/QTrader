@@ -7,6 +7,7 @@
     "causation_id": "bar-550e8400-e29b-41d4-a716-446655440002",
     "source_service": "strategy_service",
     "payload": {
+        "signal_id": "signal-550e8400-e29b-41d4-a716-446655440001",
         "timestamp": "2024-03-15T14:35:22Z",
         "strategy_id": "sma_crossover",
         "symbol": "AAPL",

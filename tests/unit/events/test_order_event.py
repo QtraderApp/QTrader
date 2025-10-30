@@ -7,6 +7,19 @@ import pytest
 from qtrader.events import OrderEvent
 
 
+# Test fixtures for new required fields
+@pytest.fixture
+def default_intent_id() -> str:
+    """Default intent_id for tests."""
+    return "signal-test-123"
+
+
+@pytest.fixture
+def default_idempotency_key() -> str:
+    """Default idempotency_key for tests."""
+    return "test_strategy-signal-test-123-2024-03-15T14:30:15.123Z"
+
+
 class TestOrderEventCreation:
     """Test OrderEvent creation and initialization."""
 
@@ -14,6 +27,8 @@ class TestOrderEventCreation:
         """OrderEvent can be created with only required fields."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-001",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -40,6 +55,8 @@ class TestOrderEventCreation:
         """OrderEvent can be created as limit order with limit_price."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-002",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="MSFT",
@@ -60,6 +77,8 @@ class TestOrderEventCreation:
         """OrderEvent can be created as stop order with stop_price."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-003",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="GOOGL",
@@ -78,6 +97,8 @@ class TestOrderEventCreation:
         """OrderEvent can be created with all optional fields."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-004",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -88,7 +109,6 @@ class TestOrderEventCreation:
             stop_price=Decimal("145.00"),
             time_in_force="GTC",
             source_strategy_id="sma_crossover",
-            source_signal_id="signal-abc-123",
             stop_loss=Decimal("140.00"),
             take_profit=Decimal("150.00"),
             source_service="manager_service",
@@ -99,7 +119,7 @@ class TestOrderEventCreation:
         assert event.limit_price == Decimal("145.50")
         assert event.stop_price == Decimal("145.00")
         assert event.source_strategy_id == "sma_crossover"
-        assert event.source_signal_id == "signal-abc-123"
+        assert event.intent_id == "signal-test-123"
         assert event.stop_loss == Decimal("140.00")
         assert event.take_profit == Decimal("150.00")
 
@@ -111,6 +131,8 @@ class TestOrderEventSerialization:
         """OrderEvent serializes Decimal fields to strings for wire format."""
         # Arrange
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-005",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -136,6 +158,8 @@ class TestOrderEventSerialization:
         """OrderEvent serializes None fields as null."""
         # Arrange
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-006",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -152,7 +176,6 @@ class TestOrderEventSerialization:
         assert serialized["limit_price"] is None
         assert serialized["stop_price"] is None
         assert serialized["source_strategy_id"] is None
-        assert serialized["source_signal_id"] is None
         assert serialized["stop_loss"] is None
         assert serialized["take_profit"] is None
 
@@ -164,6 +187,8 @@ class TestOrderEventValidation:
         """OrderEvent validates payload against manager/order.v1.json."""
         # Arrange & Act - should not raise
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-007",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -183,6 +208,8 @@ class TestOrderEventValidation:
         # Arrange & Act & Assert
         with pytest.raises(Exception):  # ValidationError from schema
             OrderEvent(
+                intent_id="signal-test-123",
+                idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
                 order_id="order-008",
                 timestamp="2024-03-15T14:30:15.123Z",
                 symbol="AAPL",
@@ -197,6 +224,8 @@ class TestOrderEventValidation:
         # Arrange & Act & Assert
         with pytest.raises(Exception):  # ValidationError from schema
             OrderEvent(
+                intent_id="signal-test-123",
+                idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
                 order_id="order-009",
                 timestamp="2024-03-15T14:30:15.123Z",
                 symbol="AAPL",
@@ -211,6 +240,8 @@ class TestOrderEventValidation:
         # Arrange & Act & Assert
         with pytest.raises(Exception):  # ValidationError from schema
             OrderEvent(
+                intent_id="signal-test-123",
+                idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
                 order_id="order-010",
                 timestamp="2024-03-15T14:30:15.123Z",
                 symbol="AAPL",
@@ -226,6 +257,8 @@ class TestOrderEventValidation:
         # Arrange & Act & Assert
         with pytest.raises(Exception):  # Pydantic ValidationError
             OrderEvent(
+                intent_id="signal-test-123",
+                idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
                 order_id="order-011",
                 timestamp="2024-03-15T14:30:15.123Z",
                 symbol="AAPL",
@@ -243,6 +276,8 @@ class TestOrderEventEnvelope:
         """OrderEvent has all envelope fields."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-012",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -265,6 +300,8 @@ class TestOrderEventEnvelope:
         """OrderEvent envelope validates against envelope schema."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-013",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -291,6 +328,8 @@ class TestOrderEventImmutability:
         """OrderEvent is immutable after creation."""
         # Arrange
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id="order-014",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -316,6 +355,8 @@ class TestOrderEventTypes:
         """OrderEvent accepts all valid order types."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id=f"order-{order_type}",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -338,6 +379,8 @@ class TestOrderEventTypes:
         """OrderEvent accepts all valid sides."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id=f"order-{side}",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",
@@ -358,6 +401,8 @@ class TestOrderEventTypes:
         """OrderEvent accepts all valid time_in_force values."""
         # Arrange & Act
         event = OrderEvent(
+            intent_id="signal-test-123",
+            idempotency_key="test-strategy-signal-test-123-2024-03-15T14:30:15.123Z",
             order_id=f"order-{time_in_force}",
             timestamp="2024-03-15T14:30:15.123Z",
             symbol="AAPL",

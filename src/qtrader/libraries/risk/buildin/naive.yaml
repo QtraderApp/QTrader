@@ -7,80 +7,109 @@ portfolio_risk_policy:
   version: "1.0.0"
   date_created: "2025-10-29"
   author: "QTrader Team"
+  policy_scope: "portfolio"
 
   #############################################################################
-  # Aggregate Exposure Limits
-  # These limits apply to the entire portfolio.
+  # Evaluation / Clock
   #############################################################################
+  evaluation:
+    # end_of_day | bar_close | intraday
+    mode: "end_of_day"
+    clock_alignment: "exchange_calendar"
 
-  aggregate_exposure_limits:
-    # Sizing Algorithm Options:
-    # fixed_equity_pct - fixed percentage of capital per position
-    # volatility_targeting - adjusts position size based on asset or portfolio volatility
-    # kelly_criterion - mathematically optimized sizing considering win rates
-    # risk_parity - equal risk contribution sizing per asset or strategy
-    # equal_weighting - equal capital allocation across assets
-    sizing_algorithm: "fixed_equity_pct"
+  #############################################################################
+  # Sizing (global defaults; per-strategy overrides can be added later)
+  #############################################################################
+  sizing:
+    # fixed_equity_pct | volatility_targeting | kelly_criterion | risk_parity | equal_weighting
+    algorithm: "fixed_equity_pct"
 
-    # Maximum position size per asset as a fraction of portfolio equity (e.g., 0.10 = 10%)
-    max_position_size_pct: 1.0
+    # Applies when algorithm == fixed_equity_pct
+    fixed_equity_pct: 0.95 # 10% of equity per new position
 
-    # Risk Evaluation Frequency options:
-    # end_of_day - assess risk once per day
-    # bar_close - assess risk at the close of each bar. For daily bars, same as end_of_day
-    # intraday - multiple assessments within a day for higher frequency strategies
-    risk_evaluation_frequency: "end_of_day"
+    # Applies when algorithm == volatility_targeting
+    volatility_targeting:
+      target_volatility_pct: null # e.g., 0.12 for 12% annualized
 
-    # Whether to rebalance portfolio upon breaching risk constraints
+    # Applies when algorithm == kelly_criterion
+    kelly_criterion:
+      fraction: 0.5 # fractional Kelly (0..1), always capped upstream
+
+  #############################################################################
+  # Cash & Liquidity
+  #############################################################################
+  cash_management:
+    cash_buffer_pct: 0.05 # keep 5% cash unallocated
+
+  limits:
+    liquidity:
+      max_participation_adv: 0.10 # ≤10% of ADV per order
+      min_ticket_usd: 100
+
+    #############################################################################
+    # Aggregate Portfolio Limits
+    #############################################################################
+    leverage:
+      allow_leveraged_positions: false
+      max_gross_leverage: 1.0 # gross_exposure / equity
+      max_net_leverage: 1.0 # |net_exposure| / equity
+
+    shorting:
+      allow_short_positions: false
+
+    margin_policy:
+      allow_negative_cash: false
+      initial_margin_rate: null # e.g., 0.5 for equities
+      short_margin_rate: null # e.g., 1.5 for shorts
+
+    concentration:
+      max_sector_exposure_pct: null
+      max_industry_exposure_pct: null
+      max_country_exposure_pct: null
+      max_asset_exposure_pct: null
+      max_position_size_pct: 1.0 # cap per single name (1.0 = 100%)
+
+    portfolio_drawdown:
+      max_drawdown_pct: null # e.g., 0.15 = 15% peak-to-trough
+      daily_loss_limit_pct: null # e.g., 0.05 = 5% day loss stop
+
+    position_count:
+      max_positions: null
+
+    diversification:
+      max_correlation_between_positions: null
+
+  #############################################################################
+  # Drawdown Throttling (optional risk-on/risk-off scaling)
+  #############################################################################
+  drawdown_controls:
+    thresholds: [] # e.g., [0.05, 0.10, 0.15]
+    multipliers: [] # e.g., [0.7, 0.5, 0.0]  (same length as thresholds)
+
+  #############################################################################
+  # Strategy-Level Limits (defaults; can add overrides per strategy later)
+  #############################################################################
+  strategy_limits:
+    defaults:
+      max_drawdown_pct: null
+      enforce_stop_loss: false
+      max_stop_loss_pct: null # e.g., 0.05 = 5%
+      enforce_take_profit: false
+      min_take_profit_pct: null # e.g., 0.10 = 10%
+    strategy_overrides: {} # e.g., { "momentum": { ... }, "buy_hold": { ... } }
+
+  #############################################################################
+  # Execution Risk Controls
+  #############################################################################
+  execution_controls:
+    max_slippage_pct: null # allowed slippage as % of price
+    max_commission_pct: null # commission cap as % of trade notional
+    max_order_size_pct_of_adv: null # cap order size as % of ADV
+
+  #############################################################################
+  # Rebalancing Behavior
+  #############################################################################
+  rebalancing:
     rebalance_on_risk_breach: false
-
-    # Rebalancing Strategies:
-    # proportional_reduction - reduce all positions proportionally
-    # largest_first - reduce largest positions first to meet constraints
+    # proportional_reduction | largest_first | null
     rebalance_strategy: null
-
-    # Target portfolio volatility percentage, used with volatility targeting
-    # Use null if not applicable
-    target_volatility_pct: null
-
-    # Enables or disables short positions
-    allow_short_positions: false
-
-    # Allows portfolio cash balance to go negative (margin)
-    allow_negative_cash: false
-
-    # Allows leveraged positions, i.e., exposure greater than equity
-    allow_leveraged_positions: false
-
-    # Max allowable portfolio drawdown as fraction, e.g. 0.15 = 15%
-    max_drawdown_pct: null
-
-    # Max allowable daily loss as fraction, e.g. 0.05 = 5%
-    daily_loss_limit_pct: null
-
-    # Maximum number of open positions allowed in the portfolio
-    max_positions: null
-
-    # Optional diversification control: max correlation allowed between positions
-    # Set null if not used
-    max_correlation_between_positions: null
-
-  #############################################################################
-  # Per Strategy Exposure Limits
-  #############################################################################
-
-  per_strategy_exposure_limits:
-    # Maximum drawdown allowed for individual strategy
-    max_drawdown_pct: null
-
-    # Enforce use of stop-loss orders per trade (true/false)
-    enforce_stop_loss: false
-
-    # Maximum stop loss percentage per trade ( e.g., 0.05 = 5%)
-    max_stop_loss_pct: null
-
-    # Enforce use of take-profit orders per trade (true/false)
-    enforce_take_profit: false
-
-    # Minimum take profit percentage target per trade (e.g., 0.05 = 5%)
-    min_take_profit_pct: null

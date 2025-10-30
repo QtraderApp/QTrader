@@ -4,6 +4,7 @@
     "title": "Trading Signal v1",
     "type": "object",
     "required": [
+        "signal_id",
         "timestamp",
         "strategy_id",
         "symbol",
@@ -12,6 +13,11 @@
         "price"
     ],
     "properties": {
+        "signal_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique signal identifier (UUID or timestamp-based). Used for audit trail - links to OrderEvent.intent_id."
+        },
         "timestamp": {
             "type": "string",
             "format": "date-time",

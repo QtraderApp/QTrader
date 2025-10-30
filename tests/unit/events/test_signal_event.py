@@ -31,6 +31,7 @@ class TestSignalEventCreation:
         """SignalEvent can be created with only required fields."""
         # Arrange & Act
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test_strategy",
             symbol="AAPL",
@@ -56,6 +57,7 @@ class TestSignalEventCreation:
         """SignalEvent can be created with all optional fields."""
         # Arrange & Act
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="sma_crossover",
             symbol="AAPL",
@@ -79,6 +81,7 @@ class TestSignalEventCreation:
         """SignalEvent accepts SignalIntention enum for intention field."""
         # Arrange & Act
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test",
             symbol="AAPL",
@@ -96,6 +99,7 @@ class TestSignalEventCreation:
         """SignalEvent accepts valid string for intention field."""
         # Arrange & Act
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test",
             symbol="AAPL",
@@ -116,6 +120,7 @@ class TestSignalEventSerialization:
         """Decimal fields serialize to strings for wire format."""
         # Arrange
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test",
             symbol="AAPL",
@@ -144,6 +149,7 @@ class TestSignalEventSerialization:
         """Intention field serializes to string."""
         # Arrange
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test",
             symbol="AAPL",
@@ -168,6 +174,7 @@ class TestSignalEventValidation:
         """SignalEvent validates payload against signal.v1.json."""
         # Arrange & Act - should not raise
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test_strategy",
             symbol="AAPL",
@@ -186,6 +193,7 @@ class TestSignalEventValidation:
         # Arrange & Act & Assert
         with pytest.raises(ValueError, match="Invalid intention value"):
             SignalEvent(
+                signal_id="signal-test-123",
                 timestamp="2024-03-15T14:35:22Z",
                 strategy_id="test",
                 symbol="AAPL",
@@ -200,6 +208,7 @@ class TestSignalEventValidation:
         # Arrange & Act & Assert
         with pytest.raises(Exception):  # Pydantic ValidationError
             SignalEvent(
+                signal_id="signal-test-123",
                 timestamp="2024-03-15T14:35:22Z",
                 strategy_id="test",
                 symbol="AAPL",
@@ -217,6 +226,7 @@ class TestSignalEventEnvelope:
         """SignalEvent has all required envelope fields."""
         # Arrange & Act
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test",
             symbol="AAPL",
@@ -239,6 +249,7 @@ class TestSignalEventEnvelope:
         """SignalEvent envelope validates against envelope.v1.json."""
         # Arrange & Act - should not raise
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test",
             symbol="AAPL",
@@ -262,6 +273,7 @@ class TestSignalEventImmutability:
         """SignalEvent is immutable after creation."""
         # Arrange
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test",
             symbol="AAPL",
@@ -292,6 +304,7 @@ class TestSignalEventIntentions:
         """All SignalIntention enum values are valid."""
         # Arrange & Act
         event = SignalEvent(
+            signal_id="signal-test-123",
             timestamp="2024-03-15T14:35:22Z",
             strategy_id="test",
             symbol="AAPL",

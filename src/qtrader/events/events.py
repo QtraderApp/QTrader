@@ -371,14 +371,40 @@ class SignalEvent(ValidatedEvent):
 
     The intention field accepts either SignalIntention enum or string on input,
     but serializes to string for wire format.
+
+    Attributes:
+        signal_id: Unique signal identifier (links to OrderEvent.intent_id for audit trail)
+        timestamp: Signal generation timestamp (ISO8601 UTC)
+        strategy_id: Strategy that generated this signal (source attribution)
+        symbol: Instrument identifier
+        intention: Trading action (OPEN_LONG, CLOSE_LONG, OPEN_SHORT, CLOSE_SHORT)
+        price: Price at signal generation
+        confidence: Signal confidence [0.0, 1.0]
+        reason: Human-readable explanation (optional)
+        metadata: Strategy-specific data (optional)
+        stop_loss: Stop loss price (optional)
+        take_profit: Take profit price (optional)
+
+    Example:
+        >>> from decimal import Decimal
+        >>> signal = SignalEvent(
+        ...     signal_id="signal-550e8400-e29b-41d4-a716-446655440001",
+        ...     timestamp="2024-03-15T14:35:22Z",
+        ...     strategy_id="sma_crossover",
+        ...     symbol="AAPL",
+        ...     intention="OPEN_LONG",
+        ...     price=Decimal("145.75"),
+        ...     confidence=Decimal("0.85")
+        ... )
     """
 
     SCHEMA_BASE: ClassVar[Optional[str]] = "strategy/signal"
     event_type: str = "signal"  # Must match SCHEMA_BASE
 
     # Required domain fields
+    signal_id: str  # Unique identifier for audit trail (links to OrderEvent.intent_id)
     timestamp: str  # ISO8601 string on wire (UTC RFC3339 with Z suffix)
-    strategy_id: str
+    strategy_id: str  # Strategy source attribution
     symbol: str
     intention: str  # OPEN_LONG | CLOSE_LONG | OPEN_SHORT | CLOSE_SHORT (string on wire)
     price: Decimal  # String on wire, Decimal in Python
@@ -428,6 +454,8 @@ class OrderEvent(ValidatedEvent):
 
     Attributes:
         order_id: Unique order identifier (for tracking and matching fills)
+        intent_id: Links back to SignalEvent.signal_id (audit trail: signal → order)
+        idempotency_key: Replay protection key (prevents duplicate orders)
         timestamp: Order creation timestamp (ISO8601 UTC)
         symbol: Instrument identifier
         side: "buy" or "sell"
@@ -436,8 +464,7 @@ class OrderEvent(ValidatedEvent):
         limit_price: Limit price (required for limit/stop_limit orders)
         stop_price: Stop trigger price (required for stop/stop_limit orders)
         time_in_force: "GTC", "DAY", "IOC", or "FOK" (defaults to GTC)
-        source_strategy_id: Strategy attribution (optional)
-        source_signal_id: Signal that originated this order (optional)
+        source_strategy_id: Strategy attribution (from SignalEvent.strategy_id)
         stop_loss: Stop loss price (optional)
         take_profit: Take profit price (optional)
 
@@ -445,13 +472,16 @@ class OrderEvent(ValidatedEvent):
         >>> from decimal import Decimal
         >>> order = OrderEvent(
         ...     order_id="order-2024-03-15-001",
+        ...     intent_id="signal-550e8400-e29b-41d4-a716-446655440001",
+        ...     idempotency_key="sma_crossover-signal-550e8400-e29b-41d4-a716-446655440001-2024-03-15T14:30:15.123Z",
         ...     timestamp="2024-03-15T14:30:15.123Z",
         ...     symbol="AAPL",
         ...     side="buy",
         ...     quantity=Decimal("100"),
         ...     order_type="limit",
         ...     limit_price=Decimal("145.50"),
-        ...     time_in_force="GTC"
+        ...     time_in_force="GTC",
+        ...     source_strategy_id="sma_crossover"
         ... )
     """
 
@@ -460,6 +490,8 @@ class OrderEvent(ValidatedEvent):
 
     # Required domain fields
     order_id: str
+    intent_id: str  # Links to SignalEvent.signal_id (audit trail)
+    idempotency_key: str  # Replay protection
     timestamp: str  # ISO8601 string (UTC RFC3339 with Z suffix)
     symbol: str
     side: str  # "buy" or "sell" (validated by schema)
@@ -470,8 +502,7 @@ class OrderEvent(ValidatedEvent):
     limit_price: Optional[Decimal] = None  # String on wire, Decimal in Python
     stop_price: Optional[Decimal] = None  # String on wire, Decimal in Python
     time_in_force: str = "GTC"  # "GTC", "DAY", "IOC", "FOK" (validated by schema)
-    source_strategy_id: Optional[str] = None
-    source_signal_id: Optional[str] = None
+    source_strategy_id: Optional[str] = None  # From SignalEvent.strategy_id
     stop_loss: Optional[Decimal] = None  # String on wire, Decimal in Python
     take_profit: Optional[Decimal] = None  # String on wire, Decimal in Python
 

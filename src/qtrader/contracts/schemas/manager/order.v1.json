@@ -10,13 +10,25 @@
         "symbol",
         "side",
         "quantity",
-        "order_type"
+        "order_type",
+        "intent_id",
+        "idempotency_key"
     ],
     "properties": {
         "order_id": {
             "type": "string",
             "minLength": 1,
             "description": "Unique identifier for this order. Used to track order lifecycle and match fills."
+        },
+        "intent_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Links back to originating SignalEvent for audit trail. Required for signal-to-order-to-fill chain tracking."
+        },
+        "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Replay protection key. ExecutionService rejects duplicate orders with same key. Format: <strategy_id>-<signal_id>-<timestamp>."
         },
         "timestamp": {
             "type": "string",
@@ -84,14 +96,6 @@
             ],
             "minLength": 1,
             "description": "Strategy that originated the signal leading to this order. For multi-strategy attribution and P&L tracking. Null if not attributed."
-        },
-        "source_signal_id": {
-            "type": [
-                "string",
-                "null"
-            ],
-            "minLength": 1,
-            "description": "Signal event ID that originated this order. For audit trail and signal-to-fill analysis. Null if not tracked."
         },
         "stop_loss": {
             "type": [

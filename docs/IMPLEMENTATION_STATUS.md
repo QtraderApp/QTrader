@@ -78,18 +78,19 @@ ______________________________________________________________________
 
 ### 🚧 In Progress
 
-| Component            | Status         | Blockers                 | ETA      |
-| -------------------- | -------------- | ------------------------ | -------- |
-| **ManagerService**   | 🔴 Not Started | Need implementation plan | 2-3 days |
-| **ExecutionService** | 🟡 Partial     | Needs event integration  | 2-3 days |
+| Component            | Status     | Blockers                   | ETA      |
+| -------------------- | ---------- | -------------------------- | -------- |
+| **ManagerService**   | � Partial  | Needs FSM + integration    | 2-3 days |
+| **ExecutionService** | 🟡 Partial | Needs FSM + event refactor | 2-3 days |
 
 ### 📋 Planned
 
-| Component              | Priority | Dependencies   | Description               |
-| ---------------------- | -------- | -------------- | ------------------------- |
-| **RiskService**        | High     | ManagerService | Pre-trade risk evaluation |
-| **ReportingService**   | Medium   | All services   | Performance analytics     |
-| **LiveTradingAdapter** | Low      | All services   | Broker integration        |
+| Component              | Priority | Dependencies   | Description                 |
+| ---------------------- | -------- | -------------- | --------------------------- |
+| **Risk Library**       | High     | ManagerService | Pure stateless risk tools   |
+| **ReportingService**   | Medium   | All services   | Performance analytics       |
+| **LiveTradingAdapter** | Low      | All services   | Broker integration          |
+| **Event Sourcing**     | Future   | All services   | Persistent event log/replay |
 
 ______________________________________________________________________
 
@@ -345,10 +346,10 @@ You can run a **complete end-to-end backtest** with:
 
 ### Current Limitations
 
-**Missing Services:**
+**Missing Components:**
 
-1. ❌ **ManagerService** - Currently strategies must create orders manually
-1. ❌ **RiskService** - No pre-trade risk checks or position sizing
+1. ❌ **ManagerService** - Partial implementation needs FSM and integration
+1. ❌ **Risk Library** - No pure stateless risk tools (sizing, limits, margin calculations)
 
 **Workarounds in Place:**
 
@@ -358,12 +359,14 @@ You can run a **complete end-to-end backtest** with:
 
 ### What This Means
 
-The **core infrastructure is complete and battle-tested**, but the **decision-making layer** (Manager + Risk) needs implementation to unlock full capabilities like:
+The **core infrastructure is complete and battle-tested**, but the **decision-making layer** (Manager + Risk tools) needs implementation to unlock full capabilities like:
 
 - Dynamic position sizing based on portfolio equity
 - Risk-adjusted position sizing (e.g., 1% portfolio risk per trade)
 - Multi-strategy coordination and allocation
 - Portfolio-level exposure limits
+
+**Architectural Decision:** Manager owns all trading decisions (orchestrator), Risk is a library of pure stateless functions (calculators). This eliminates circular dependencies and provides a single source of truth for trading logic.
 
 ______________________________________________________________________
 
@@ -371,7 +374,7 @@ ______________________________________________________________________
 
 ### Phase 1: ManagerService (Next - 2-3 days)
 
-**Goal:** Implement signal-to-order translation with basic position sizing.
+**Goal:** Implement signal-to-order translation with orchestration logic.
 
 **Tasks:**
 
@@ -380,9 +383,20 @@ ______________________________________________________________________
 1. Add basic position sizing logic:
    - Fixed quantity mode (100 shares)
    - Fixed equity percentage mode (10% of portfolio)
-1. Create `OrderEvent` and publish to EventBus
+1. Create `OrderEvent` with `intent_id` and `idempotency_key` fields
+1. Publish orders to EventBus
 1. Wire into BacktestEngine
-1. Add unit tests (target: 30+ tests)
+1. Add unit tests (minimum: 30 tests)
+1. Add integration test: Data → Strategy → Manager → (mock Execution) → Portfolio
+
+**Definition of Done:**
+
+- [ ] 30+ unit tests passing with 90%+ coverage
+- [ ] 1 integration test verifying event flow end-to-end
+- [ ] Manager consumes SignalEvent and emits OrderEvent
+- [ ] Orders include intent_id linking back to signals
+- [ ] Manager loads built-in naive policy from portfolio.yaml
+- [ ] Documentation: Manager service API and configuration
 
 **Outcome:** Strategies emit signals → Manager creates sized orders → Execution fills
 
@@ -390,18 +404,22 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-### Phase 2: ExecutionService Integration (2-3 days)
+### Phase 2: ExecutionService FSM (2-3 days)
 
-**Goal:** Refactor existing execution engine to event-driven architecture.
+**Goal:** Replace existing execution engine with FSM-based event-driven service.
 
 **Current State:**
 
-- `ExecutionEngine` exists but uses old models
+- Old `ExecutionEngine` exists (will be deleted)
 - Located in [`src/qtrader/engine/execution_engine.py`](../src/qtrader/engine/execution_engine.py)
 
 **Tasks:**
 
-1. Create `ExecutionService` with EventBus integration
+1. Delete old `ExecutionEngine` implementation
+1. Create `ExecutionService` with EventBus integration and FSM
+1. Implement Order Lifecycle FSM:
+   - States: NEW → ACK → PARTIAL → FILLED/CANCELED/REJECTED/EXPIRED
+   - Track state transitions with idempotency_key
 1. Subscribe to `OrderEvent` from ManagerService
 1. Subscribe to `PriceBarEvent` for fill evaluation
 1. Implement fill policies:
@@ -412,38 +430,79 @@ ______________________________________________________________________
 1. Add commission calculation
 1. Add slippage simulation
 1. Wire into BacktestEngine
-1. Add unit tests (target: 40+ tests)
+1. Add unit tests (minimum: 40 tests)
+1. Add integration test: Data → Strategy → Manager → Execution → Portfolio
 
-**Outcome:** Complete order-to-fill lifecycle with realistic execution simulation
+**Definition of Done:**
+
+- [ ] 40+ unit tests passing with 90%+ coverage
+- [ ] 1 integration test verifying complete order lifecycle
+- [ ] FSM correctly tracks order states (NEW → FILLED/CANCELED/REJECTED)
+- [ ] Idempotency: duplicate orders with same key are rejected
+- [ ] FillEvent includes source_order_id for audit trail
+- [ ] Commission and slippage applied per system.yaml config
+- [ ] Documentation: Execution service API and FSM diagram
+
+**Outcome:** Complete order-to-fill lifecycle with realistic execution simulation and deterministic replay
 
 **Reference:** [`docs/lego_architecture/EXECUTION_SERVICE_PLAN.md`](lego_architecture/EXECUTION_SERVICE_PLAN.md) (to be created)
 
 ______________________________________________________________________
 
-### Phase 3: RiskService (High Priority - 3-4 days)
+### Phase 3: Risk Library (High Priority - 3-4 days)
 
-**Goal:** Pre-trade risk evaluation and position sizing.
+**Goal:** Create library of pure stateless risk tools for Manager to use.
+
+**Architecture:** Manager owns decisions, Risk provides calculators
+
+**Package Structure:**
+
+```
+src/qtrader/libraries/risk/
+├── __init__.py
+├── models.py          # Data models (RiskConfig, etc.)
+├── loaders.py         # YAML config loaders
+└── tools/
+    ├── __init__.py
+    ├── sizing.py      # Position sizing algorithms
+    ├── limits.py      # Limit checkers (concentration, leverage)
+    ├── margin.py      # Margin calculations
+    └── drawdown.py    # Drawdown tracking
+```
 
 **Responsibilities:**
 
-1. Evaluate signals against risk policy (YAML config)
-1. Calculate position sizes using various algorithms:
+1. **Sizing Tools:** Pure functions for position size calculation:
    - Fixed equity percentage
    - Volatility targeting
    - Kelly Criterion
    - Risk parity
-1. Check portfolio-level limits:
+1. **Limit Checkers:** Pure functions that return bool + reason:
    - Max position size per asset
    - Max drawdown limits
    - Sector concentration limits
-   - Leverage limits
-1. Approve/reject signals with detailed reasons
+   - Leverage limits (gross/net)
+1. **Margin Calculators:** Pure functions for margin requirements
+1. **Drawdown Trackers:** Pure stateless tracking functions
 
-**Integration Point:** Manager calls RiskService before creating orders
+**Integration Point:** Manager calls risk tools before creating orders
 
-**Configuration:** [`src/qtrader/libraries/risk/buildin/naive.yaml`](../src/qtrader/libraries/risk/buildin/naive.yaml)
+**Configuration:**
 
-**Reference:** [`src/qtrader/libraries/risk/`](../src/qtrader/libraries/risk/) (existing foundation)
+- Built-in policy: `src/qtrader/libraries/risk/builtin/naive.yaml`
+- Custom policies: `my_library/risk_policies/` (user-defined)
+- Policy loader: Scans both directories and registers all valid policies
+
+**Definition of Done:**
+
+- [ ] 50+ unit tests passing with 90%+ coverage
+- [ ] All tools are pure functions (no state, no side effects)
+- [ ] Built-in naive policy implemented and loadable
+- [ ] Policy skeleton/template provided for users
+- [ ] Manager integration test using risk tools
+- [ ] Documentation: Risk library API and policy configuration guide
+
+**Reference:** [`src/qtrader/libraries/risk/`](../src/qtrader/libraries/risk/) (existing foundation to refactor)
 
 ______________________________________________________________________
 
@@ -478,6 +537,29 @@ ______________________________________________________________________
 1. **Market Data Streaming:** Replace historical replay
 
 **Note:** Architecture is designed for this - event contracts are language/platform agnostic.
+
+______________________________________________________________________
+
+### Phase 6: Event Sourcing (Future - Nice to Have)
+
+**Goal:** Add persistent event log with replay capability.
+
+**Features:**
+
+- Persistent event store (SQLite/PostgreSQL)
+- Checkpoint/resume capability
+- Event replay for debugging
+- Time-travel debugging
+- Audit trail compliance
+
+**Benefits:**
+
+- Resume backtests from checkpoints
+- Debug specific time windows
+- Regulatory audit requirements
+- Deterministic replay guarantees
+
+**Note:** Nice-to-have feature for production systems, not required for backtesting MVP.
 
 ______________________________________________________________________
 
@@ -535,19 +617,42 @@ ______________________________________________________________________
 
 ### Event Delivery Guarantees
 
-**Current Implementation (In-Memory):**
+**Current Implementation (In-Memory EventBus):**
 
-- ✅ Ordered delivery (FIFO per topic)
-- ✅ Synchronous processing (no race conditions)
-- ✅ Complete event history
-- ⚠️ No persistence (events lost on crash)
-- ⚠️ No replay (must rerun entire backtest)
+- ✅ **Ordered delivery** (FIFO per topic) - Events processed in publish order
+- ✅ **Synchronous processing** (no race conditions) - One event at a time
+- ✅ **Complete event history** - All events stored in memory
+- ✅ **Deterministic replay** - Same inputs → same outputs (with idempotency keys)
+- ⚠️ **No persistence** - Events lost on crash (backtest must restart)
+- ⚠️ **No checkpoint/resume** - Must rerun entire backtest from start
 
-**Future (Production):**
+**With Event Sourcing (Future - Phase 6):**
 
-- Event sourcing with persistent log
-- Checkpoint/resume capability
-- Distributed processing support
+- ✅ All current guarantees preserved
+- ✅ **Persistent event log** - Events written to durable storage
+- ✅ **Checkpoint/resume** - Save/restore backtest state
+- ✅ **Time-travel debugging** - Replay from any point in time
+- ✅ **Audit trail** - Complete trading history for compliance
+
+**Order Lifecycle & Idempotency:**
+
+Orders flow through a finite state machine (FSM) with idempotency guarantees:
+
+```
+NEW → ACK → PARTIAL → FILLED
+            ↓         ↓
+         CANCELED  REJECTED
+            ↓         ↓
+         EXPIRED   EXPIRED
+```
+
+**Required Fields for Replay Protection:**
+
+- `idempotency_key`: Prevents duplicate order submission (Manager generates)
+- `intent_id`: Links order back to originating signal (audit trail)
+- `order_id`: Unique identifier for order lifecycle tracking
+
+**Replay Behavior:** If Manager submits order with existing `idempotency_key`, Execution returns cached result (idempotent).
 
 ______________________________________________________________________
 
@@ -585,7 +690,70 @@ ______________________________________________________________________
 
 **Decision:** Worth it for correctness and future-proofing.
 
-### 3. Why Separate Manager from Execution?
+### 3. Manager ↔ Risk Responsibility Model
+
+**Architectural Decision:** Manager owns all trading decisions (orchestrator), Risk is a library of pure stateless functions (calculators).
+
+**Manager Service (Orchestrator):**
+
+- **Owns State:** Tracks signals, orders, portfolio projections
+- **Makes Decisions:** Approves/rejects trades based on policy
+- **Emits Events:** Publishes OrderEvent with audit metadata
+- **Calls Risk Tools:** Uses risk library as pure calculators
+- **Single Source of Truth:** All trading logic flows through Manager
+
+**Risk Library (Tools):**
+
+- **Pure Functions:** No state, no side effects, no event bus
+- **Stateless Calculators:** Sizing algorithms, limit checkers, margin calculators
+- **Testable:** Easy to unit test in isolation
+- **Reusable:** Can be called from Manager or other services
+
+**Benefits:**
+
+- **No Circular Dependencies:** Manager → Risk (one-way), not Manager ↔ Risk
+- **Single Point of Truth:** Manager is the only decision maker
+- **Easier Testing:** Risk tools are pure functions, Manager is stateful orchestrator
+- **Clear Responsibilities:** Manager decides, Risk calculates
+- **Audit Trail:** All decisions recorded in Manager's OrderEvent emissions
+
+**Example Flow:**
+
+```python
+# Manager orchestrates, Risk provides tools
+from qtrader.libraries.risk.tools.sizing import calculate_fixed_equity_size
+from qtrader.libraries.risk.tools.limits import check_concentration_limit
+
+# Manager receives signal
+def on_signal(self, signal: SignalEvent):
+    # Call risk tools (pure functions)
+    size = calculate_fixed_equity_size(
+        equity=self._portfolio_state.total_equity,
+        pct=0.10  # 10% of portfolio
+    )
+
+    is_ok, reason = check_concentration_limit(
+        current_positions=self._portfolio_state.positions,
+        new_symbol=signal.symbol,
+        new_size=size,
+        max_pct=0.25  # Max 25% per position
+    )
+
+    # Manager makes decision
+    if is_ok:
+        order = self._create_order(signal, size)
+        self._event_bus.publish(order)  # Manager owns event publishing
+    else:
+        self._logger.warning(f"Signal rejected: {reason}")
+```
+
+**Configuration:**
+
+- Built-in policies: `src/qtrader/libraries/risk/builtin/naive.yaml`
+- Custom policies: `my_library/risk_policies/` (user skeleton provided)
+- Manager loads policy from `portfolio.yaml` config file
+
+### 4. Why Separate Manager from Execution?
 
 **Manager (Strategic):**
 
@@ -601,7 +769,7 @@ ______________________________________________________________________
 
 **Benefit:** Clean separation of concerns, realistic simulation.
 
-### 4. Why Immutable Events?
+### 5. Why Immutable Events?
 
 **Benefits:**
 
@@ -612,7 +780,7 @@ ______________________________________________________________________
 
 **Implementation:** Pydantic models with `frozen=True`
 
-### 5. Why Lot-Based Portfolio Accounting?
+### 6. Why Lot-Based Portfolio Accounting?
 
 **Benefits:**
 
