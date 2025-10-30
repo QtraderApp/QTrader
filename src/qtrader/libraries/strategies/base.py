@@ -19,7 +19,7 @@ Registry Name: Defined in config.name field (e.g., "buy_and_hold", "sma_crossove
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from qtrader.events.events import PriceBarEvent
 
@@ -101,12 +101,12 @@ class StrategyConfig(BaseModel):
         description="List of symbols this strategy trades. Empty list means all symbols.",
     )
 
-    class Config:
-        """Pydantic config for base class."""
-
+    # Pydantic v2 configuration
+    model_config = ConfigDict(
+        validate_assignment=True,  # Validate on attribute assignment
         # Allow child configs to add strategy-specific fields
         # Child configs can override with extra="forbid" if desired
-        validate_assignment = True  # Validate on attribute assignment
+    )
 
 
 class Strategy(ABC):
