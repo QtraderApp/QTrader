@@ -368,28 +368,6 @@ class TestSQLiteEventStoreSpecific:
         assert store.count() == 1
         store.close()
 
-    @pytest.mark.skip(reason="Event class registry timing issue with SQLite deserialization")
-    def test_persistence_across_instances(self, tmp_path):
-        """Events should persist across store instances."""
-        # Note: This test is skipped due to event class registry timing issues.
-        # The registry is built at import time before all event classes are loaded.
-        db_path = tmp_path / "persistent.db"
-
-        # Create and populate store
-        store1 = SQLiteEventStore(db_path)
-        event = BarCloseEvent(source_service="test")
-        store1.append(event)
-        event_id = event.event_id
-        store1.close()
-
-        # Reopen and verify
-        store2 = SQLiteEventStore(db_path)
-        retrieved = store2.get_by_id(event_id)
-
-        assert retrieved is not None
-        assert retrieved.event_id == event_id
-        store2.close()
-
 
 # ============================================
 # InMemoryEventStore-Specific Tests

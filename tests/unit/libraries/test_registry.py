@@ -33,7 +33,7 @@ from qtrader.libraries.registry import (
     get_indicator_registry,
     get_strategy_registry,
 )
-from qtrader.libraries.strategies.base import BaseStrategy, BaseStrategyConfig, Context
+from qtrader.libraries.strategies import Context, Strategy, StrategyConfig
 from qtrader.services.data.models import Bar
 
 # ============================================================================
@@ -97,7 +97,7 @@ class NotAnIndicator:
     pass
 
 
-class MockStrategyConfig(BaseStrategyConfig):
+class MockStrategyConfig(StrategyConfig):
     """Mock strategy config for testing."""
 
     name: str = "mock_strategy"
@@ -105,20 +105,20 @@ class MockStrategyConfig(BaseStrategyConfig):
     warmup_bars: int = 10
 
 
-class MockStrategy(BaseStrategy):
+class MockStrategy(Strategy):
     """Mock strategy for testing registry."""
 
-    def __init__(self, config: BaseStrategyConfig):
+    def __init__(self, config: StrategyConfig):
         self.config = config
 
     def on_bar(self, event: PriceBarEvent, context: Context) -> None:
         pass
 
 
-class AnotherStrategy(BaseStrategy):
+class AnotherStrategy(Strategy):
     """Another mock strategy for testing."""
 
-    def __init__(self, config: BaseStrategyConfig):
+    def __init__(self, config: StrategyConfig):
         self.config = config
 
     def on_bar(self, event: PriceBarEvent, context: Context) -> None:
@@ -530,12 +530,12 @@ class TestStrategyRegistry:
     """Test StrategyRegistry specialized functionality."""
 
     def test_init_creates_strategy_registry(self) -> None:
-        """__init__ should create registry for BaseStrategy."""
+        """__init__ should create registry for Strategy."""
         # Arrange & Act
         registry = StrategyRegistry()
 
         # Assert
-        assert registry.base_class == BaseStrategy
+        assert registry.base_class == Strategy
         assert registry.component_type == "strategy"
         assert len(registry) == 0
 

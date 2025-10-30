@@ -53,7 +53,7 @@ class TestSignalSchemaRequiredFields:
         """Signal schema rejects signal without signal_id."""
         # Arrange, Act & Assert
         with pytest.raises(ValueError, match="signal_id"):
-            SignalEvent(
+            SignalEvent(  # type: ignore[call-arg]
                 # Missing signal_id
                 timestamp="2024-03-15T14:35:22Z",
                 strategy_id="test_strategy",
@@ -68,7 +68,7 @@ class TestSignalSchemaRequiredFields:
         """Signal schema rejects signal without timestamp."""
         # Arrange, Act & Assert
         with pytest.raises(ValueError, match="timestamp"):
-            SignalEvent(
+            SignalEvent(  # type: ignore[call-arg]
                 signal_id="signal-test-001",
                 # Missing timestamp
                 strategy_id="test_strategy",
@@ -83,7 +83,7 @@ class TestSignalSchemaRequiredFields:
         """Signal schema rejects signal without strategy_id."""
         # Arrange, Act & Assert
         with pytest.raises(ValueError, match="strategy_id"):
-            SignalEvent(
+            SignalEvent(  # type: ignore[call-arg]
                 signal_id="signal-test-001",
                 timestamp="2024-03-15T14:35:22Z",
                 # Missing strategy_id
@@ -98,7 +98,7 @@ class TestSignalSchemaRequiredFields:
         """Signal schema rejects signal without symbol."""
         # Arrange, Act & Assert
         with pytest.raises(ValueError, match="symbol"):
-            SignalEvent(
+            SignalEvent(  # type: ignore[call-arg]
                 signal_id="signal-test-001",
                 timestamp="2024-03-15T14:35:22Z",
                 strategy_id="test_strategy",
@@ -113,7 +113,7 @@ class TestSignalSchemaRequiredFields:
         """Signal schema rejects signal without intention."""
         # Arrange, Act & Assert
         with pytest.raises(ValueError, match="intention"):
-            SignalEvent(
+            SignalEvent(  # type: ignore[call-arg]
                 signal_id="signal-test-001",
                 timestamp="2024-03-15T14:35:22Z",
                 strategy_id="test_strategy",
@@ -128,7 +128,7 @@ class TestSignalSchemaRequiredFields:
         """Signal schema rejects signal without price."""
         # Arrange, Act & Assert
         with pytest.raises(ValueError, match="price"):
-            SignalEvent(
+            SignalEvent(  # type: ignore[call-arg]
                 signal_id="signal-test-001",
                 timestamp="2024-03-15T14:35:22Z",
                 strategy_id="test_strategy",
@@ -143,7 +143,7 @@ class TestSignalSchemaRequiredFields:
         """Signal schema rejects signal without confidence."""
         # Arrange, Act & Assert
         with pytest.raises(ValueError, match="confidence"):
-            SignalEvent(
+            SignalEvent(  # type: ignore[call-arg]
                 signal_id="signal-test-001",
                 timestamp="2024-03-15T14:35:22Z",
                 strategy_id="test_strategy",
@@ -241,7 +241,7 @@ class TestSignalSchemaIntentionEnum:
                 timestamp="2024-03-15T14:35:22Z",
                 strategy_id="test_strategy",
                 symbol="AAPL",
-                intention="INVALID_ACTION",  # type: ignore
+                intention="INVALID_ACTION",
                 price=Decimal("145.75"),
                 confidence=Decimal("0.85"),
                 source_service="strategy_service",

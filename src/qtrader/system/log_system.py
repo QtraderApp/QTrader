@@ -3,6 +3,7 @@
 import logging
 import sys
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Literal
 
@@ -309,8 +310,6 @@ class LoggerFactory:
         # Configure file handler
         handler: logging.Handler
         if config.file_rotation:
-            from logging.handlers import RotatingFileHandler
-
             handler = RotatingFileHandler(
                 filename=str(file_path),
                 maxBytes=config.max_file_size_mb * 1024 * 1024,

@@ -26,12 +26,12 @@ from qtrader.events.events import (
     BacktestStartedEvent,
     BarCloseEvent,
     BaseEvent,
-    ConsolidatedPortfolioEvent,
     ControlEvent,
     CorporateActionEvent,
     FillEvent,
     OrderEvent,
     PortfolioPosition,
+    PortfolioStateEvent,
     PriceBarEvent,
     RiskEvaluationTriggerEvent,
     SignalEvent,
@@ -53,7 +53,7 @@ __all__ = [
     "OrderEvent",
     "FillEvent",
     # Portfolio Events
-    "ConsolidatedPortfolioEvent",
+    "PortfolioStateEvent",
     "PortfolioPosition",
     "StrategyGroup",
     # Barrier Events

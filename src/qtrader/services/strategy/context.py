@@ -15,6 +15,7 @@ Philosophy:
 - Strategies are STATELESS regarding portfolio (no position tracking)
 """
 
+import uuid
 from collections import deque
 from decimal import Decimal
 from typing import Any, Optional
@@ -182,8 +183,13 @@ class Context:
         if take_profit is not None and not isinstance(take_profit, Decimal):
             take_profit = Decimal(str(take_profit))
 
+        # Generate unique signal_id using UUID
+        # Format: {strategy_id}-{uuid} for traceability and uniqueness across runs
+        signal_id = f"{self._strategy_id}-{uuid.uuid4()}"
+
         # Create SignalEvent (validates against schema)
         signal = SignalEvent(
+            signal_id=signal_id,
             timestamp=timestamp,
             strategy_id=self._strategy_id,
             symbol=symbol,

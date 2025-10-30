@@ -9,6 +9,7 @@ Pure event-driven orchestrator that coordinates services via EventBus.
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,8 +20,14 @@ from qtrader.events.event_bus import EventBus
 from qtrader.events.event_store import EventStore, InMemoryEventStore, SQLiteEventStore
 from qtrader.libraries.registry import StrategyRegistry
 from qtrader.services.data.service import DataService
+from qtrader.services.execution.config import ExecutionConfig
+from qtrader.services.execution.service import ExecutionService
+from qtrader.services.manager.service import ManagerService
+from qtrader.services.portfolio.models import PortfolioConfig
+from qtrader.services.portfolio.service import PortfolioService
 from qtrader.services.strategy.service import StrategyService
 from qtrader.system.config import get_system_config
+from qtrader.system.log_system import LoggerFactory
 
 if TYPE_CHECKING:
     from qtrader.libraries.strategies import Strategy
@@ -107,6 +114,9 @@ class BacktestEngine:
         event_bus: EventBus,
         data_service: DataService,
         strategy_service: StrategyService | None = None,
+        manager_service: ManagerService | None = None,
+        portfolio_service: PortfolioService | None = None,
+        execution_service: ExecutionService | None = None,
         event_store: EventStore | None = None,
         results_dir: Path | None = None,
     ) -> None:
@@ -118,6 +128,9 @@ class BacktestEngine:
             event_bus: Event bus for publishing events
             data_service: Data service for loading historical bars
             strategy_service: Optional strategy service for running trading strategies
+            manager_service: Optional manager service for portfolio management and risk
+            portfolio_service: Optional portfolio service for position tracking
+            execution_service: Optional execution service for order simulation
             event_store: Optional persistence backend
             results_dir: Optional directory for run artifacts
         """
@@ -125,6 +138,9 @@ class BacktestEngine:
         self._event_bus = event_bus
         self._data_service = data_service
         self._strategy_service = strategy_service
+        self._manager_service = manager_service
+        self._portfolio_service = portfolio_service
+        self._execution_service = execution_service
         self._event_store = event_store
         self._results_dir = results_dir
         self._bar_count = 0  # Initialize for tracking bars processed
@@ -139,6 +155,9 @@ class BacktestEngine:
             universe_size=len(all_symbols),
             data_sources=len(config.data.sources),
             strategies=len(strategy_service._strategies) if strategy_service else 0,
+            manager_enabled=manager_service is not None,
+            portfolio_enabled=portfolio_service is not None,
+            execution_enabled=execution_service is not None,
             event_store=getattr(event_store, "__class__", type(None)).__name__,
             results_dir=str(results_dir) if results_dir else None,
         )
@@ -164,7 +183,6 @@ class BacktestEngine:
         system_config = get_system_config()
 
         # Initialize logging from system config
-        from qtrader.system.log_system import LoggerFactory
 
         LoggerFactory.configure(system_config.logging.to_logger_config())
 
@@ -326,16 +344,91 @@ class BacktestEngine:
             else:
                 logger.warning("backtest.engine.no_strategies_loaded")
 
+        # Initialize ManagerService if risk_policy configured
+        manager_service: ManagerService | None = None
+        if hasattr(config, "risk_policy") and config.risk_policy:
+            logger.info(
+                "backtest.engine.loading_manager_service",
+                risk_policy=config.risk_policy.name,
+            )
+
+            try:
+                # Build config dict for ManagerService.from_config()
+                risk_config_dict = {
+                    "name": config.risk_policy.name,
+                    **config.risk_policy.config,  # Merge any policy overrides
+                }
+
+                manager_service = ManagerService.from_config(
+                    config_dict=risk_config_dict,
+                    event_bus=event_bus,
+                )
+
+                logger.info(
+                    "backtest.engine.manager_service_created",
+                    risk_policy=config.risk_policy.name,
+                )
+            except Exception as e:
+                logger.error(
+                    "backtest.engine.manager_service_failed",
+                    risk_policy=config.risk_policy.name,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                # Don't fail the entire backtest if manager service fails to load
+                manager_service = None
+
+        # Initialize PortfolioService (Phase 5)
+        portfolio_service: PortfolioService | None = None
+        try:
+            portfolio_config = PortfolioConfig(
+                initial_cash=Decimal(str(config.initial_equity)),
+            )
+            portfolio_service = PortfolioService(
+                config=portfolio_config,
+                event_bus=event_bus,
+            )
+            logger.info(
+                "backtest.engine.portfolio_service_created",
+                initial_equity=config.initial_equity,
+            )
+        except Exception as e:
+            logger.error(
+                "backtest.engine.portfolio_service_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            portfolio_service = None
+
+        # Initialize ExecutionService (Phase 5)
+        execution_service: ExecutionService | None = None
+        try:
+            execution_config = ExecutionConfig()  # Uses system config defaults
+            execution_service = ExecutionService(
+                config=execution_config,
+                event_bus=event_bus,
+            )
+            logger.info("backtest.engine.execution_service_created")
+        except Exception as e:
+            logger.error(
+                "backtest.engine.execution_service_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            execution_service = None
+
         # Services suspended - will add back incrementally
         # portfolio_service = PortfolioService.from_config(...)
         # execution_service = ExecutionService.from_config(...)
-        # risk_service = RiskService.from_config(...)
 
         return cls(
             config=config,
             event_bus=event_bus,
             data_service=data_service,
             strategy_service=strategy_service,
+            manager_service=manager_service,
+            portfolio_service=portfolio_service,
+            execution_service=execution_service,
             event_store=event_store,
             results_dir=results_dir,
         )
