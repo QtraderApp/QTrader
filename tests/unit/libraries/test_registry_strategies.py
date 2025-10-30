@@ -182,7 +182,7 @@ class TestListStrategies:
         metadata = strategies["sma_crossover"]
         assert "class_name" in metadata
         assert "display_name" in metadata
-        assert "warmup_bars" in metadata
+        assert "description" in metadata
         assert metadata["class_name"] == "SMAStrategy"
         assert metadata["display_name"] == "SMA Crossover"
 
