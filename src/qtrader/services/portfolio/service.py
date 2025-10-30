@@ -66,6 +66,12 @@ class PortfolioService:
         self.config = config
         self._event_bus = event_bus
 
+        # Portfolio metadata
+        self._portfolio_id = config.portfolio_id
+        self._start_datetime = config.start_datetime
+        self._reporting_currency = config.reporting_currency
+        self._initial_cash = config.initial_cash
+
         # Core state
         self._cash: Decimal = config.initial_cash
         self._positions: dict[str, Position] = {}
@@ -87,13 +93,16 @@ class PortfolioService:
 
         # Subscribe to events if event bus provided
         if self._event_bus:
-            self._event_bus.subscribe("price_bar", self.on_bar)  # type: ignore[arg-type]
+            self._event_bus.subscribe("bar", self.on_bar)  # type: ignore[arg-type]
             self._event_bus.subscribe("valuation_trigger", self.on_valuation_trigger)  # type: ignore[arg-type]
             self._event_bus.subscribe("fill", self.on_fill)  # type: ignore[arg-type]
 
         logger.info(
             "portfolio_service.initialized",
+            portfolio_id=self._portfolio_id,
+            start_datetime=self._start_datetime.isoformat(),
             initial_cash=str(config.initial_cash),
+            reporting_currency=self._reporting_currency,
             lot_method_long=config.lot_method_long,
             lot_method_short=config.lot_method_short,
             event_driven=self._event_bus is not None,
@@ -110,6 +119,7 @@ class PortfolioService:
         quantity: Decimal,
         price: Decimal,
         commission: Decimal = Decimal("0"),
+        strategy_id: str | None = None,
     ) -> None:
         """
         Apply fill to portfolio.
@@ -128,6 +138,7 @@ class PortfolioService:
             quantity: Number of shares (positive)
             price: Price per share
             commission: Commission paid
+            strategy_id: Strategy that generated this trade (optional)
 
         Raises:
             ValueError: If inputs invalid
@@ -143,10 +154,10 @@ class PortfolioService:
 
         if is_buy and not has_short:
             # Open or add to long position
-            self._open_long_position(fill_id, timestamp, symbol, quantity, price, commission)
+            self._open_long_position(fill_id, timestamp, symbol, quantity, price, commission, strategy_id)
         elif is_sell and not has_long:
             # Open or add to short position
-            self._open_short_position(fill_id, timestamp, symbol, quantity, price, commission)
+            self._open_short_position(fill_id, timestamp, symbol, quantity, price, commission, strategy_id)
         elif is_sell and has_long:
             # Close long position (FIFO)
             self._close_long_position(fill_id, timestamp, symbol, quantity, price, commission)
@@ -165,6 +176,7 @@ class PortfolioService:
             quantity=str(quantity),
             price=str(price),
             commission=str(commission),
+            strategy_id=strategy_id,
         )
 
     def _open_long_position(
@@ -175,6 +187,7 @@ class PortfolioService:
         quantity: Decimal,
         price: Decimal,
         commission: Decimal,
+        strategy_id: str | None = None,
     ) -> None:
         """
         Open or add to long position.
@@ -186,6 +199,7 @@ class PortfolioService:
             quantity: Shares to buy
             price: Price per share
             commission: Commission paid
+            strategy_id: Strategy attribution (optional)
         """
         # Create lot
         lot = Lot(
@@ -210,13 +224,20 @@ class PortfolioService:
                 symbol=symbol,
                 quantity=Decimal("0"),
                 lots=[],
+                strategy_id=strategy_id,
                 last_updated=timestamp,
             )
 
         position = self._positions[symbol]
+
+        # Set strategy_id if not already set (first fill for this position)
+        if position.strategy_id is None and strategy_id is not None:
+            position.strategy_id = strategy_id
+
         position.quantity += quantity
         position.lots.append(lot)
         position.total_cost += quantity * price
+        position.commission_paid += commission
         position.avg_price = position.total_cost / position.quantity if position.quantity != 0 else Decimal("0")
         position.last_updated = timestamp
 
@@ -249,6 +270,7 @@ class PortfolioService:
         quantity: Decimal,
         price: Decimal,
         commission: Decimal,
+        strategy_id: str | None = None,
     ) -> None:
         """
         Open or add to short position.
@@ -260,6 +282,7 @@ class PortfolioService:
             quantity: Shares to sell short
             price: Price per share
             commission: Commission paid
+            strategy_id: Strategy attribution (optional)
         """
         # Create lot (negative quantity for short)
         lot = Lot(
@@ -284,13 +307,20 @@ class PortfolioService:
                 symbol=symbol,
                 quantity=Decimal("0"),
                 lots=[],
+                strategy_id=strategy_id,
                 last_updated=timestamp,
             )
 
         position = self._positions[symbol]
+
+        # Set strategy_id if not already set (first fill for this position)
+        if position.strategy_id is None and strategy_id is not None:
+            position.strategy_id = strategy_id
+
         position.quantity -= quantity  # Negative for short
         position.lots.append(lot)
         position.total_cost -= quantity * price  # Negative cost for short
+        position.commission_paid += commission
         position.avg_price = position.total_cost / position.quantity if position.quantity != 0 else Decimal("0")
         position.last_updated = timestamp
 
@@ -373,6 +403,9 @@ class PortfolioService:
         # Update position
         position = self._positions[symbol]
         position.quantity -= quantity
+
+        # Track realized P&L on this position
+        position.realized_pl += total_realized_pnl
 
         # Remove closed lots from position.lots
         position.lots = [
@@ -492,6 +525,9 @@ class PortfolioService:
         # Update position
         position = self._positions[symbol]
         position.quantity += quantity  # Add back (shorts are negative)
+
+        # Track realized P&L on this position
+        position.realized_pl += total_realized_pnl
 
         # Remove closed lots from position.lots
         position.lots = [
@@ -818,11 +854,17 @@ class PortfolioService:
         # Update cash
         self._cash += cash_flow
 
-        # Track cumulative dividends
+        # Track cumulative dividends (global)
         if cash_flow > 0:
             self._total_dividends_received += cash_flow
         else:
             self._total_dividends_paid += abs(cash_flow)
+
+        # Track dividends on position (per-symbol)
+        if cash_flow > 0:
+            position.dividends_received += cash_flow
+        else:
+            position.dividends_paid += abs(cash_flow)
 
         # Create ledger entry
         entry = LedgerEntry(
@@ -1412,65 +1454,186 @@ class PortfolioService:
 
     def on_bar(self, event: PriceBarEvent) -> None:
         """
-        Handle bar event - update latest prices for mark-to-market.
+        Handle bar event - update latest prices for mark-to-market and publish portfolio state.
+
+        Phase 5: Immediately publish PortfolioStateEvent after marking to market.
+        This allows ManagerService to cache the latest portfolio state before processing signals.
 
         Args:
-            event: Price bar event with symbol and bar data
+            event: Price bar event with symbol and OHLCV data
         """
-        if event.bar:
-            self._latest_prices[event.symbol] = Decimal(str(event.bar.close))
+        # Update latest price (using close price)
+        self._latest_prices[event.symbol] = event.close
+        logger.debug(
+            "portfolio_service.price_updated",
+            symbol=event.symbol,
+            price=str(event.close),
+        )
+
+        # Mark to market and publish portfolio state (Phase 5)
+        self._publish_portfolio_state(event.timestamp)
+
+    def _publish_portfolio_state(self, timestamp: str) -> None:
+        """
+        Calculate portfolio metrics and publish PortfolioStateEvent.
+
+        Phase 5: Called after each bar to provide real-time portfolio state
+        to ManagerService for risk calculations.
+
+        Args:
+            timestamp: ISO8601 timestamp for the portfolio state snapshot
+        """
+        from datetime import timezone
+
+        from qtrader.events.events import PortfolioPosition, StrategyGroup
+
+        # Update all positions with latest prices for accurate valuation
+        for symbol, position in self._positions.items():
+            if symbol in self._latest_prices:
+                position.update_market_value(self._latest_prices[symbol])
+
+        # Calculate aggregate metrics
+        total_market_value = sum((pos.market_value for pos in self._positions.values()), start=Decimal("0"))
+        total_unrealized_pl = sum((pos.unrealized_pnl for pos in self._positions.values()), start=Decimal("0"))
+        current_portfolio_equity = self._cash + total_market_value
+
+        # Calculate exposures
+        long_exposure = Decimal("0")
+        short_exposure = Decimal("0")
+
+        for position in self._positions.values():
+            if position.quantity > 0:
+                long_exposure += position.market_value
+            elif position.quantity < 0:
+                short_exposure += abs(position.market_value)
+
+        net_exposure = long_exposure - short_exposure
+        gross_exposure = long_exposure + short_exposure
+
+        # Calculate leverage (handle zero equity)
+        leverage = gross_exposure / current_portfolio_equity if current_portfolio_equity > 0 else Decimal("0")
+
+        # Group positions by strategy
+        strategies: dict[str, list[Position]] = {}
+        for position in self._positions.values():
+            # Skip flat positions unless keeping history
+            if position.quantity == 0 and not self.config.keep_position_history:
+                continue
+
+            strategy_id = position.strategy_id or "unattributed"
+            if strategy_id not in strategies:
+                strategies[strategy_id] = []
+            strategies[strategy_id].append(position)
+
+        # Build strategies_groups
+        strategies_groups: list[StrategyGroup] = []
+        for strategy_id, positions in strategies.items():
+            # Build PortfolioPosition objects for each position
+            portfolio_positions: list[PortfolioPosition] = []
+            for pos in positions:
+                # Determine side
+                if pos.quantity > 0:
+                    side = "long"
+                elif pos.quantity < 0:
+                    side = "short"
+                else:
+                    side = "flat"
+
+                # Get market price (use latest price or current_price)
+                market_price = pos.current_price or self._latest_prices.get(pos.symbol, Decimal("0"))
+
+                # Calculate gross market value
+                gross_market_value = pos.market_value
+
+                # Calculate total position value including dividends
+                total_position_value = gross_market_value + pos.dividends_received - pos.dividends_paid
+
+                # Get last_updated timestamp in ISO format
+                last_updated = pos.last_updated.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+                portfolio_position = PortfolioPosition(
+                    symbol=pos.symbol,
+                    side=side,
+                    open_quantity=int(pos.quantity),
+                    average_fill_price=pos.avg_price,
+                    commission_paid=pos.commission_paid,
+                    cost_basis=abs(pos.total_cost),  # Always positive for schema
+                    market_price=market_price,
+                    gross_market_value=gross_market_value,
+                    unrealized_pl=pos.unrealized_pnl,
+                    realized_pl=pos.realized_pl,
+                    dividends_received=pos.dividends_received,
+                    dividends_paid=pos.dividends_paid,
+                    total_position_value=total_position_value,
+                    currency=self._reporting_currency,
+                    last_updated=last_updated,
+                )
+                portfolio_positions.append(portfolio_position)
+
+            # Create strategy group
+            strategy_group = StrategyGroup(
+                strategy_id=strategy_id,
+                positions=portfolio_positions,
+            )
+            strategies_groups.append(strategy_group)
+
+        # Calculate total P&L
+        total_pl = self._cumulative_realized_pnl + total_unrealized_pl
+
+        # Publish portfolio state event
+        if self._event_bus:
+            # Convert start_datetime to ISO8601 string with Z suffix
+            start_datetime_str = self._start_datetime.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+            state_event = PortfolioStateEvent(
+                portfolio_id=self._portfolio_id,
+                start_datetime=start_datetime_str,
+                snapshot_datetime=timestamp,
+                reporting_currency=self._reporting_currency,
+                initial_portfolio_equity=self._initial_cash,
+                cash_balance=self._cash,
+                current_portfolio_equity=current_portfolio_equity,
+                total_market_value=total_market_value,
+                total_unrealized_pl=total_unrealized_pl,
+                total_realized_pl=self._cumulative_realized_pnl,
+                total_pl=total_pl,
+                long_exposure=long_exposure,
+                short_exposure=short_exposure,
+                net_exposure=net_exposure,
+                gross_exposure=gross_exposure,
+                leverage=leverage,
+                strategies_groups=strategies_groups,
+                total_commissions_paid=self._total_commissions,
+                total_dividends_received=self._total_dividends_received,
+                total_dividends_paid=self._total_dividends_paid,
+                total_borrow_fees=self._total_borrow_fees,
+                total_margin_interest=self._total_margin_interest,
+            )
+            self._event_bus.publish(state_event)
+
             logger.debug(
-                "portfolio_service.price_updated",
-                symbol=event.symbol,
-                price=str(event.bar.close),
-                is_warmup=event.is_warmup,
+                "portfolio_service.state_published",
+                timestamp=timestamp,
+                portfolio_id=self._portfolio_id,
+                current_portfolio_equity=str(current_portfolio_equity),
+                cash_balance=str(self._cash),
+                num_positions=len([p for p in self._positions.values() if p.quantity != 0]),
+                num_strategies=len(strategies_groups),
             )
 
     def on_valuation_trigger(self, event: ValuationTriggerEvent) -> None:
         """
         Handle valuation trigger - calculate portfolio metrics and publish state.
 
+        Legacy support: ValuationTriggerEvent can still trigger portfolio state publication.
+        Phase 5: Portfolio state is now primarily published after each bar.
+
         Args:
             event: Valuation trigger event
         """
-        # Calculate portfolio metrics with latest prices
-        positions_value = Decimal("0")
-        for symbol, position in self._positions.items():
-            if symbol in self._latest_prices:
-                positions_value += position.quantity * self._latest_prices[symbol]
-
-        total_equity = self._cash + positions_value
-        cash = self._cash
-
-        # Calculate exposures
-        gross_exposure = Decimal("0")
-        net_exposure = Decimal("0")
-
-        for symbol, position in self._positions.items():
-            if symbol in self._latest_prices:
-                position_value = position.quantity * self._latest_prices[symbol]
-                gross_exposure += abs(position_value)
-                net_exposure += position_value
-
-        # Publish portfolio state event
-        if self._event_bus:
-            state_event = PortfolioStateEvent(
-                ts=event.ts,
-                total_equity=total_equity,
-                cash=cash,
-                positions_value=positions_value,
-                num_positions=len(self._positions),
-                gross_exposure=gross_exposure,
-                net_exposure=net_exposure,
-            )
-            self._event_bus.publish(state_event)
-
-            logger.debug(
-                "portfolio_service.state_published",
-                total_equity=str(total_equity),
-                cash=str(cash),
-                num_positions=len(self._positions),
-            )
+        # Use occurred_at from the event envelope
+        timestamp = event.occurred_at.isoformat().replace("+00:00", "Z")
+        self._publish_portfolio_state(timestamp)
 
     def on_fill(self, event: FillEvent) -> None:
         """
@@ -1479,14 +1642,23 @@ class PortfolioService:
         Args:
             event: Fill event with trade details
         """
+        from datetime import datetime
+
+        # Convert ISO8601 string to datetime
+        timestamp_dt = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+
+        # Cast side to literal type expected by apply_fill
+        side: Literal["buy", "sell"] = "buy" if event.side == "buy" else "sell"
+
         self.apply_fill(
             fill_id=event.fill_id,
-            timestamp=event.timestamp,
+            timestamp=timestamp_dt,
             symbol=event.symbol,
-            side=event.side,
-            quantity=event.quantity,
-            price=event.price,
+            side=side,
+            quantity=event.filled_quantity,  # FillEvent uses filled_quantity
+            price=event.fill_price,  # FillEvent uses fill_price
             commission=event.commission,
+            strategy_id=event.strategy_id,  # Pass strategy attribution
         )
 
         logger.debug(
@@ -1494,8 +1666,18 @@ class PortfolioService:
             fill_id=event.fill_id,
             symbol=event.symbol,
             side=event.side,
-            quantity=str(event.quantity),
+            quantity=str(event.filled_quantity),
+            strategy_id=event.strategy_id,
         )
+
+        # In event-driven mode, republish portfolio state after fill
+        # This ensures ManagerService has up-to-date equity/positions
+        if self._event_bus is not None:
+            # Get the market price for mark-to-market from the current position
+            # For Phase 5 MVP, we use the fill price as the current market price
+            # In production, this would come from the most recent bar
+            self.update_prices({event.symbol: event.fill_price})
+            self._publish_portfolio_state(event.timestamp)
 
     @classmethod
     def from_config(cls, config_dict: dict[str, Any], event_bus: EventBus) -> "PortfolioService":

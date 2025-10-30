@@ -1,0 +1,289 @@
+{
+    "$id": "contracts.schemas.portfolio_state.v1.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Portfolio State Snapshot v1",
+    "description": "Static point-in-time snapshot of complete portfolio state published by Portfolio Service at regular intervals. Includes positions grouped by strategy, P&L, exposures, and fees.",
+    "type": "object",
+    "required": [
+        "portfolio_id",
+        "start_datetime",
+        "snapshot_datetime",
+        "reporting_currency",
+        "initial_portfolio_equity",
+        "cash_balance",
+        "current_portfolio_equity",
+        "total_market_value",
+        "total_unrealized_pl",
+        "total_realized_pl",
+        "total_pl",
+        "long_exposure",
+        "short_exposure",
+        "net_exposure",
+        "gross_exposure",
+        "leverage",
+        "strategies_groups"
+    ],
+    "properties": {
+        "portfolio_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique identifier for this portfolio instance."
+        },
+        "start_datetime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Backtest/simulation start datetime (UTC RFC3339 with Z suffix). When portfolio trading began."
+        },
+        "snapshot_datetime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when this snapshot was generated (UTC RFC3339 with Z suffix)."
+        },
+        "reporting_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3,
+            "pattern": "^[A-Z]{3}$",
+            "description": "ISO 4217 currency code for all monetary values (e.g., USD, EUR)."
+        },
+        "initial_portfolio_equity": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Initial portfolio equity at start_datetime. Used for performance tracking. Decimal string."
+        },
+        "cash_balance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Current cash balance as decimal string. Can be negative if using margin."
+        },
+        "current_portfolio_equity": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Current portfolio equity = cash + total_market_value. Decimal string."
+        },
+        "total_market_value": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Sum of all position market values across all strategies. Decimal string."
+        },
+        "total_unrealized_pl": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Total unrealized P&L from all current open positions. Decimal string."
+        },
+        "total_realized_pl": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Total realized P&L from inception (symbol-scoped, lifetime). Decimal string."
+        },
+        "total_pl": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Total P&L = total_realized_pl + total_unrealized_pl. Decimal string."
+        },
+        "long_exposure": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Sum of all long position values (positive). Decimal string."
+        },
+        "short_exposure": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Sum of all short position values (absolute value, positive). Decimal string."
+        },
+        "net_exposure": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "description": "Net exposure = long_exposure - short_exposure. Can be negative. Decimal string."
+        },
+        "gross_exposure": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Gross exposure = long_exposure + short_exposure (positive). Decimal string."
+        },
+        "leverage": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Leverage ratio = gross_exposure / total_portfolio_value (if equity > 0). Decimal string."
+        },
+        "total_commissions_paid": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Cumulative commissions paid from inception (positive). Decimal string."
+        },
+        "total_dividends_received": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Cumulative dividends received from long positions (cash accounting, positive). Decimal string."
+        },
+        "total_dividends_paid": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Cumulative dividends paid on short positions (cash accounting, positive). Decimal string."
+        },
+        "total_borrow_fees": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Cumulative borrow fees paid on short positions (positive). Decimal string."
+        },
+        "total_margin_interest": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "description": "Cumulative margin interest paid on negative cash balance (positive). Decimal string."
+        },
+        "strategies_groups": {
+            "type": "array",
+            "description": "Positions grouped by strategy. Each strategy can have multiple positions.",
+            "items": {
+                "type": "object",
+                "required": [
+                    "strategy_id",
+                    "positions"
+                ],
+                "properties": {
+                    "strategy_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Unique identifier of the strategy that owns these positions."
+                    },
+                    "positions": {
+                        "type": "array",
+                        "description": "All positions owned by this strategy.",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "symbol",
+                                "side",
+                                "open_quantity",
+                                "average_fill_price",
+                                "commission_paid",
+                                "cost_basis",
+                                "market_price",
+                                "gross_market_value",
+                                "unrealized_pl",
+                                "realized_pl",
+                                "dividends_received",
+                                "dividends_paid",
+                                "total_position_value"
+                            ],
+                            "properties": {
+                                "symbol": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Instrument identifier (e.g., AAPL, BTC-USD)."
+                                },
+                                "side": {
+                                    "type": "string",
+                                    "enum": [
+                                        "long",
+                                        "short",
+                                        "flat"
+                                    ],
+                                    "description": "Position side: long (positive quantity), short (negative quantity), flat (zero)."
+                                },
+                                "open_quantity": {
+                                    "type": "integer",
+                                    "description": "Current open position quantity. Positive for long, negative for short, zero for flat."
+                                },
+                                "average_fill_price": {
+                                    "type": "string",
+                                    "pattern": "^\\d+(\\.\\d+)?$",
+                                    "description": "Average fill price = cost_basis / abs(open_quantity). Decimal string."
+                                },
+                                "commission_paid": {
+                                    "type": "string",
+                                    "pattern": "^\\d+(\\.\\d+)?$",
+                                    "description": "Total commission paid on fills that built current open position (positive). Included in cost_basis. Decimal string."
+                                },
+                                "cost_basis": {
+                                    "type": "string",
+                                    "pattern": "^\\d+(\\.\\d+)?$",
+                                    "description": "Total cost basis including commission = sum(lot.quantity * lot.entry_price) + commission_paid. Decimal string."
+                                },
+                                "market_price": {
+                                    "type": "string",
+                                    "pattern": "^\\d+(\\.\\d+)?$",
+                                    "description": "Current market price per share/unit. Decimal string."
+                                },
+                                "gross_market_value": {
+                                    "type": "string",
+                                    "pattern": "^-?\\d+(\\.\\d+)?$",
+                                    "description": "Current market value = open_quantity * market_price. Can be negative for shorts. Decimal string."
+                                },
+                                "unrealized_pl": {
+                                    "type": "string",
+                                    "pattern": "^-?\\d+(\\.\\d+)?$",
+                                    "description": "Unrealized P&L from current open position = gross_market_value - cost_basis. Decimal string."
+                                },
+                                "realized_pl": {
+                                    "type": "string",
+                                    "pattern": "^-?\\d+(\\.\\d+)?$",
+                                    "description": "Realized P&L for this symbol (lifetime, symbol-scoped) from all closed positions. Decimal string."
+                                },
+                                "dividends_received": {
+                                    "type": "string",
+                                    "pattern": "^\\d+(\\.\\d+)?$",
+                                    "description": "Cumulative dividends received on long positions for this symbol (cash accounting, positive). Decimal string."
+                                },
+                                "dividends_paid": {
+                                    "type": "string",
+                                    "pattern": "^\\d+(\\.\\d+)?$",
+                                    "description": "Cumulative dividends paid on short positions for this symbol (cash accounting, positive). Decimal string."
+                                },
+                                "total_position_value": {
+                                    "type": "string",
+                                    "pattern": "^-?\\d+(\\.\\d+)?$",
+                                    "description": "Total position value including dividends = gross_market_value + dividends_received - dividends_paid. Decimal string."
+                                },
+                                "sector": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "description": "Sector classification for risk analysis (e.g., Technology, Healthcare)."
+                                },
+                                "country": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "description": "Country of primary listing (e.g., US, JP, UK)."
+                                },
+                                "asset_class": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "description": "Asset class (e.g., Equities, Crypto, Forex, Fixed Income)."
+                                },
+                                "currency": {
+                                    "type": "string",
+                                    "minLength": 3,
+                                    "maxLength": 3,
+                                    "pattern": "^[A-Z]{3}$",
+                                    "description": "ISO 4217 currency code for this position (e.g., USD, EUR)."
+                                },
+                                "last_updated": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "description": "When this position was last modified (UTC RFC3339 with Z suffix)."
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "currency_conversion_rates": {
+            "type": "object",
+            "description": "Currency conversion rates to reporting_currency. Key=currency code, Value=rate as decimal string.",
+            "additionalProperties": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d+)?$"
+            }
+        }
+    },
+    "additionalProperties": false
+}

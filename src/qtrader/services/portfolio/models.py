@@ -102,6 +102,11 @@ class Position(BaseModel):
         current_price: Last known market price
         market_value: Current position value (quantity * current_price)
         unrealized_pnl: Current unrealized P&L (market_value - total_cost)
+        strategy_id: Strategy that owns this position
+        realized_pl: Realized P&L for this symbol (lifetime, symbol-scoped)
+        dividends_received: Cumulative dividends received (longs)
+        dividends_paid: Cumulative dividends paid (shorts)
+        commission_paid: Total commission paid on current open position
         last_updated: Last update timestamp
 
     Example:
@@ -112,6 +117,7 @@ class Position(BaseModel):
         ...     total_cost=Decimal("15000"),
         ...     avg_price=Decimal("150.00"),
         ...     current_price=Decimal("155.00"),
+        ...     strategy_id="momentum_strategy",
         ...     last_updated=datetime.now()
         ... )
     """
@@ -128,6 +134,19 @@ class Position(BaseModel):
     current_price: Decimal | None = None
     market_value: Decimal = Decimal("0")  # quantity * current_price
     unrealized_pnl: Decimal = Decimal("0")  # market_value - total_cost
+
+    # Strategy attribution
+    strategy_id: str | None = None  # Strategy that owns this position
+
+    # P&L tracking
+    realized_pl: Decimal = Decimal("0")  # Lifetime realized P&L for this symbol
+
+    # Dividend tracking
+    dividends_received: Decimal = Decimal("0")  # Cumulative dividends from longs
+    dividends_paid: Decimal = Decimal("0")  # Cumulative dividends paid on shorts
+
+    # Commission tracking
+    commission_paid: Decimal = Decimal("0")  # Total commission on current open position
 
     # Metadata
     last_updated: datetime = Field(default_factory=datetime.now)
@@ -314,7 +333,10 @@ class PortfolioConfig(BaseModel):
     Controls initial capital, fee rates, and accounting policies.
 
     Attributes:
+        portfolio_id: Unique portfolio identifier
+        start_datetime: Portfolio inception timestamp (UTC)
         initial_cash: Starting capital
+        reporting_currency: ISO 4217 currency code (e.g., USD, EUR)
         default_commission_per_share: Default per-share commission
         default_commission_pct: Default commission as % of notional
         default_borrow_rate_apr: Default annual borrow rate for shorts
@@ -333,6 +355,11 @@ class PortfolioConfig(BaseModel):
         ...     margin_rate_apr=Decimal("0.07")
         ... )
     """
+
+    # Portfolio metadata
+    portfolio_id: str = Field(default_factory=lambda: str(uuid4()))
+    start_datetime: datetime = Field(default_factory=lambda: datetime.now())
+    reporting_currency: str = "USD"
 
     # Starting capital
     initial_cash: Decimal = Decimal("100000.00")
