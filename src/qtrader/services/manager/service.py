@@ -1,522 +1,451 @@
 """
-Risk Service Implementation.
+ManagerService Implementation.
 
-Pure event-driven service for risk management:
-- Buffers signals from strategies
-- Caches portfolio state from PortfolioService
-- Evaluates signals in batches (triggered by BacktestEngine)
-- Publishes OrderApprovedEvent or OrderRejectedEvent
+Event-driven portfolio management service that:
+- Subscribes to SignalEvent from strategies
+- Subscribes to PortfolioStateEvent for real-time equity and position tracking
+- Processes each signal immediately (no batching)
+- Loads risk policies from the risk library
+- Uses risk library tools for sizing and limit checking
+- Emits OrderEvent with intent_id and idempotency_key for audit trail
 
-Phase 4 MVP: Fixed budgets, fixed_fraction sizing, concentration + leverage limits only.
+Architecture:
+- Manager = Stateful orchestrator (subscribes to events, makes decisions)
+- Risk Library = Stateless pure functions (sizing, limits)
+- No circular dependencies (Manager → Risk, one-way only)
+
+Event Flow:
+  Strategy → SignalEvent → ManagerService → OrderEvent → ExecutionService
+  Portfolio → PortfolioStateEvent → ManagerService (caches equity & positions)
+
+Current Features:
+- Fixed-fraction sizing based on portfolio equity
+- Concentration limits using cached positions
+- Leverage limits (gross/net exposure)
+- Immediate signal processing (event-driven, no batching)
+- Full portfolio state integration
+
+Future Enhancements:
+- Equal-weight sizing (needs position count logic)
+- Multi-strategy capital allocation
+- Advanced order types (limit, stop)
 """
 
-from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 from qtrader.events.event_bus import EventBus
-from qtrader.events.events import OrderApprovedEvent, OrderRejectedEvent, RiskEvaluationTriggerEvent, SignalEvent
-from qtrader.services.manager.allocator import allocate_capital
-from qtrader.services.manager.limits import check_all_limits
-from qtrader.services.manager.models import OrderBase, PortfolioState, RiskConfig, Signal
-from qtrader.services.manager.sizer import FixedFractionSizer
+from qtrader.events.events import OrderEvent, PortfolioStateEvent, SignalEvent
+from qtrader.libraries.risk import load_policy
+from qtrader.libraries.risk.models import RiskConfig
+from qtrader.libraries.risk.tools import limits as risk_limits
+from qtrader.libraries.risk.tools import sizing as risk_sizing
 from qtrader.system import LoggerFactory
 
 
-class RiskService:
+class ManagerService:
     """
-    RiskService: Event-driven risk management.
+    ManagerService: Portfolio management orchestrator.
 
-    Evaluates trading signals, sizes positions, checks limits, and approves/rejects
-    orders before sending to ExecutionService.
+    Responsibilities:
+    - Evaluate trading signals from strategies
+    - Size positions using risk library tools
+    - Check limits using risk library tools
+    - Emit orders with complete audit trail (intent_id, idempotency_key)
+    - Cache portfolio state for real-time risk checks
+
+    Features:
+    - Fixed-fraction position sizing
+    - Concentration and leverage limits
+    - Immediate signal processing (event-driven, no batching)
+    - Portfolio state synchronization via PortfolioStateEvent
     """
 
-    def __init__(self, config: RiskConfig, event_bus: EventBus) -> None:
+    def __init__(self, risk_config: RiskConfig, event_bus: EventBus) -> None:
         """
-        Initialize RiskService.
+        Initialize ManagerService.
 
         Args:
-            config: Risk configuration (budgets, sizing, limits)
+            risk_config: Risk policy configuration (loaded from library)
             event_bus: Event bus for subscribing/publishing
 
         Side Effects:
-            - Creates logger (risk.service namespace)
-            - Initializes empty signal buffer
-            - Initializes None portfolio state cache
+            - Creates logger (manager.service namespace)
+            - Subscribes to SignalEvent and PortfolioStateEvent
         """
-        self._config = config
+        self._config = risk_config
         self._event_bus = event_bus
-        self._logger = LoggerFactory.get_logger("risk.service")
+        self._logger = LoggerFactory.get_logger("manager.service")
 
-        # Signal buffer for batch evaluation
-        self._signal_buffer: list[SignalEvent] = []
-
-        # Cached portfolio state (latest snapshot)
-        self._portfolio_state: PortfolioState | None = None
-
-        # Current timestamp for consistency checks
-        self._current_ts: datetime | None = None
+        # Portfolio state cache (updated by PortfolioStateEvent)
+        self._cached_equity: Decimal | None = None
+        self._cached_positions: list[risk_limits.Position] = []
 
         self._logger.info(
-            "RiskService initialized",
+            "ManagerService initialized",
             extra={
-                "num_strategies": len(config.budgets),
-                "total_budget_weight": sum(b.capital_weight for b in config.budgets),
-                "concentration_limit": config.concentration.max_position_pct,
-                "leverage_limit_gross": config.leverage.max_gross,
-                "leverage_limit_net": config.leverage.max_net,
+                "sizing_strategies": list(self._config.sizing.keys()),
+                "concentration_limit": (
+                    float(self._config.concentration.max_position_pct) if self._config.concentration else None
+                ),
+                "leverage_limit_gross": float(self._config.leverage.max_gross) if self._config.leverage else None,
+                "leverage_limit_net": float(self._config.leverage.max_net) if self._config.leverage else None,
+                "cash_buffer_pct": float(self._config.cash_buffer_pct),
             },
         )
 
         # Subscribe to events
         self._event_bus.subscribe("signal", self.on_signal)  # type: ignore[arg-type]
-        self._event_bus.subscribe("risk_evaluation_trigger", self.on_risk_evaluation_trigger)  # type: ignore[arg-type]
+        self._event_bus.subscribe("portfolio_state", self.on_portfolio_state)  # type: ignore[arg-type]
 
     @classmethod
-    def from_config(cls, config_dict: dict[str, Any], event_bus: EventBus) -> "RiskService":
+    def from_config(cls, config_dict: dict[str, Any], event_bus: EventBus) -> "ManagerService":
         """
-        Factory method to create RiskService from configuration dictionary.
+        Factory method to create ManagerService from configuration.
+
+        Loads risk policy from risk library using policy name from BacktestConfig.
 
         Args:
-            config_dict: Risk configuration section from backtest config
+            config_dict: Configuration from BacktestConfig.risk_policy
+                Expected format:
+                {
+                    "name": "naive",  # Policy name to load
+                    "config": {}      # Optional overrides (not yet implemented)
+                }
             event_bus: Event bus for service communication
 
         Returns:
-            Configured RiskService instance
+            Configured ManagerService instance
 
         Example:
-            >>> config_dict = {...}  # Risk config from BacktestConfig
-            >>> service = RiskService.from_config(config_dict, event_bus)
+            >>> config_dict = {"name": "naive", "config": {}}
+            >>> service = ManagerService.from_config(config_dict, event_bus)
         """
-        from qtrader.services.manager.models import ConcentrationLimit, LeverageLimit, SizingConfig, StrategyBudget
+        # Extract policy name
+        policy_name = config_dict.get("name", "naive")
+        policy_overrides = config_dict.get("config", {})
 
-        # Convert BacktestConfig format to Phase 4 RiskConfig format
-        budgets = [
-            StrategyBudget(
-                strategy_id=b["strategy_id"],
-                capital_weight=b["capital_weight"],
+        # Load risk policy from library
+        risk_config = load_policy(policy_name)
+
+        # TODO: Apply overrides from config_dict["config"]
+        # This will allow users to override specific risk parameters
+        # without creating a new policy file
+        if policy_overrides:
+            logger = LoggerFactory.get_logger("manager.service")
+            logger.warning(
+                "Policy overrides not yet implemented",
+                extra={"overrides": policy_overrides},
             )
-            for b in config_dict["budgets"]
-        ]
 
-        sizing = {
-            strategy_id: SizingConfig(
-                model="fixed_fraction",
-                fraction=cfg["fraction"],
-            )
-            for strategy_id, cfg in config_dict["sizing"].items()
-        }
-
-        concentration = ConcentrationLimit(max_position_pct=config_dict["concentration"]["max_position_pct"])
-
-        leverage = LeverageLimit(
-            max_gross=config_dict["leverage"]["max_gross"],
-            max_net=config_dict["leverage"]["max_net"],
-        )
-
-        cash_buffer_pct = config_dict.get("cash_buffer_pct", 0.02)
-
-        config = RiskConfig(
-            budgets=budgets,
-            sizing=sizing,
-            concentration=concentration,
-            leverage=leverage,
-            cash_buffer_pct=cash_buffer_pct,
-        )
-
-        return cls(config=config, event_bus=event_bus)
+        return cls(risk_config=risk_config, event_bus=event_bus)
 
     def on_signal(self, event: SignalEvent) -> None:
         """
-        Handle incoming trading signal.
+        Handle incoming trading signal (immediate processing).
 
-        Buffers signal for batch evaluation. Validates timestamp consistency
-        to ensure all events at timestamp ts are from same bar.
+        Architecture:
+        - No batching - process each signal immediately
+        - Use cached portfolio state for sizing and limits
+        - Use risk library tools for calculations
+        - Emit OrderEvent with intent_id and idempotency_key for audit trail
 
         Args:
             event: Trading signal from strategy
 
         Side Effects:
-            - Buffers signal in _signal_buffer
-            - Logs signal receipt (DEBUG)
-            - Updates _current_ts if first signal of bar
+            - Publishes OrderEvent if approved
+            - Logs rejection if signal rejected
+            - Does NOT emit rejection events (orders simply don't exist)
 
-        Raises:
-            ValueError: If event.ts is inconsistent with current bar
+        Flow:
+            1. Get cached portfolio equity from PortfolioStateEvent
+            2. Get sizing configuration for strategy
+            3. Calculate position size using risk library
+            4. Check limits using risk library and cached positions
+            5. If approved: emit OrderEvent with intent_id and idempotency_key
+            6. If rejected: log reason (no event emitted)
+
+        SignalEvent fields (actual structure):
+            - signal_id: str
+            - timestamp: str (ISO8601)
+            - strategy_id: str
+            - symbol: str
+            - intention: str (OPEN_LONG, CLOSE_LONG, OPEN_SHORT, CLOSE_SHORT)
+            - price: Decimal
+            - confidence: Decimal [0.0, 1.0]
+            - metadata: Optional[dict]
 
         Example:
             >>> signal = SignalEvent(
-            ...     ts=datetime(2020, 1, 2, 16, 0),
-            ...     strategy_id="momentum_v1",
+            ...     signal_id="sig-001",
+            ...     timestamp="2020-01-02T16:00:00Z",
+            ...     strategy_id="momentum",
             ...     symbol="AAPL",
-            ...     side="BUY",
-            ...     strength=0.75
+            ...     intention="OPEN_LONG",
+            ...     price=Decimal("150.0"),
+            ...     confidence=Decimal("0.75"),
+            ...     metadata={"equity": 100000.0}
             ... )
-            >>> risk_service.on_signal(signal)  # Buffered
+            >>> manager.on_signal(signal)  # Emits OrderEvent
         """
-        # Timestamp consistency check
-        if self._current_ts is None:
-            # First signal of the bar
-            self._current_ts = event.ts
-        elif event.ts != self._current_ts:
-            raise ValueError(
-                f"Signal timestamp {event.ts} does not match current bar {self._current_ts}. "
-                f"All signals must be from the same bar."
-            )
-
-        # Validate signal strength
-        if not -1.0 <= event.strength <= 1.0:
-            self._logger.warning(
-                "Invalid signal strength, clamping to [-1, 1]",
-                extra={
-                    "strategy_id": event.strategy_id,
-                    "symbol": event.symbol,
-                    "strength": event.strength,
-                },
-            )
-            # Note: We log but don't reject - SignalEvent validation should catch this
-
-        # Buffer signal
-        self._signal_buffer.append(event)
-
         self._logger.debug(
-            "Signal received and buffered",
+            "Signal received",
             extra={
-                "ts": event.ts.isoformat(),
+                "timestamp": event.timestamp,
+                "signal_id": event.signal_id,
                 "strategy_id": event.strategy_id,
                 "symbol": event.symbol,
-                "side": event.side,
-                "strength": event.strength,
-                "buffer_size": len(self._signal_buffer),
+                "intention": event.intention,
+                "confidence": float(event.confidence),
             },
         )
 
-    def on_portfolio_state(self, event: Any) -> None:
-        """
-        Update cached portfolio state.
+        # Step 1: Get portfolio equity from cache
+        # Manager must receive PortfolioStateEvent before processing signals
+        current_equity = self._cached_equity
 
-        Caches latest portfolio snapshot for risk checks. RiskService
-        never mutates this state - it's read-only input.
+        if current_equity is None:
+            self._logger.warning(
+                "Signal rejected: no cached equity (PortfolioStateEvent not received)",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "symbol": event.symbol,
+                    "hint": "Ensure PortfolioService publishes PortfolioStateEvent before signals",
+                },
+            )
+            return
+
+        current_price = event.price
+        current_positions_list = self._cached_positions
+
+        # Map intention to side for OrderEvent
+        # OPEN_LONG: Buy to open long position
+        # CLOSE_SHORT: Buy to cover short position
+        # CLOSE_LONG: Sell to close long position
+        # OPEN_SHORT: Sell to open short position
+        if event.intention in ("OPEN_LONG", "CLOSE_SHORT"):
+            side = "buy"  # OrderEvent schema requires lowercase
+        elif event.intention in ("CLOSE_LONG", "OPEN_SHORT"):
+            side = "sell"  # OrderEvent schema requires lowercase
+        else:
+            self._logger.warning(
+                "Signal rejected: unknown intention",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "intention": event.intention,
+                },
+            )
+            return
+
+        # Step 2: Get sizing configuration for this strategy
+        sizing_config = self._config.sizing.get(event.strategy_id) or self._config.sizing.get("default")
+
+        if sizing_config is None:
+            self._logger.warning(
+                "Signal rejected: no sizing config for strategy",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "symbol": event.symbol,
+                },
+            )
+            return
+
+        # Step 3: Calculate position size using risk library
+        # Use strategy's allocated capital (full equity minus cash buffer)
+        # Future: Multi-strategy capital allocation
+        allocated_capital = current_equity * (Decimal("1.0") - Decimal(str(self._config.cash_buffer_pct)))
+
+        quantity: int = 0  # Will always be assigned in try block (sizing_config.model is exhaustive)
+        try:
+            if sizing_config.model == "fixed_fraction":
+                quantity = risk_sizing.calculate_fixed_fraction_size(
+                    allocated_capital=allocated_capital,
+                    signal_strength=float(event.confidence),  # Use confidence as signal strength
+                    current_price=current_price,
+                    fraction=sizing_config.fraction,
+                    lot_size=sizing_config.lot_size,
+                    min_quantity=sizing_config.min_quantity,
+                )
+            elif sizing_config.model == "equal_weight":
+                # Equal weight needs position count - not yet implemented
+                # Fallback to fixed fraction for now
+                self._logger.warning(
+                    "Equal weight sizing not yet supported, using fixed fraction",
+                    extra={"strategy_id": event.strategy_id},
+                )
+                quantity = risk_sizing.calculate_fixed_fraction_size(
+                    allocated_capital=allocated_capital,
+                    signal_strength=float(event.confidence),
+                    current_price=current_price,
+                    fraction=Decimal("0.10"),  # Default fallback
+                    lot_size=sizing_config.lot_size,
+                    min_quantity=sizing_config.min_quantity,
+                )
+            # Note: No else needed - sizing_config.model is Literal["fixed_fraction", "equal_weight"]
+
+        except (ValueError, TypeError) as e:
+            # Sizing calculation failed - reject signal
+            self._logger.warning(
+                "Signal rejected: sizing calculation failed",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "error": str(e),
+                },
+            )
+            return
+
+        # If we reach here, quantity was successfully calculated
+        if quantity == 0:
+            self._logger.debug(
+                "Signal rejected: position size rounded to zero",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "symbol": event.symbol,
+                },
+            )
+            return
+
+        # Step 4: Check limits using risk library with cached positions
+        proposed_order = risk_limits.ProposedOrder(
+            symbol=event.symbol,
+            side=side,
+            quantity=quantity,
+        )
+
+        violations = risk_limits.check_all_limits(
+            order=proposed_order,
+            current_positions=current_positions_list,
+            equity=current_equity,
+            current_price=current_price,
+            max_position_pct=(
+                float(self._config.concentration.max_position_pct) if self._config.concentration else None
+            ),
+            max_gross_leverage=float(self._config.leverage.max_gross) if self._config.leverage else None,
+            max_net_leverage=float(self._config.leverage.max_net) if self._config.leverage else None,
+        )
+
+        if violations:
+            reasons = [v.message for v in violations]
+            self._logger.warning(
+                "Signal rejected: limit violations",
+                extra={
+                    "signal_id": event.signal_id,
+                    "strategy_id": event.strategy_id,
+                    "symbol": event.symbol,
+                    "violations": reasons,
+                },
+            )
+            return
+
+        # Step 5: Generate audit trail fields
+        idempotency_key = f"{event.strategy_id}-{event.signal_id}-{event.timestamp}"
+        intent_id = event.signal_id  # Link order back to signal
+
+        # Step 6: Emit OrderEvent
+        order_event = OrderEvent(
+            intent_id=intent_id,
+            idempotency_key=idempotency_key,
+            timestamp=event.timestamp,
+            symbol=event.symbol,
+            side=side,
+            quantity=Decimal(str(quantity)),
+            order_type="market",  # Future: support limit/stop orders
+            time_in_force="GTC",
+            source_strategy_id=event.strategy_id,
+        )
+
+        self._event_bus.publish(order_event)
+
+        self._logger.info(
+            "Order emitted",
+            extra={
+                "timestamp": event.timestamp,
+                "signal_id": event.signal_id,
+                "strategy_id": event.strategy_id,
+                "symbol": event.symbol,
+                "side": side,
+                "quantity": quantity,
+                "intent_id": intent_id,
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+    def on_portfolio_state(self, event: "PortfolioStateEvent") -> None:
+        """
+        Cache portfolio state for use in risk checks.
+
+        Subscribes to PortfolioStateEvent published by PortfolioService
+        after mark-to-market on each bar. Extracts and caches equity
+        and positions for subsequent signal processing.
 
         Args:
-            event: Portfolio state snapshot (will be PortfolioStateEvent once defined)
+            event: Portfolio state snapshot
 
         Side Effects:
-            - Updates _portfolio_state cache
-            - Logs state update (DEBUG)
+            - Updates _cached_equity
+            - Updates _cached_positions (converted from PortfolioPosition format)
 
-        Note:
-            Using Any type until PortfolioStateEvent is defined in Phase 2 integration.
-            For now, expects event to have PortfolioState attributes.
+        Flow:
+            Bar → PortfolioService.on_bar() → mark_to_market()
+                → PortfolioStateEvent → ManagerService.on_portfolio_state()
+                → cache equity/positions for next signal
 
         Example:
-            >>> # Pseudo-code until PortfolioStateEvent exists
-            >>> state = PortfolioState(
-            ...     ts=datetime(2020, 1, 2, 16, 0),
-            ...     equity=Decimal("1000000"),
-            ...     cash=Decimal("500000"),
-            ...     ...
+            >>> state = PortfolioStateEvent(
+            ...     portfolio_id="portfolio-123",
+            ...     start_datetime="2020-01-01T00:00:00Z",
+            ...     snapshot_datetime="2020-01-02T16:00:00Z",
+            ...     reporting_currency="USD",
+            ...     initial_portfolio_equity=Decimal("100000"),
+            ...     cash_balance=Decimal("50000"),
+            ...     current_portfolio_equity=Decimal("100000"),
+            ...     total_market_value=Decimal("50000"),
+            ...     total_unrealized_pl=Decimal("0"),
+            ...     total_realized_pl=Decimal("0"),
+            ...     total_pl=Decimal("0"),
+            ...     long_exposure=Decimal("50000"),
+            ...     short_exposure=Decimal("0"),
+            ...     net_exposure=Decimal("50000"),
+            ...     gross_exposure=Decimal("50000"),
+            ...     leverage=Decimal("0.5"),
+            ...     strategies_groups=[],
             ... )
-            >>> risk_service.on_portfolio_state(state)
+            >>> manager.on_portfolio_state(state)
+            >>> # _cached_equity = 100000
         """
-        # For MVP, assume event is PortfolioState directly
-        # TODO: Update when PortfolioStateEvent is defined
-        if isinstance(event, PortfolioState):
-            self._portfolio_state = event
-        else:
-            # Try to extract PortfolioState from event
-            if hasattr(event, "ts") and hasattr(event, "equity"):
-                self._portfolio_state = PortfolioState(
-                    ts=event.ts,
-                    equity=event.equity,
-                    cash=event.cash,
-                    gross_exposure=event.gross_exposure,
-                    net_exposure=event.net_exposure,
-                    positions=event.positions,
-                )
-            else:
-                self._logger.error(
-                    "Invalid portfolio state event format",
-                    extra={"event_type": type(event).__name__},
-                )
-                return
+        self._cached_equity = event.current_portfolio_equity
+
+        # Convert Portfolio positions to risk_limits.Position format
+        # Flatten all strategy positions into a single list for risk checks
+        converted_positions: list[risk_limits.Position] = []
+        for strategy_group in event.strategies_groups:
+            for portfolio_pos in strategy_group.positions:
+                # Only include open positions (skip flat/closed positions)
+                if portfolio_pos.open_quantity != 0:
+                    converted_positions.append(
+                        risk_limits.Position(
+                            symbol=portfolio_pos.symbol,
+                            quantity=portfolio_pos.open_quantity,
+                            market_value=portfolio_pos.gross_market_value,
+                        )
+                    )
+
+        self._cached_positions = converted_positions
 
         self._logger.debug(
             "Portfolio state cached",
             extra={
-                "ts": self._portfolio_state.ts.isoformat(),
-                "equity": float(self._portfolio_state.equity),
-                "cash": float(self._portfolio_state.cash),
-                "num_positions": len(self._portfolio_state.positions),
-            },
-        )
-
-    def on_risk_evaluation_trigger(self, event: RiskEvaluationTriggerEvent) -> None:
-        """
-        Evaluate buffered signals and publish orders/rejections.
-
-        Triggered by BacktestEngine at end of bar. Processes all buffered
-        signals in batch (detailed implementation in Days 12-13).
-
-        Args:
-            event: Trigger event with evaluation timestamp
-
-        Side Effects:
-            - Publishes OrderApprovedEvent per approved signal
-            - Publishes OrderRejectedEvent per rejected signal
-            - Clears signal buffer
-            - Resets current timestamp
-            - Logs batch evaluation (INFO)
-
-        Example:
-            >>> trigger = RiskEvaluationTriggerEvent(
-            ...     ts=datetime(2020, 1, 2, 16, 0)
-            ... )
-            >>> risk_service.on_risk_evaluation_trigger(trigger)
-        """
-        # Timestamp consistency check
-        if self._current_ts is not None and event.ts != self._current_ts:
-            self._logger.warning(
-                "Evaluation timestamp mismatch",
-                extra={
-                    "trigger_ts": event.ts.isoformat(),
-                    "current_ts": self._current_ts.isoformat(),
-                },
-            )
-
-        num_signals = len(self._signal_buffer)
-
-        if num_signals == 0:
-            self._logger.debug(
-                "No signals to evaluate",
-                extra={"ts": event.ts.isoformat()},
-            )
-            self._current_ts = None
-            return
-
-        if self._portfolio_state is None:
-            self._logger.error(
-                "Cannot evaluate signals: no portfolio state cached",
-                extra={"ts": event.ts.isoformat(), "num_signals": num_signals},
-            )
-            # Reject all signals
-            for signal_event in self._signal_buffer:
-                self._publish_rejection(signal_event, event.ts, "No portfolio state available")
-            self._signal_buffer.clear()
-            self._current_ts = None
-            return
-
-        self._logger.info(
-            "Starting batch risk evaluation",
-            extra={
-                "ts": event.ts.isoformat(),
-                "num_signals": num_signals,
-                "equity": float(self._portfolio_state.equity),
-            },
-        )
-
-        # Step 1: Allocate capital across strategies
-        allocations = allocate_capital(
-            budgets=self._config.budgets,
-            equity=self._portfolio_state.equity,
-            cash_buffer_pct=self._config.cash_buffer_pct,
-        )
-
-        self._logger.info(
-            "Capital allocated across strategies",
-            extra={
-                "ts": event.ts.isoformat(),
-                "allocations": {strat_id: float(capital) for strat_id, capital in allocations.items()},
-            },
-        )
-
-        # Step 2: Size positions and check limits for each signal
-        approved_orders: list[OrderBase] = []
-        rejected_signals: list[tuple[SignalEvent, str]] = []
-
-        for signal_event in self._signal_buffer:
-            # Extract price from signal metadata (MVP: strategy provides price)
-            price = signal_event.metadata.get("price")
-            if price is None:
-                self._logger.warning(
-                    "Signal missing price in metadata",
-                    extra={
-                        "strategy_id": signal_event.strategy_id,
-                        "symbol": signal_event.symbol,
-                    },
-                )
-                rejected_signals.append((signal_event, "Missing price in signal metadata"))
-                continue
-
-            current_price = Decimal(str(price))
-
-            # Convert SignalEvent to Signal model for business logic
-            signal = Signal(
-                strategy_id=signal_event.strategy_id,
-                symbol=signal_event.symbol,
-                side=signal_event.side,
-                strength=signal_event.strength,
-                metadata=signal_event.metadata,
-            )
-
-            # Get allocated capital for this strategy
-            allocated_capital = allocations.get(signal.strategy_id, Decimal("0"))
-            if allocated_capital == 0:
-                rejected_signals.append((signal_event, "Strategy has zero allocated capital"))
-                continue
-
-            # Get sizing config for this strategy
-            sizing_config = self._config.sizing.get(signal.strategy_id)
-            if sizing_config is None:
-                rejected_signals.append((signal_event, "No sizing config for strategy"))
-                continue
-
-            # Size position
-            sizer = FixedFractionSizer(
-                fraction=Decimal(str(sizing_config.fraction)),
-                lot_size=1,  # MVP: default lot size
-                min_quantity=0,  # MVP: no minimum
-            )
-
-            quantity = sizer.size_position(
-                signal=signal,
-                allocated_capital=allocated_capital,
-                current_price=current_price,
-            )
-
-            if quantity == 0:
-                rejected_signals.append((signal_event, "Position size rounded to zero"))
-                continue
-
-            # Create proposed order
-            proposed_order = OrderBase(
-                strategy_id=signal.strategy_id,
-                symbol=signal.symbol,
-                side=signal.side,
-                quantity=quantity,
-                reason=f"Pending: {quantity} shares sized",
-            )
-
-            # Check limits
-            violations = check_all_limits(
-                order=proposed_order,
-                current_positions=list(self._portfolio_state.positions.values()),
-                equity=self._portfolio_state.equity,
-                current_price=current_price,
-                concentration_limit=self._config.concentration,
-                leverage_limit=self._config.leverage,
-            )
-
-            if violations:
-                # Reject due to limit violations
-                reasons = [v.message for v in violations]
-                rejection_reason = "; ".join(reasons)
-                rejected_signals.append((signal_event, rejection_reason))
-            else:
-                # Approve order
-                approved_order = OrderBase(
-                    strategy_id=signal.strategy_id,
-                    symbol=signal.symbol,
-                    side=signal.side,
-                    quantity=quantity,
-                    reason=(
-                        f"Approved: {quantity} shares, "
-                        f"fraction={float(sizing_config.fraction):.4f}, "
-                        f"allocated_capital={float(allocated_capital):.2f}, "
-                        f"price={float(current_price):.2f}"
-                    ),
-                )
-                approved_orders.append(approved_order)
-
-        # Step 3: Publish approvals and rejections
-        for order in approved_orders:
-            self._publish_approval(order, event.ts)
-
-        for signal_event, reason in rejected_signals:
-            self._publish_rejection(signal_event, event.ts, reason)
-
-        # Clear buffer and reset timestamp
-        self._signal_buffer.clear()
-        self._current_ts = None
-
-        self._logger.info(
-            "Batch risk evaluation complete",
-            extra={
-                "ts": event.ts.isoformat(),
-                "num_signals": num_signals,
-                "approved": len(approved_orders),
-                "rejected": len(rejected_signals),
-            },
-        )
-
-    def _publish_rejection(self, signal: SignalEvent, ts: datetime, reason: str) -> None:
-        """
-        Publish OrderRejectedEvent.
-
-        Helper method to publish rejection with consistent format.
-
-        Args:
-            signal: Original signal event
-            ts: Rejection timestamp
-            reason: Detailed rejection reason
-
-        Side Effects:
-            - Publishes OrderRejectedEvent to event bus
-            - Logs rejection (WARNING)
-        """
-        rejection = OrderRejectedEvent(
-            ts=ts,
-            strategy_id=signal.strategy_id,
-            symbol=signal.symbol,
-            side=signal.side,
-            strength=signal.strength,
-            reason=reason,
-        )
-        self._event_bus.publish(rejection)
-
-        self._logger.warning(
-            "Order rejected",
-            extra={
-                "ts": ts.isoformat(),
-                "strategy_id": signal.strategy_id,
-                "symbol": signal.symbol,
-                "side": signal.side,
-                "reason": reason,
-            },
-        )
-
-    def _publish_approval(self, order: OrderBase, ts: datetime) -> None:
-        """
-        Publish OrderApprovedEvent.
-
-        Helper method to publish approval with consistent format.
-
-        Args:
-            order: Risk-approved order
-            ts: Approval timestamp
-
-        Side Effects:
-            - Publishes OrderApprovedEvent to event bus
-            - Logs approval (INFO)
-        """
-        approval = OrderApprovedEvent(
-            ts=ts,
-            strategy_id=order.strategy_id,
-            symbol=order.symbol,
-            side=order.side,
-            quantity=order.quantity,
-            reason=order.reason,
-        )
-        self._event_bus.publish(approval)
-
-        self._logger.info(
-            "Order approved",
-            extra={
-                "ts": ts.isoformat(),
-                "strategy_id": order.strategy_id,
-                "symbol": order.symbol,
-                "side": order.side,
-                "quantity": order.quantity,
-                "reason": order.reason,
+                "snapshot_datetime": event.snapshot_datetime,
+                "current_portfolio_equity": str(event.current_portfolio_equity),
+                "num_strategies": len(event.strategies_groups),
+                "num_positions": len(converted_positions),
+                "gross_exposure": str(event.gross_exposure),
+                "net_exposure": str(event.net_exposure),
             },
         )

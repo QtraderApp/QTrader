@@ -1,157 +1,125 @@
 """
-Risk Service Interface.
+ManagerService Protocol Interface.
 
-Defines the protocol (interface) for risk management service.
-Follows LEGO architecture principles:
-- Pure event-driven (no direct API calls)
-- Immutable inputs
-- No state mutation (publishes events instead)
+Defines the contract for portfolio management services that evaluate
+trading signals, size positions, check limits, and emit orders.
+
+Following the ports & adapters pattern used by other services
+(ExecutionService, DataService, etc.) for testability and flexibility.
 """
 
 from typing import Any, Protocol
 
-from qtrader.events.events import RiskEvaluationTriggerEvent, SignalEvent
+from qtrader.events.event_bus import EventBus
+from qtrader.events.events import PortfolioStateEvent, SignalEvent
+from qtrader.libraries.risk.models import RiskConfig
 
-# Note: PortfolioStateEvent will be added when implementing PortfolioService Phase 2 integration
-# For now, RiskService will work with PortfolioState model snapshots
 
-
-class IRiskService(Protocol):
+class IManagerService(Protocol):
     """
-    Risk service interface (MVP).
+    Protocol interface for ManagerService.
 
-    Responsibilities:
-    - Subscribe to SignalEvent, PortfolioStateEvent
-    - Allocate capital across strategies (fixed risk budgets)
-    - Size positions per signal (fixed_fraction model)
-    - Enforce portfolio limits (concentration, leverage)
-    - Publish OrderApprovedEvent or OrderRejectedEvent per signal
+    Defines the contract for portfolio management services that:
+    - Subscribe to SignalEvent from strategies
+    - Evaluate signals using risk policies
+    - Size positions using risk library tools
+    - Check limits using risk library tools
+    - Emit OrderEvent for approved orders
 
-    Does NOT:
-    - Execute orders (ExecutionService responsibility)
-    - Mutate portfolio (PortfolioService responsibility)
-    - Load market data (DataService responsibility)
-    - Make strategy decisions (Strategy responsibility)
-
-    Event Flow:
-        1. Strategy → SignalEvent
-        2. RiskService buffers signals (on_signal)
-        3. BacktestEngine → RiskEvaluationTriggerEvent
-        4. RiskService evaluates batch (on_risk_evaluation_trigger)
-        5. RiskService → OrderApprovedEvent | OrderRejectedEvent
-
-    Pure Functions:
-        All methods are pure - same inputs produce same outputs.
-        No hidden state or side effects except event publishing.
-
-    Example:
-        >>> from qtrader.events.event_bus import EventBus
-        >>> from qtrader.services.risk.service import RiskService
-        >>> bus = EventBus()
-        >>> risk_service = RiskService(config, bus)
-        >>> bus.subscribe(SignalEvent, risk_service.on_signal)
-        >>> bus.subscribe(RiskEvaluationTriggerEvent, risk_service.on_risk_evaluation_trigger)
-        >>> bus.subscribe(PortfolioStateEvent, risk_service.on_portfolio_state)
+    This protocol enables:
+    - Dependency injection in BacktestEngine
+    - Mock implementations for testing
+    - Alternative implementations (e.g., live trading manager)
     """
+
+    _config: RiskConfig
+    _event_bus: EventBus
+
+    @classmethod
+    def from_config(cls, config_dict: dict[str, Any], event_bus: EventBus) -> "IManagerService":
+        """
+        Factory method to create service from configuration.
+
+        Args:
+            config_dict: Configuration from BacktestConfig.risk_policy
+                Expected format:
+                {
+                    "name": "naive",  # Policy name to load from risk library
+                    "config": {}      # Optional overrides
+                }
+            event_bus: Event bus for service communication
+
+        Returns:
+            Configured manager service instance
+
+        Example:
+            >>> config_dict = {"name": "naive", "config": {}}
+            >>> service = ManagerService.from_config(config_dict, event_bus)
+        """
+        ...
 
     def on_signal(self, event: SignalEvent) -> None:
         """
         Handle incoming trading signal.
 
-        Buffers signal for batch evaluation. Signals are processed
-        in batches to enable cross-signal logic (e.g., leverage checks
-        across all pending orders).
+        Immediately processes signal (no batching):
+        1. Extract portfolio state from signal metadata
+        2. Get sizing configuration for strategy
+        3. Calculate position size using risk library
+        4. Check limits using risk library
+        5. Emit OrderEvent if approved (or log rejection)
 
         Args:
             event: Trading signal from strategy
 
         Side Effects:
-            - Buffers signal internally
-            - Logs signal receipt (DEBUG level)
-
-        Validation:
-            - Ensures event.ts matches current bar (timestamp consistency)
-            - Validates signal strength in [-1, 1]
+            - Publishes OrderEvent if signal approved
+            - Logs rejection if signal rejected (no rejection event emitted)
 
         Example:
             >>> signal = SignalEvent(
-            ...     ts=datetime(2020, 1, 2, 16, 0),
-            ...     strategy_id="momentum_v1",
+            ...     signal_id="sig-001",
+            ...     timestamp="2020-01-02T16:00:00Z",
+            ...     strategy_id="momentum",
             ...     symbol="AAPL",
-            ...     side="BUY",
-            ...     strength=0.75
+            ...     intention="OPEN_LONG",
+            ...     price=Decimal("150.0"),
+            ...     confidence=Decimal("0.75"),
+            ...     metadata={"equity": 100000.0}
             ... )
-            >>> risk_service.on_signal(signal)  # Buffered for batch eval
+            >>> manager.on_signal(signal)  # Emits OrderEvent
         """
         ...
 
-    def on_risk_evaluation_trigger(self, event: RiskEvaluationTriggerEvent) -> None:
+    def on_portfolio_state(self, event: PortfolioStateEvent) -> None:
         """
-        Evaluate buffered signals and publish orders/rejections.
+        Cache portfolio state for use in risk checks.
 
-        Triggered by BacktestEngine at end of bar. Processes all buffered
-        signals in batch:
-        1. Allocate capital per strategy (fixed budgets)
-        2. Size each signal (fixed_fraction)
-        3. Check concentration limits (per-symbol)
-        4. Check leverage limits (portfolio-wide)
-        5. Publish OrderApprovedEvent or OrderRejectedEvent
-        6. Clear signal buffer
+        Phase 5: Subscribe to PortfolioStateEvent from PortfolioService.
+        This event is published after mark-to-market on each bar.
 
         Args:
-            event: Trigger event with evaluation timestamp
+            event: Portfolio state snapshot
 
         Side Effects:
-            - Publishes OrderApprovedEvent per approved signal
-            - Publishes OrderRejectedEvent per rejected signal
-            - Clears signal buffer
-            - Logs allocation, approvals, rejections (INFO/WARNING)
+            - Updates cached equity for use in sizing calculations
+            - Updates cached positions for use in limit checks
 
-        Validation:
-            - Ensures event.ts matches buffered signal timestamps
-            - Validates portfolio state is cached
-
-        Example:
-            >>> trigger = RiskEvaluationTriggerEvent(
-            ...     ts=datetime(2020, 1, 2, 16, 0)
-            ... )
-            >>> risk_service.on_risk_evaluation_trigger(trigger)
-            # Publishes: OrderApprovedEvent(symbol="AAPL", quantity=500, ...)
-            # Publishes: OrderRejectedEvent(symbol="TSLA", reason="Exceeds concentration", ...)
-        """
-        ...
-
-    def on_portfolio_state(self, event: Any) -> None:
-        """
-        Update cached portfolio state.
-
-        Caches latest portfolio snapshot for risk checks. RiskService
-        never mutates this state - it's read-only input.
-
-        Args:
-            event: Portfolio state snapshot from PortfolioService
-                  (Type will be PortfolioStateEvent once defined in Phase 2 integration)
-
-        Side Effects:
-            - Updates cached portfolio state
-            - Logs state update (DEBUG level)
-
-        Validation:
-            - Ensures event.ts is not stale (monotonic timestamp)
-
-        Note:
-            PortfolioStateEvent will be defined when integrating with
-            PortfolioService (Phase 2). For now using Any type.
+        Flow:
+            Bar → PortfolioService.on_bar() → mark_to_market()
+                → PortfolioStateEvent → ManagerService.on_portfolio_state()
+                → cache equity/positions for next signal
 
         Example:
-            >>> # Pseudo-code until PortfolioStateEvent exists
-            >>> from qtrader.services.risk.models import PortfolioState
-            >>> state_data = PortfolioState(
-            ...     ts=datetime(2020, 1, 2, 16, 0),
-            ...     equity=Decimal("1000000"),
-            ...     cash=Decimal("500000"),
-            ...     ...
+            >>> state = PortfolioStateEvent(
+            ...     ts="2020-01-02T16:00:00Z",
+            ...     total_equity=Decimal("100000"),
+            ...     cash=Decimal("50000"),
+            ...     positions_value=Decimal("50000"),
+            ...     num_positions=5,
+            ...     gross_exposure=Decimal("50000"),
+            ...     net_exposure=Decimal("50000"),
             ... )
-            >>> risk_service.on_portfolio_state(state_data)  # Cached for next batch
+            >>> manager.on_portfolio_state(state)
         """
         ...

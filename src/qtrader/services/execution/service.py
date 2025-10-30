@@ -4,16 +4,15 @@ Simulates realistic order execution for backtesting.
 """
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Optional
 
 from qtrader.events.event_bus import EventBus
-from qtrader.events.events import FillEvent, OrderApprovedEvent, PriceBarEvent
+from qtrader.events.events import FillEvent, OrderEvent, PriceBarEvent
 from qtrader.services.data.models import Bar
 from qtrader.services.execution.commission import CommissionCalculator
 from qtrader.services.execution.config import ExecutionConfig
 from qtrader.services.execution.fill_policy import FillPolicy
-from qtrader.services.execution.models import Fill, Order, OrderSide, OrderState, OrderType
+from qtrader.services.execution.models import Fill, Order, OrderSide, OrderState, OrderType, TimeInForce
 from qtrader.system import LoggerFactory
 
 logger = LoggerFactory.get_logger()
@@ -73,8 +72,8 @@ class ExecutionService:
 
         # Subscribe to events if event bus provided
         if self._event_bus:
-            self._event_bus.subscribe("price_bar", self.on_bar_event)  # type: ignore[arg-type]
-            self._event_bus.subscribe("order_approved", self.on_order_approved)  # type: ignore[arg-type]
+            self._event_bus.subscribe("bar", self.on_bar_event)  # type: ignore[arg-type]
+            self._event_bus.subscribe("order", self.on_order)  # type: ignore[arg-type]
 
     def submit_order(self, order: Order) -> str:
         """Submit a new order for execution.
@@ -376,72 +375,180 @@ class ExecutionService:
 
     def on_bar_event(self, event: PriceBarEvent) -> None:
         """
-        Handle price bar event - attempt to fill pending orders for this symbol.
+        Handle bar event to process fills (Phase 5).
+
+        Converts PriceBarEvent to Bar and processes fills for the symbol.
 
         Args:
-            event: Price bar event with symbol and bar data
+            event: Price bar event
         """
-        if event.bar is None:
-            return
+        from datetime import datetime
 
-        # Process bar for this symbol's pending orders
-        fills = self.on_bar(event.bar)
+        trade_datetime = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+
+        bar = Bar(
+            trade_datetime=trade_datetime,
+            open=float(event.open),
+            high=float(event.high),
+            low=float(event.low),
+            close=float(event.close),
+            volume=event.volume,
+        )
+
+        # Process bar ONLY for this symbol's pending orders
+        symbol = event.symbol
+        fills: list[Fill] = []
+
+        if symbol in self._pending_orders_by_symbol:
+            order_ids = self._pending_orders_by_symbol.get(symbol, [])
+
+            for order_id in list(order_ids):
+                order = self._orders.get(order_id)
+
+                # Defensive: handle missing order
+                if order is None:
+                    logger.error(
+                        "execution.on_bar.missing_order",
+                        order_id=order_id,
+                        symbol=symbol,
+                    )
+                    continue
+
+                # Skip if order not active
+                if not order.is_active:
+                    self._remove_from_pending(order)
+                    continue
+
+                # Evaluate order against bar
+                decision = self.fill_policy.evaluate_order(order, bar)
+
+                # Handle expiry
+                if decision.should_expire:
+                    order.expire(bar.trade_datetime)
+                    self._remove_from_pending(order)
+                    logger.info(
+                        "execution.order.expired",
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        reason=decision.reason,
+                    )
+                    continue
+
+                # Queue market orders (before processing fill)
+                if decision.queue_for_next_bar:
+                    order.bars_queued += 1
+
+                # Generate fill if should_fill (BEFORE cancellation)
+                if decision.should_fill:
+                    # Calculate commission (pass price for percentage-based models)
+                    commission = self.commission_calculator.calculate(decision.fill_quantity, decision.fill_price)
+
+                    # Create fill
+                    fill = Fill(
+                        order_id=order.order_id,
+                        timestamp=bar.trade_datetime,
+                        symbol=order.symbol,
+                        side=order.side.value,  # Convert enum to string
+                        quantity=decision.fill_quantity,
+                        price=decision.fill_price,
+                        commission=commission,
+                        slippage_bps=decision.slippage_bps,
+                    )
+                    fills.append(fill)
+
+                    logger.info(
+                        "execution.fill.generated",
+                        order_id=order.order_id,
+                        fill_id=fill.fill_id,
+                        symbol=fill.symbol,
+                        side=fill.side,
+                        quantity=fill.quantity,
+                        price=fill.price,
+                        commission=fill.commission,
+                    )
+
+                    # Update order state
+                    order.update_fill(decision.fill_quantity, decision.fill_price, bar.trade_datetime)
+
+                    # Remove from pending if complete
+                    if order.is_complete:
+                        self._remove_from_pending(order)
+                        logger.debug(
+                            "execution.order.completed",
+                            order_id=order.order_id,
+                            symbol=order.symbol,
+                            filled_quantity=order.filled_quantity,
+                        )
+
+                # Handle cancellation AFTER fill (IOC/FOK partial fills)
+                if decision.should_cancel and not order.is_complete:
+                    order.cancel(bar.trade_datetime)
+                    self._remove_from_pending(order)
+                    logger.warning(
+                        "execution.order.cancelled",
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        reason=decision.reason or "policy_decision",
+                        filled_quantity=order.filled_quantity,
+                    )
 
         # Publish fill events
         if self._event_bus:
             for fill in fills:
+                # Convert fill timestamp to ISO8601 string
+                timestamp_str = fill.timestamp.isoformat().replace("+00:00", "Z")
+
                 fill_event = FillEvent(
                     fill_id=fill.fill_id,
-                    order_id=fill.order_id,
-                    timestamp=fill.timestamp,
+                    source_order_id=fill.order_id,
+                    timestamp=timestamp_str,
                     symbol=fill.symbol,
                     side=fill.side,
-                    quantity=fill.quantity,
-                    price=fill.price,
+                    filled_quantity=fill.quantity,
+                    fill_price=fill.price,
                     commission=fill.commission,
                     slippage_bps=fill.slippage_bps,
                 )
                 self._event_bus.publish(fill_event)
 
-                logger.debug(
-                    "execution.fill_event_published",
-                    fill_id=fill.fill_id,
-                    symbol=fill.symbol,
-                    side=fill.side,
-                    quantity=str(fill.quantity),
-                )
-
-    def on_order_approved(self, event: OrderApprovedEvent) -> None:
+    def on_order(self, event: OrderEvent) -> None:
         """
-        Handle order approved event - create and submit order.
+        Handle order event - create and submit order (Phase 5).
 
         Args:
-            event: Order approved event from RiskService
+            event: Order event from ManagerService
         """
-        # Create order from approved event
+        from datetime import datetime
+
+        # Parse timestamp string to datetime
+        created_at = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+
+        # Create order from event
         order = Order(
             symbol=event.symbol,
-            side=OrderSide.BUY if event.side == "BUY" else OrderSide.SELL,
-            quantity=Decimal(str(event.quantity)),
+            side=OrderSide.BUY if event.side == "buy" else OrderSide.SELL,
+            quantity=event.quantity,
             order_type=OrderType.MARKET,  # For Phase 5, always use market orders
-            created_at=event.ts,
+            time_in_force=TimeInForce.GTC,  # GTC so orders don't expire for testing
+            created_at=created_at,
         )
 
         # Submit order
         try:
             order_id = self.submit_order(order)
             logger.debug(
-                "execution.order_from_approved",
+                "execution.order_from_event",
                 order_id=order_id,
-                strategy_id=event.strategy_id,
+                source_strategy_id=event.source_strategy_id,
                 symbol=event.symbol,
                 side=event.side,
-                quantity=event.quantity,
+                quantity=str(event.quantity),
+                intent_id=event.intent_id,
             )
         except ValueError as e:
             logger.error(
                 "execution.order_submission_failed",
-                strategy_id=event.strategy_id,
+                source_strategy_id=event.source_strategy_id,
                 symbol=event.symbol,
                 error=str(e),
             )
