@@ -25,7 +25,7 @@ portfolio_risk_policy:
     algorithm: "fixed_equity_pct"
 
     # Applies when algorithm == fixed_equity_pct
-    fixed_equity_pct: 0.95 # 10% of equity per new position
+    fixed_equity_pct: 0.05 # 5% of equity per new position
 
     # Applies when algorithm == volatility_targeting
     volatility_targeting:
