@@ -161,6 +161,73 @@ class TestFIFOMatching:
         with pytest.raises(ValueError, match="must be positive"):
             tracker.match_close_long(Decimal("-50"))
 
+    def test_partial_close_preserves_commission(self, timestamp: datetime) -> None:
+        """Test that commission is properly split on partial close."""
+        tracker = LotTracker()
+
+        # Add lot with $10 commission: 100 @ $150 + $10 commission
+        lot1 = Lot(
+            lot_id="lot_001",
+            symbol="AAPL",
+            side=LotSide.LONG,
+            quantity=Decimal("100"),
+            entry_price=Decimal("150.00"),
+            entry_timestamp=timestamp,
+            entry_fill_id="fill_001",
+            entry_commission=Decimal("10.00"),  # $10 commission on entry
+        )
+        tracker.add_lot(lot1)
+
+        # Close 60 shares (60% of position)
+        matches = tracker.match_close_long(Decimal("60"))
+
+        assert len(matches) == 1
+        closed_lot, closed_qty = matches[0]
+        assert closed_lot.lot_id == "lot_001"
+        assert closed_qty == Decimal("60")
+        # Original lot has full commission
+        assert closed_lot.entry_commission == Decimal("10.00")
+
+        # Remaining lot should have 40% of commission (40 shares out of 100)
+        remaining = tracker.get_lots(LotSide.LONG)
+        assert len(remaining) == 1
+        assert remaining[0].quantity == Decimal("40")
+        assert remaining[0].entry_commission == Decimal("4.00")  # 40% of $10
+
+    def test_multiple_partial_closes_preserve_total_commission(self, timestamp: datetime) -> None:
+        """Test that commission is preserved across multiple partial closes."""
+        tracker = LotTracker()
+
+        # Add lot with $12 commission: 120 @ $150
+        lot1 = Lot(
+            lot_id="lot_001",
+            symbol="AAPL",
+            side=LotSide.LONG,
+            quantity=Decimal("120"),
+            entry_price=Decimal("150.00"),
+            entry_timestamp=timestamp,
+            entry_fill_id="fill_001",
+            entry_commission=Decimal("12.00"),
+        )
+        tracker.add_lot(lot1)
+
+        # First close: 30 shares (25% of position)
+        matches1 = tracker.match_close_long(Decimal("30"))
+        assert matches1[0][0].entry_commission == Decimal("12.00")  # Original has full commission
+
+        # Second close: 50 shares (from remaining 90, so 50/90 ≈ 55.56%)
+        matches2 = tracker.match_close_long(Decimal("50"))
+        # The remaining lot from first close should have 9.00 commission (75% of 12)
+        assert matches2[0][0].entry_commission == Decimal("9.00")
+
+        # Final remaining: 40 shares should have commission of 40/120 * 12 = 4.00
+        remaining = tracker.get_lots(LotSide.LONG)
+        assert len(remaining) == 1
+        assert remaining[0].quantity == Decimal("40")
+        # After first split: 90 shares with $9.00 commission
+        # After second split: 40 shares with 40/90 * 9.00 = $4.00 commission
+        assert remaining[0].entry_commission == Decimal("4.00")
+
 
 class TestLIFOMatching:
     """Test LIFO matching for short positions."""
@@ -293,3 +360,70 @@ class TestLIFOMatching:
         # Try to close more than available
         with pytest.raises(ValueError, match="Insufficient short quantity"):
             tracker.match_close_short(Decimal("150"))
+
+    def test_partial_close_preserves_commission(self, timestamp: datetime) -> None:
+        """Test that commission is properly split on partial short close."""
+        tracker = LotTracker()
+
+        # Add short lot with $8 commission: -80 @ $150
+        lot1 = Lot(
+            lot_id="lot_001",
+            symbol="AAPL",
+            side=LotSide.SHORT,
+            quantity=Decimal("-80"),
+            entry_price=Decimal("150.00"),
+            entry_timestamp=timestamp,
+            entry_fill_id="fill_001",
+            entry_commission=Decimal("8.00"),  # $8 commission on entry
+        )
+        tracker.add_lot(lot1)
+
+        # Close 50 shares (62.5% of position)
+        matches = tracker.match_close_short(Decimal("50"))
+
+        assert len(matches) == 1
+        closed_lot, closed_qty = matches[0]
+        assert closed_lot.lot_id == "lot_001"
+        assert closed_qty == Decimal("50")
+        # Original lot has full commission
+        assert closed_lot.entry_commission == Decimal("8.00")
+
+        # Remaining lot should have 37.5% of commission (30 shares out of 80)
+        remaining = tracker.get_lots(LotSide.SHORT)
+        assert len(remaining) == 1
+        assert remaining[0].quantity == Decimal("-30")
+        assert remaining[0].entry_commission == Decimal("3.00")  # 30/80 * $8 = $3
+
+    def test_multiple_partial_closes_preserve_total_commission(self, timestamp: datetime) -> None:
+        """Test that commission is preserved across multiple partial short closes."""
+        tracker = LotTracker()
+
+        # Add short lot with $15 commission: -150 @ $200
+        lot1 = Lot(
+            lot_id="lot_001",
+            symbol="TSLA",
+            side=LotSide.SHORT,
+            quantity=Decimal("-150"),
+            entry_price=Decimal("200.00"),
+            entry_timestamp=timestamp,
+            entry_fill_id="fill_001",
+            entry_commission=Decimal("15.00"),
+        )
+        tracker.add_lot(lot1)
+
+        # First close: 50 shares (33.33% of position)
+        matches1 = tracker.match_close_short(Decimal("50"))
+        assert matches1[0][0].entry_commission == Decimal("15.00")  # Original has full commission
+
+        # Second close: 60 shares (from remaining 100, so 60%)
+        matches2 = tracker.match_close_short(Decimal("60"))
+        # The remaining lot from first close should have 10.00 commission (100/150 * 15)
+        assert matches2[0][0].entry_commission == Decimal("10.00")
+
+        # Final remaining: 40 shares
+        remaining = tracker.get_lots(LotSide.SHORT)
+        assert len(remaining) == 1
+        assert remaining[0].quantity == Decimal("-40")
+        # After first split: 100 shares with $10.00 commission
+        # After second split: 40 shares with 40/100 * 10.00 = $4.00 commission
+        assert remaining[0].entry_commission == Decimal("4.00")

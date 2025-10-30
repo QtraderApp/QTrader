@@ -164,31 +164,38 @@ class TestOpenCloseReopenSequences:
         position = service.get_position("AAPL")
         assert position is None or position.quantity == Decimal("0")
 
-        # Calculate expected P&L:
-        # Close 1: (155-150)*50 - ($5 entry + $5 exit) = $250 - $10 = $240
-        # Close 2: (160-150)*75 - ($7.50 entry + $7.50 exit) = $750 - $15 = $735
-        # Close 3: (157-150)*75 - ($7.50 entry + $7.50 exit) = $525 - $15 = $510
-        # Total: $1,485
-        # But wait... let me verify: $240 + $735 + $510 = $1,485
-        # However, the actual total is $1,500 because...
-        # The exit commissions total: $5 + $7.50 + $7.50 = $20
-        # Entry commission allocated: $20 (full original commission)
-        # So total commissions: $40
-        # Gross P&L: (155-150)*50 + (160-150)*75 + (157-150)*75 = $250 + $750 + $525 = $1,525
-        # Wait, let me recalculate properly:
-        # Close 1: (155-150)*50 = $250, comm = $5 exit + $5 entry = $10, net = $240
-        # Close 2: (160-150)*75 = $750, comm = $7.50 exit + $7.50 entry = $15, net = $735
-        # Close 3: (157-150)*75 = $525, comm = $7.50 exit + $7.50 entry = $15, net = $510
-        # Total: $240 + $735 + $510 = $1,485... but we got $1,500?
+        # Calculate expected P&L with proper commission allocation:
+        # Entry: Buy 200 @ $150 with $20 commission
         #
-        # Ah! The entry commission on close 2 and 3 should be $0 because they're
-        # closing "_remaining" lots which have entry_commission=0!
-        # Close 1: (155-150)*50 - ($5 + $5) = $240
-        # Close 2: (160-150)*75 - ($7.50 + $0) = $742.50
-        # Close 3: (157-150)*75 - ($7.50 + $0) = $517.50
-        # Total: $1,500
+        # Close 1: Sell 50 @ $155 (25% of position)
+        #   Entry commission: $20 * (50/200) = $5
+        #   Exit commission: $5
+        #   Total commission: $10
+        #   Gross P&L: (155-150) * 50 = $250
+        #   Net P&L: $250 - $10 = $240
+        #
+        # Close 2: Sell 75 @ $160 (from remaining 150, so 75/150 = 50%)
+        #   Remaining lot after close 1 had: $20 * (150/200) = $15 commission
+        #   Entry commission for this close: $15 * (75/150) = $7.50
+        #   Exit commission: $7.50
+        #   Total commission: $15
+        #   Gross P&L: (160-150) * 75 = $750
+        #   Net P&L: $750 - $15 = $735
+        #
+        # Close 3: Sell 75 @ $157 (final 75 shares)
+        #   Remaining lot after close 2 had: $15 * (75/150) = $7.50 commission
+        #   Entry commission for this close: $7.50
+        #   Exit commission: $7.50
+        #   Total commission: $15
+        #   Gross P&L: (157-150) * 75 = $525
+        #   Net P&L: $525 - $15 = $510
+        #
+        # Total realized P&L: $240 + $735 + $510 = $1,485
+        # Total entry commission used: $5 + $7.50 + $7.50 = $20 ✓
+        # Total exit commission: $5 + $7.50 + $7.50 = $20
+        # Total commissions: $40 (correct)
         realized_pnl = service.get_realized_pnl(symbol="AAPL")
-        assert realized_pnl == Decimal("1500.00")
+        assert realized_pnl == Decimal("1485.00")
 
     def test_long_to_short_transition(
         self,

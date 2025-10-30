@@ -174,6 +174,12 @@ class LotTracker:
                 # Add match for closed portion
                 matches.append((lot, qty_to_close))
 
+                # Calculate proportional commission for remaining portion
+                # The closed portion's commission will be calculated by PortfolioService
+                # using: lot.entry_commission * (qty_to_close / lot.quantity)
+                # The remaining lot must retain the unused commission
+                remaining_commission = lot.entry_commission * (qty_remaining / lot.quantity)
+
                 # Create new lot with remaining quantity
                 new_lot = Lot(
                     lot_id=f"{lot.lot_id}_remaining",
@@ -183,7 +189,7 @@ class LotTracker:
                     entry_price=lot.entry_price,
                     entry_timestamp=lot.entry_timestamp,
                     entry_fill_id=lot.entry_fill_id,
-                    entry_commission=Decimal("0"),  # Commission already paid on original
+                    entry_commission=remaining_commission,  # Preserve unused commission
                     realized_pnl=Decimal("0"),
                 )
                 self._long_lots.appendleft(new_lot)  # Put back at front
@@ -246,6 +252,12 @@ class LotTracker:
                 # Add match for closed portion
                 matches.append((lot, qty_to_close))
 
+                # Calculate proportional commission for remaining portion
+                # The closed portion's commission will be calculated by PortfolioService
+                # using: lot.entry_commission * (qty_to_close / lot_qty)
+                # The remaining lot must retain the unused commission
+                remaining_commission = lot.entry_commission * (qty_remaining / lot_qty)
+
                 # Create new lot with remaining quantity (still negative)
                 new_lot = Lot(
                     lot_id=f"{lot.lot_id}_remaining",
@@ -255,7 +267,7 @@ class LotTracker:
                     entry_price=lot.entry_price,
                     entry_timestamp=lot.entry_timestamp,
                     entry_fill_id=lot.entry_fill_id,
-                    entry_commission=Decimal("0"),  # Commission already paid
+                    entry_commission=remaining_commission,  # Preserve unused commission
                     realized_pnl=Decimal("0"),
                 )
                 self._short_lots.append(new_lot)  # Put back at end

@@ -600,6 +600,101 @@ class TestCloseLongPosition:
         assert close_entry.realized_pnl == Decimal("980.00")
         assert "FIFO" in close_entry.description
 
+    def test_multiple_partial_closes_preserve_commission(
+        self,
+        service: PortfolioService,
+        timestamp: datetime,
+    ) -> None:
+        """Test that commission is correctly allocated across multiple partial closes.
+
+        Critical for audit-ready accounting: commission must be preserved through
+        lot splits so that total costs match reality across all closes.
+        """
+        # Open: Buy 100 @ $150 with $10 commission
+        service.apply_fill(
+            fill_id="buy_001",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="buy",
+            quantity=Decimal("100"),
+            price=Decimal("150.00"),
+            commission=Decimal("10.00"),
+        )
+
+        # First partial close: Sell 30 @ $160 with $3 commission
+        service.apply_fill(
+            fill_id="sell_001",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="sell",
+            quantity=Decimal("30"),
+            price=Decimal("160.00"),
+            commission=Decimal("3.00"),
+        )
+
+        # P&L calculation for first close (30 shares):
+        # Entry commission for 30 shares: $10 * (30/100) = $3.00
+        # Exit commission: $3.00
+        # Total commissions: $6.00
+        # Gross P&L: (160 - 150) * 30 = $300
+        # Net P&L: $300 - $6 = $294
+        realized_pnl_1 = service.get_realized_pnl(symbol="AAPL")
+        assert realized_pnl_1 == Decimal("294.00"), "First partial close P&L incorrect"
+
+        # Second partial close: Sell 30 @ $165 with $3 commission
+        service.apply_fill(
+            fill_id="sell_002",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="sell",
+            quantity=Decimal("30"),
+            price=Decimal("165.00"),
+            commission=Decimal("3.00"),
+        )
+
+        # P&L calculation for second close (30 shares from remaining 70):
+        # Remaining lot had commission: $10 * (70/100) = $7.00
+        # Entry commission for 30 shares: $7 * (30/70) = $3.00
+        # Exit commission: $3.00
+        # Total commissions: $6.00
+        # Gross P&L: (165 - 150) * 30 = $450
+        # Net P&L: $450 - $6 = $444
+        # Cumulative: $294 + $444 = $738
+        realized_pnl_2 = service.get_realized_pnl(symbol="AAPL")
+        assert realized_pnl_2 == Decimal("738.00"), "Second partial close cumulative P&L incorrect"
+
+        # Final close: Sell remaining 40 @ $170 with $4 commission
+        service.apply_fill(
+            fill_id="sell_003",
+            timestamp=timestamp,
+            symbol="AAPL",
+            side="sell",
+            quantity=Decimal("40"),
+            price=Decimal("170.00"),
+            commission=Decimal("4.00"),
+        )
+
+        # P&L calculation for final close (40 shares from remaining 40):
+        # Remaining lot had commission: $7 * (40/70) = $4.00
+        # Entry commission for 40 shares: $4.00
+        # Exit commission: $4.00
+        # Total commissions: $8.00
+        # Gross P&L: (170 - 150) * 40 = $800
+        # Net P&L: $800 - $8 = $792
+        # Cumulative: $738 + $792 = $1530
+        realized_pnl_final = service.get_realized_pnl(symbol="AAPL")
+        assert realized_pnl_final == Decimal("1530.00"), "Final cumulative P&L incorrect"
+
+        # Verify total entry commission used: $3 + $3 + $4 = $10 ✓
+        # Verify total exit commission: $3 + $3 + $4 = $10
+        # Verify total commissions: $20 (entry + exit)
+        # Verify gross P&L: $300 + $450 + $800 = $1550
+        # Verify net P&L: $1550 - $20 = $1530 ✓
+
+        # Position should be fully closed
+        position = service.get_position("AAPL")
+        assert position is None or position.quantity == Decimal("0")
+
 
 class TestCloseShortPosition:
     """Test closing short positions (LIFO)."""
@@ -754,6 +849,101 @@ class TestCloseShortPosition:
         # Total = $1,110 + $245 = $1,355
         realized_pnl = service.get_realized_pnl(symbol="AAPL")
         assert realized_pnl == Decimal("1355.00")
+
+    def test_multiple_partial_closes_preserve_commission_short(
+        self,
+        service: PortfolioService,
+        timestamp: datetime,
+    ) -> None:
+        """Test that commission is correctly allocated across multiple partial short closes.
+
+        Critical for audit-ready accounting: commission must be preserved through
+        lot splits so that total costs match reality across all closes.
+        """
+        # Open: Sell short 120 @ $200 with $12 commission
+        service.apply_fill(
+            fill_id="sell_001",
+            timestamp=timestamp,
+            symbol="TSLA",
+            side="sell",
+            quantity=Decimal("120"),
+            price=Decimal("200.00"),
+            commission=Decimal("12.00"),
+        )
+
+        # First partial cover: Buy 40 @ $190 with $4 commission
+        service.apply_fill(
+            fill_id="buy_001",
+            timestamp=timestamp,
+            symbol="TSLA",
+            side="buy",
+            quantity=Decimal("40"),
+            price=Decimal("190.00"),
+            commission=Decimal("4.00"),
+        )
+
+        # P&L calculation for first cover (40 shares):
+        # Entry commission for 40 shares: $12 * (40/120) = $4.00
+        # Exit commission: $4.00
+        # Total commissions: $8.00
+        # Gross P&L: (200 - 190) * 40 = $400
+        # Net P&L: $400 - $8 = $392
+        realized_pnl_1 = service.get_realized_pnl(symbol="TSLA")
+        assert realized_pnl_1 == Decimal("392.00"), "First partial cover P&L incorrect"
+
+        # Second partial cover: Buy 50 @ $185 with $5 commission
+        service.apply_fill(
+            fill_id="buy_002",
+            timestamp=timestamp,
+            symbol="TSLA",
+            side="buy",
+            quantity=Decimal("50"),
+            price=Decimal("185.00"),
+            commission=Decimal("5.00"),
+        )
+
+        # P&L calculation for second cover (50 shares from remaining 80):
+        # Remaining lot had commission: $12 * (80/120) = $8.00
+        # Entry commission for 50 shares: $8 * (50/80) = $5.00
+        # Exit commission: $5.00
+        # Total commissions: $10.00
+        # Gross P&L: (200 - 185) * 50 = $750
+        # Net P&L: $750 - $10 = $740
+        # Cumulative: $392 + $740 = $1132
+        realized_pnl_2 = service.get_realized_pnl(symbol="TSLA")
+        assert realized_pnl_2 == Decimal("1132.00"), "Second partial cover cumulative P&L incorrect"
+
+        # Final cover: Buy remaining 30 @ $180 with $3 commission
+        service.apply_fill(
+            fill_id="buy_003",
+            timestamp=timestamp,
+            symbol="TSLA",
+            side="buy",
+            quantity=Decimal("30"),
+            price=Decimal("180.00"),
+            commission=Decimal("3.00"),
+        )
+
+        # P&L calculation for final cover (30 shares from remaining 30):
+        # Remaining lot had commission: $8 * (30/80) = $3.00
+        # Entry commission for 30 shares: $3.00
+        # Exit commission: $3.00
+        # Total commissions: $6.00
+        # Gross P&L: (200 - 180) * 30 = $600
+        # Net P&L: $600 - $6 = $594
+        # Cumulative: $1132 + $594 = $1726
+        realized_pnl_final = service.get_realized_pnl(symbol="TSLA")
+        assert realized_pnl_final == Decimal("1726.00"), "Final cumulative P&L incorrect"
+
+        # Verify total entry commission used: $4 + $5 + $3 = $12 ✓
+        # Verify total exit commission: $4 + $5 + $3 = $12
+        # Verify total commissions: $24 (entry + exit)
+        # Verify gross P&L: $400 + $750 + $600 = $1750
+        # Verify net P&L: $1750 - $24 = $1726 ✓
+
+        # Position should be fully closed
+        position = service.get_position("TSLA")
+        assert position is None or position.quantity == Decimal("0")
 
     def test_short_loss_scenario(
         self,
