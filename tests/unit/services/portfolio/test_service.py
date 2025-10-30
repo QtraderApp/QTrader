@@ -155,8 +155,8 @@ class TestOpenLongPosition:
 
         positions = service.get_positions()
         assert len(positions) == 2
-        assert positions["AAPL"].quantity == Decimal("100")
-        assert positions["TSLA"].quantity == Decimal("50")
+        assert positions[("unattributed", "AAPL")].quantity == Decimal("100")
+        assert positions[("unattributed", "TSLA")].quantity == Decimal("50")
 
     def test_buy_adds_to_existing_position(
         self,

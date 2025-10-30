@@ -101,16 +101,16 @@ class TestSnapshot:
 
         # Check positions captured
         assert len(snapshot["positions"]) == 2
-        assert "AAPL" in snapshot["positions"]
-        assert "TSLA" in snapshot["positions"]
+        assert "unattributed:AAPL" in snapshot["positions"]
+        assert "unattributed:TSLA" in snapshot["positions"]
 
         # Check AAPL position
-        aapl_pos = snapshot["positions"]["AAPL"]
+        aapl_pos = snapshot["positions"]["unattributed:AAPL"]
         assert Decimal(aapl_pos["quantity"]) == Decimal("150")  # 100 + 50
         assert len(aapl_pos["lots"]) == 2  # Two buy lots
 
         # Check TSLA position
-        tsla_pos = snapshot["positions"]["TSLA"]
+        tsla_pos = snapshot["positions"]["unattributed:TSLA"]
         assert Decimal(tsla_pos["quantity"]) == Decimal("-25")  # Short
         assert len(tsla_pos["lots"]) == 1
 
@@ -144,7 +144,7 @@ class TestSnapshot:
         """Test that lot details are preserved in snapshot."""
         snapshot = populated_service.get_snapshot(timestamp)
 
-        aapl_pos = snapshot["positions"]["AAPL"]
+        aapl_pos = snapshot["positions"]["unattributed:AAPL"]
         lots = aapl_pos["lots"]
 
         # Should have 2 lots with different prices
@@ -198,9 +198,10 @@ class TestRestore:
         restored_positions = new_service.get_positions()
         assert len(restored_positions) == len(original_positions)
 
-        for symbol in original_positions:
-            orig_pos = populated_service.get_position(symbol)
-            restored_pos = new_service.get_position(symbol)
+        for key in original_positions:
+            strategy_id, symbol = key
+            orig_pos = populated_service.get_position(symbol, strategy_id)
+            restored_pos = new_service.get_position(symbol, strategy_id)
             assert restored_pos is not None
             assert orig_pos is not None
             assert restored_pos.quantity == orig_pos.quantity
