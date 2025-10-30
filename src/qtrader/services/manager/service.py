@@ -347,9 +347,29 @@ class ManagerService:
         else:  # OPEN_LONG or OPEN_SHORT
             # Calculate position size using risk library
             # Step 3: Calculate position size using risk library
-            # Use strategy's allocated capital (full equity minus cash buffer)
-            # Future: Multi-strategy capital allocation
-            allocated_capital = current_equity * (Decimal("1.0") - Decimal(str(self._config.cash_buffer_pct)))
+            # Use strategy's allocated capital from risk policy budgets
+            try:
+                # First try to get strategy-specific capital allocation
+                allocated_capital = self._config.get_allocated_capital(event.strategy_id, current_equity)
+                self._logger.debug(
+                    "Using strategy-specific capital allocation",
+                    extra={
+                        "strategy_id": event.strategy_id,
+                        "allocated_capital": float(allocated_capital),
+                        "current_equity": float(current_equity),
+                    },
+                )
+            except KeyError:
+                # Fallback: Use full equity minus cash buffer (legacy behavior)
+                allocated_capital = current_equity * (Decimal("1.0") - Decimal(str(self._config.cash_buffer_pct)))
+                self._logger.debug(
+                    "No budget for strategy, using full equity allocation",
+                    extra={
+                        "strategy_id": event.strategy_id,
+                        "allocated_capital": float(allocated_capital),
+                        "current_equity": float(current_equity),
+                    },
+                )
 
             try:
                 if sizing_config.model == "fixed_fraction":

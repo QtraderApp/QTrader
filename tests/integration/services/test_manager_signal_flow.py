@@ -432,3 +432,248 @@ class TestManagerServiceSignalToOrder:
 
         # Higher confidence → larger position
         assert high_quantity > low_quantity
+
+
+class TestManagerServiceMultiStrategyBudgets:
+    """Test multi-strategy capital allocation with budgets."""
+
+    @pytest.fixture
+    def multi_strategy_service(self, event_bus):
+        """Create ManagerService with explicit multi-strategy budgets."""
+        from qtrader.libraries.risk.models import (
+            ConcentrationLimit,
+            LeverageLimit,
+            RiskConfig,
+            SizingConfig,
+            StrategyBudget,
+        )
+
+        # Create risk config with explicit budgets for two strategies
+        risk_config = RiskConfig(
+            budgets=[
+                StrategyBudget(strategy_id="strategy_a", capital_weight=0.30),  # 30% allocation
+                StrategyBudget(strategy_id="strategy_b", capital_weight=0.50),  # 50% allocation
+            ],
+            sizing={
+                "strategy_a": SizingConfig(
+                    model="fixed_fraction",
+                    fraction=Decimal("0.10"),  # 10% of allocated capital per position
+                    min_quantity=1,
+                    lot_size=1,
+                ),
+                "strategy_b": SizingConfig(
+                    model="fixed_fraction",
+                    fraction=Decimal("0.10"),  # 10% of allocated capital per position
+                    min_quantity=1,
+                    lot_size=1,
+                ),
+            },
+            concentration=ConcentrationLimit(max_position_pct=1.0),
+            leverage=LeverageLimit(max_gross=1.0, max_net=1.0),
+            cash_buffer_pct=0.05,
+        )
+
+        service = ManagerService(risk_config, event_bus)
+
+        # Initialize portfolio state
+        portfolio_state = PortfolioStateEvent(
+            portfolio_id="test-portfolio",
+            start_datetime="2020-01-01T00:00:00Z",
+            snapshot_datetime="2020-01-02T00:00:00Z",
+            reporting_currency="USD",
+            initial_portfolio_equity=Decimal("100000.00"),
+            cash_balance=Decimal("100000.00"),
+            current_portfolio_equity=Decimal("100000.00"),
+            total_market_value=Decimal("0.00"),
+            total_unrealized_pl=Decimal("0.00"),
+            total_realized_pl=Decimal("0.00"),
+            total_pl=Decimal("0.00"),
+            long_exposure=Decimal("0.00"),
+            short_exposure=Decimal("0.00"),
+            net_exposure=Decimal("0.00"),
+            gross_exposure=Decimal("0.00"),
+            leverage=Decimal("0.00"),
+            strategies_groups=[],
+        )
+        service.on_portfolio_state(portfolio_state)
+
+        return service
+
+    def test_strategy_respects_allocated_budget(self, multi_strategy_service, event_bus):
+        """Test that strategies use only their allocated capital."""
+        # Arrange
+        orders_received = []
+
+        def capture_order(event: OrderEvent):
+            orders_received.append(event)
+
+        event_bus.subscribe("order", capture_order)
+
+        # Signal from strategy_a (30% allocation)
+        signal_a = SignalEvent(
+            signal_id="sig-a",
+            timestamp="2020-01-02T16:00:00Z",
+            strategy_id="strategy_a",
+            symbol="AAPL",
+            intention="OPEN_LONG",
+            price=Decimal("100.00"),
+            confidence=Decimal("1.00"),
+            metadata={"equity": 100000.0},
+        )
+
+        # Signal from strategy_b (50% allocation)
+        signal_b = SignalEvent(
+            signal_id="sig-b",
+            timestamp="2020-01-02T16:00:00Z",
+            strategy_id="strategy_b",
+            symbol="MSFT",
+            intention="OPEN_LONG",
+            price=Decimal("100.00"),
+            confidence=Decimal("1.00"),
+            metadata={"equity": 100000.0},
+        )
+
+        # Act
+        multi_strategy_service.on_signal(signal_a)
+        multi_strategy_service.on_signal(signal_b)
+
+        # Assert
+        assert len(orders_received) == 2
+
+        order_a = orders_received[0]
+        order_b = orders_received[1]
+
+        # Equity = $100,000
+        # strategy_a: 30% allocation = $30,000 * 10% sizing = $3,000 / $100 = 30 shares
+        # strategy_b: 50% allocation = $50,000 * 10% sizing = $5,000 / $100 = 50 shares
+        assert order_a.quantity == 30, f"Expected 30 shares for strategy_a, got {order_a.quantity}"
+        assert order_b.quantity == 50, f"Expected 50 shares for strategy_b, got {order_b.quantity}"
+
+    def test_multiple_signals_from_same_strategy_use_same_budget(self, multi_strategy_service, event_bus):
+        """Test that multiple signals from the same strategy share the same budget."""
+        # Arrange
+        orders_received = []
+
+        def capture_order(event: OrderEvent):
+            orders_received.append(event)
+
+        event_bus.subscribe("order", capture_order)
+
+        # Two signals from strategy_a
+        signal_a1 = SignalEvent(
+            signal_id="sig-a1",
+            timestamp="2020-01-02T16:00:00Z",
+            strategy_id="strategy_a",
+            symbol="AAPL",
+            intention="OPEN_LONG",
+            price=Decimal("100.00"),
+            confidence=Decimal("1.00"),
+            metadata={"equity": 100000.0},
+        )
+
+        signal_a2 = SignalEvent(
+            signal_id="sig-a2",
+            timestamp="2020-01-02T16:01:00Z",
+            strategy_id="strategy_a",
+            symbol="GOOGL",
+            intention="OPEN_LONG",
+            price=Decimal("100.00"),
+            confidence=Decimal("1.00"),
+            metadata={"equity": 100000.0},
+        )
+
+        # Act
+        multi_strategy_service.on_signal(signal_a1)
+        multi_strategy_service.on_signal(signal_a2)
+
+        # Assert - both orders should use same allocation (30% of $100k = $30k)
+        assert len(orders_received) == 2
+        assert orders_received[0].quantity == 30  # $30k * 10% = $3k / $100 = 30
+        assert orders_received[1].quantity == 30  # Same allocation
+
+    def test_strategy_without_budget_uses_fallback(self, multi_strategy_service, event_bus):
+        """Test that strategy without explicit budget falls back to full equity allocation."""
+        # Arrange
+        orders_received = []
+
+        def capture_order(event: OrderEvent):
+            orders_received.append(event)
+
+        event_bus.subscribe("order", capture_order)
+
+        # Signal from unknown strategy (not in budgets)
+        signal_unknown = SignalEvent(
+            signal_id="sig-unknown",
+            timestamp="2020-01-02T16:00:00Z",
+            strategy_id="unknown_strategy",
+            symbol="AAPL",
+            intention="OPEN_LONG",
+            price=Decimal("100.00"),
+            confidence=Decimal("1.00"),
+            metadata={"equity": 100000.0},
+        )
+
+        # Act & Assert - should be rejected because no sizing config
+        multi_strategy_service.on_signal(signal_unknown)
+
+        # No order should be emitted (rejected at sizing config check, before budget check)
+        assert len(orders_received) == 0
+
+    def test_strategies_cannot_reuse_same_capital(self, multi_strategy_service, event_bus):
+        """Test that different strategies use separate capital pools, not the same equity.
+
+        This is the key bug fix: without budgets, every strategy would calculate
+        size based on full equity, allowing capital reuse and exceeding limits.
+        """
+        # Arrange
+        orders_received = []
+
+        def capture_order(event: OrderEvent):
+            orders_received.append(event)
+
+        event_bus.subscribe("order", capture_order)
+
+        # Both strategies signal at the same price
+        signal_a = SignalEvent(
+            signal_id="sig-a",
+            timestamp="2020-01-02T16:00:00Z",
+            strategy_id="strategy_a",
+            symbol="AAPL",
+            intention="OPEN_LONG",
+            price=Decimal("100.00"),
+            confidence=Decimal("1.00"),
+            metadata={"equity": 100000.0},
+        )
+
+        signal_b = SignalEvent(
+            signal_id="sig-b",
+            timestamp="2020-01-02T16:00:00Z",
+            strategy_id="strategy_b",
+            symbol="MSFT",
+            intention="OPEN_LONG",
+            price=Decimal("100.00"),
+            confidence=Decimal("1.00"),
+            metadata={"equity": 100000.0},
+        )
+
+        # Act
+        multi_strategy_service.on_signal(signal_a)
+        multi_strategy_service.on_signal(signal_b)
+
+        # Assert
+        assert len(orders_received) == 2
+
+        # Calculate total capital used based on signal price
+        # strategy_a: 30% of $100k = $30k → 10% sizing = $3k → $3k / $100 = 30 shares
+        # strategy_b: 50% of $100k = $50k → 10% sizing = $5k → $5k / $100 = 50 shares
+        # Total: 30 + 50 = 80 shares at $100 = $8,000
+
+        signal_price = Decimal("100.00")
+        total_capital_used = orders_received[0].quantity * signal_price + orders_received[1].quantity * signal_price
+
+        # Without budgets, both would use full equity ($100k * 0.95 * 0.10 * 2 = $19k total)
+        # With budgets: $30k * 0.10 + $50k * 0.10 = $8k
+        assert total_capital_used == Decimal("8000.00"), (
+            f"Expected $8k total capital used, got ${total_capital_used}. "
+            "This indicates strategies are reusing the same capital pool."
+        )
