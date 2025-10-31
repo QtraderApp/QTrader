@@ -331,10 +331,64 @@ class ManagerService:
                 lot_size = sizing_config.lot_size
                 quantity = int(raw_quantity / lot_size) * lot_size
 
-                # Ensure at least minimum quantity if scaled down
-                if quantity < sizing_config.min_quantity and base_quantity >= sizing_config.min_quantity:
+                # If lot rounding floors to 0 but we have at least 1 lot available,
+                # round UP to 1 lot instead of discarding the order
+                # Signal contract: confidence is a strength hint, not a hard cap
+                # Manager should close "about" the requested amount, not suppress entirely
+                if quantity == 0 and base_quantity >= lot_size:
+                    quantity = lot_size  # Round up to 1 lot
+                    self._logger.debug(
+                        "Close signal rounded up to minimum lot",
+                        extra={
+                            "signal_id": event.signal_id,
+                            "strategy_id": event.strategy_id,
+                            "symbol": event.symbol,
+                            "position_quantity": base_quantity,
+                            "confidence": float(event.confidence),
+                            "raw_scaled_quantity": int(raw_quantity),
+                            "lot_size": lot_size,
+                            "rounded_quantity": quantity,
+                            "reason": "Confidence scaling floored to 0, rounded up to 1 lot",
+                        },
+                    )
+                # If we still have quantity < min_quantity, apply min_quantity constraint
+                elif quantity < sizing_config.min_quantity and base_quantity >= sizing_config.min_quantity:
                     # Round up to minimum, but don't exceed position
                     quantity = min(base_quantity, sizing_config.min_quantity)
+
+                    # CRITICAL: Re-apply lot size rounding after min_quantity adjustment
+                    # This prevents violating lot constraints (e.g., lot_size=100, min_quantity=1 → 1 share)
+                    quantity = int(quantity / lot_size) * lot_size
+
+                    # If lot rounding zeros out again, round up to 1 lot if available
+                    if quantity == 0 and base_quantity >= lot_size:
+                        quantity = lot_size
+                        self._logger.debug(
+                            "Close signal min_quantity rounded up to lot size",
+                            extra={
+                                "signal_id": event.signal_id,
+                                "strategy_id": event.strategy_id,
+                                "symbol": event.symbol,
+                                "position_quantity": base_quantity,
+                                "min_quantity": sizing_config.min_quantity,
+                                "lot_size": lot_size,
+                                "rounded_quantity": quantity,
+                            },
+                        )
+                    elif quantity == 0:
+                        # Position too small for even 1 lot - skip order
+                        self._logger.debug(
+                            "Close signal position too small for lot constraints",
+                            extra={
+                                "signal_id": event.signal_id,
+                                "strategy_id": event.strategy_id,
+                                "symbol": event.symbol,
+                                "position_quantity": base_quantity,
+                                "lot_size": lot_size,
+                                "reason": "Position < 1 lot, cannot close",
+                            },
+                        )
+                        return  # Skip order emission
 
                 self._logger.debug(
                     "Close signal scaled by confidence",
@@ -357,28 +411,17 @@ class ManagerService:
             # Calculate position size using risk library
             # Step 3: Calculate position size using risk library
             # Use strategy's allocated capital from risk policy budgets
-            try:
-                # First try to get strategy-specific capital allocation
-                allocated_capital = self._config.get_allocated_capital(event.strategy_id, current_equity)
-                self._logger.debug(
-                    "Using strategy-specific capital allocation",
-                    extra={
-                        "strategy_id": event.strategy_id,
-                        "allocated_capital": float(allocated_capital),
-                        "current_equity": float(current_equity),
-                    },
-                )
-            except KeyError:
-                # Fallback: Use full equity minus cash buffer (legacy behavior)
-                allocated_capital = current_equity * (Decimal("1.0") - Decimal(str(self._config.cash_buffer_pct)))
-                self._logger.debug(
-                    "No budget for strategy, using full equity allocation",
-                    extra={
-                        "strategy_id": event.strategy_id,
-                        "allocated_capital": float(allocated_capital),
-                        "current_equity": float(current_equity),
-                    },
-                )
+            # Note: get_allocated_capital will use strategy-specific budget or fall back to "default"
+            # The loader ensures a "default" budget always exists (auto-created at 95% if not specified)
+            allocated_capital = self._config.get_allocated_capital(event.strategy_id, current_equity)
+            self._logger.debug(
+                "Using allocated capital from risk policy",
+                extra={
+                    "strategy_id": event.strategy_id,
+                    "allocated_capital": float(allocated_capital),
+                    "current_equity": float(current_equity),
+                },
+            )
 
             try:
                 if sizing_config.model == "fixed_fraction":

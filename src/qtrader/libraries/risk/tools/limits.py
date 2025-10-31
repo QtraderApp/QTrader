@@ -151,12 +151,12 @@ def check_concentration_limit(
     if not (0 < max_position_pct <= 1):
         raise ValueError(f"max_position_pct must be in (0, 1], got {max_position_pct}")
 
-    # Find current position in this symbol
+    # Aggregate current position across all strategies for this symbol
+    # Multiple strategies may hold the same symbol, need to sum quantities
     current_qty = 0
     for pos in current_positions:
         if pos.symbol == order.symbol:
-            current_qty = pos.quantity
-            break
+            current_qty += pos.quantity  # Accumulate, don't overwrite
 
     # Calculate proposed position after order execution
     # Normalize to uppercase for comparison (accepts "buy"/"BUY", "sell"/"SELL")
@@ -270,13 +270,15 @@ def check_leverage_limits(
         raise ValueError(f"max_net_leverage must be positive, got {max_net_leverage}")
 
     # Step 1: Calculate current exposures (excluding the order's symbol)
+    # Aggregate quantities/exposures across strategies for the same symbol
     current_gross = Decimal("0")
     current_net = Decimal("0")
     current_qty_in_symbol = 0
 
     for pos in current_positions:
         if pos.symbol == order.symbol:
-            current_qty_in_symbol = pos.quantity
+            # Accumulate quantity across all strategies holding this symbol
+            current_qty_in_symbol += pos.quantity
         else:
             # Add to current exposures (for other symbols)
             current_gross += abs(pos.market_value)

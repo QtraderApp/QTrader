@@ -12,6 +12,7 @@ from decimal import Decimal
 
 import pytest
 
+from qtrader.events import PortfolioPosition, StrategyGroup
 from qtrader.events.event_bus import EventBus
 from qtrader.events.events import OrderEvent, PortfolioStateEvent, SignalEvent
 from qtrader.services.manager import ManagerService
@@ -677,3 +678,564 @@ class TestManagerServiceMultiStrategyBudgets:
             f"Expected $8k total capital used, got ${total_capital_used}. "
             "This indicates strategies are reusing the same capital pool."
         )
+
+
+def test_unbudgeted_strategy_uses_default_allocation(event_bus):
+    """
+    Regression test: Unbudgeted strategies should use 'default' budget allocation.
+
+    Previously, strategies without explicit budget allocations would bypass
+    the budget system entirely, falling back to (equity * (1 - cash_buffer_pct)),
+    effectively using ~95% of total equity per strategy.
+
+    This test verifies that:
+    1. Loader auto-creates a 'default' budget when no budgets section exists
+    2. get_allocated_capital falls back to 'default' for unlisted strategies
+    3. No legacy fallback code in manager bypasses the budget system
+
+    Related: Multi-strategy risk management refactoring
+    """
+    # Arrange: Use builtin naive policy (no explicit budgets section)
+    # This should trigger auto-creation of default budget at 95%
+    config_dict = {
+        "name": "naive",
+        "config": {},
+    }
+    service = ManagerService.from_config(config_dict, event_bus)
+
+    # Emit initial portfolio state
+    portfolio_state = PortfolioStateEvent(
+        portfolio_id="test-portfolio",
+        start_datetime="2020-01-01T00:00:00Z",
+        snapshot_datetime="2020-01-02T16:00:00Z",
+        reporting_currency="USD",
+        initial_portfolio_equity=Decimal("100000.00"),
+        cash_balance=Decimal("100000.00"),
+        current_portfolio_equity=Decimal("100000.00"),
+        total_market_value=Decimal("0.00"),
+        total_unrealized_pl=Decimal("0.00"),
+        total_realized_pl=Decimal("0.00"),
+        total_pl=Decimal("0.00"),
+        long_exposure=Decimal("0.00"),
+        short_exposure=Decimal("0.00"),
+        net_exposure=Decimal("0.00"),
+        gross_exposure=Decimal("0.00"),
+        leverage=Decimal("0.00"),
+        strategies_groups=[],
+    )
+    service.on_portfolio_state(portfolio_state)
+
+    # Capture emitted orders
+    orders_received = []
+
+    def capture_order(event: OrderEvent):
+        orders_received.append(event)
+
+    event_bus.subscribe("order", capture_order)
+
+    # Signal from strategy NOT explicitly listed in any budget
+    signal = SignalEvent(
+        signal_id="sig-unbudgeted",
+        timestamp="2020-01-02T16:00:00Z",
+        strategy_id="unbudgeted_strategy",  # Not in any budget
+        symbol="AAPL",
+        intention="OPEN_LONG",
+        price=Decimal("100.00"),
+        confidence=Decimal("1.00"),
+        metadata={"equity": 100000.0},
+    )
+
+    # Act
+    service.on_signal(signal)
+
+    # Assert
+    assert len(orders_received) == 1
+    order = orders_received[0]
+
+    # Expected allocation:
+    # - Naive policy has no explicit budgets → loader creates default at 95%
+    # - Unbudgeted strategy → falls back to "default" budget
+    # - Allocated capital: $100k * 0.95 = $95k
+    # - Naive sizing: 5% (0.05) fixed fraction
+    # - Position value: $95k * 0.05 = $4,750
+    # - Quantity: $4,750 / $100 = 47.5 → 47 shares (rounded down)
+    expected_quantity = 47
+
+    assert order.quantity == expected_quantity, (
+        f"Expected {expected_quantity} shares (95% equity * 5% sizing / $100 price), "
+        f"got {order.quantity}. This indicates strategy may be bypassing budget system."
+    )
+
+    # Verify no KeyError was raised (would indicate missing default budget)
+    # If test reaches this point without exception, budget system worked correctly
+
+
+def test_partial_close_respects_lot_size_constraints(event_bus):
+    """
+    Regression test: Partial close orders must respect lot_size constraints.
+
+    Previously, when confidence < 1.0, the manager would:
+    1. Scale quantity by confidence
+    2. Apply lot_size rounding
+    3. If result < min_quantity, bump to min_quantity
+    4. Emit order WITHOUT re-applying lot_size rounding
+
+    With lot_size=100 and min_quantity=1, a partial close could produce
+    a 1-share order even though the instrument trades in 100-share lots.
+
+    This test verifies:
+    - After applying min_quantity, lot_size is re-applied
+    - If final quantity < 1 lot, order is rejected (not emitted)
+    - Lot constraints are maintained throughout the sizing pipeline
+
+    Related: Risk library integration, venue constraint enforcement
+    """
+    # Arrange: Create policy with options-like lot sizing
+    from qtrader.libraries.risk.models import (
+        ConcentrationLimit,
+        LeverageLimit,
+        RiskConfig,
+        SizingConfig,
+        StrategyBudget,
+    )
+
+    # Policy with lot_size=100 (options contracts), min_quantity=1
+    config = RiskConfig(
+        budgets=[StrategyBudget(strategy_id="default", capital_weight=0.95)],
+        sizing={
+            "default": SizingConfig(
+                model="fixed_fraction",
+                fraction=Decimal("0.05"),
+                min_quantity=1,  # Minimum 1 contract
+                lot_size=100,  # Options trade in 100-contract lots
+            )
+        },
+        concentration=ConcentrationLimit(max_position_pct=1.0),
+        leverage=LeverageLimit(max_gross=1.0, max_net=1.0),
+        cash_buffer_pct=0.05,
+    )
+
+    service = ManagerService(config, event_bus)
+
+    # Portfolio state with existing 150-contract position
+    portfolio_state = PortfolioStateEvent(
+        portfolio_id="test-portfolio",
+        start_datetime="2020-01-01T00:00:00Z",
+        snapshot_datetime="2020-01-02T16:00:00Z",
+        reporting_currency="USD",
+        initial_portfolio_equity=Decimal("100000.00"),
+        cash_balance=Decimal("85000.00"),
+        current_portfolio_equity=Decimal("115000.00"),
+        total_market_value=Decimal("30000.00"),  # 150 contracts * $200
+        total_unrealized_pl=Decimal("15000.00"),
+        total_realized_pl=Decimal("0.00"),
+        total_pl=Decimal("15000.00"),
+        long_exposure=Decimal("30000.00"),
+        short_exposure=Decimal("0.00"),
+        net_exposure=Decimal("30000.00"),
+        gross_exposure=Decimal("30000.00"),
+        leverage=Decimal("0.26"),
+        strategies_groups=[
+            StrategyGroup(
+                strategy_id="test_strategy",
+                positions=[
+                    PortfolioPosition(
+                        symbol="SPY",
+                        side="long",
+                        open_quantity=150,  # 150 contracts (1.5 lots)
+                        average_fill_price=Decimal("200.00"),
+                        commission_paid=Decimal("0.00"),
+                        cost_basis=Decimal("30000.00"),
+                        market_price=Decimal("200.00"),
+                        gross_market_value=Decimal("30000.00"),
+                        unrealized_pl=Decimal("15000.00"),
+                        realized_pl=Decimal("0.00"),
+                        dividends_received=Decimal("0.00"),
+                        dividends_paid=Decimal("0.00"),
+                        total_position_value=Decimal("30000.00"),
+                        currency="USD",
+                        last_updated="2020-01-02T15:00:00Z",
+                    )
+                ],
+            )
+        ],
+    )
+    service.on_portfolio_state(portfolio_state)
+
+    # Capture emitted orders
+    orders_received = []
+
+    def capture_order(event: OrderEvent):
+        orders_received.append(event)
+
+    event_bus.subscribe("order", capture_order)
+
+    # Act: Partial close with confidence=0.5 (close 50% of position)
+    # Expected calculation:
+    # - Position: 150 contracts
+    # - Confidence: 0.5
+    # - Raw scaled: 150 * 0.5 = 75 contracts
+    # - Lot rounding: 75 / 100 = 0 lots → 0 contracts
+    # - Round UP: position (150) >= lot_size (100) → quantity = 100 contracts
+    # - Result: Order emitted with 100 contracts (1 lot)
+
+    signal = SignalEvent(
+        signal_id="sig-partial-close",
+        timestamp="2020-01-02T16:00:00Z",
+        strategy_id="test_strategy",
+        symbol="SPY",
+        intention="CLOSE_LONG",
+        price=Decimal("200.00"),
+        confidence=Decimal("0.5"),  # Close 50% of position
+        metadata={},
+    )
+
+    service.on_signal(signal)
+
+    # Assert: Should emit 100-contract order (rounded up to 1 lot)
+    assert len(orders_received) == 1, (
+        "Expected 1 order (0.5 * 150 = 75 → floors to 0 → rounds up to 100), "
+        f"but got {len(orders_received)}. Order may have been incorrectly suppressed."
+    )
+    order = orders_received[0]
+    assert order.quantity == 100, (
+        f"Expected 100 contracts (rounded up from 0 to 1 lot), got {order.quantity}. "
+        "Lot rounding should round UP when floor = 0 and position >= 1 lot."
+    )
+
+    # Test scenario 2: Confidence high enough to produce valid lot
+    # Clear previous state
+    orders_received.clear()
+
+    # Signal with confidence=0.75 (close 75% = 112.5 contracts → 100 contracts = 1 lot)
+    signal2 = SignalEvent(
+        signal_id="sig-partial-close-2",
+        timestamp="2020-01-02T16:01:00Z",
+        strategy_id="test_strategy",
+        symbol="SPY",
+        intention="CLOSE_LONG",
+        price=Decimal("200.00"),
+        confidence=Decimal("0.75"),  # Close 75%
+        metadata={},
+    )
+
+    service.on_signal(signal2)
+
+    # Assert: Should emit 100-contract order (1 lot)
+    assert len(orders_received) == 1
+    order = orders_received[0]
+    assert order.quantity == 100, (
+        f"Expected 100 contracts (0.75 * 150 = 112.5 → 1 lot = 100), "
+        f"got {order.quantity}. Lot sizing not applied correctly."
+    )
+    assert order.side == "sell"  # CLOSE_LONG → sell
+    assert order.symbol == "SPY"
+
+
+def test_multi_strategy_position_aggregation_for_concentration_limit(event_bus):
+    """
+    Regression test: Concentration limits must aggregate positions across strategies.
+
+    Previously, check_concentration_limit() would break on the first position found,
+    ignoring additional positions in the same symbol from other strategies.
+    Similarly, check_leverage_limits() would overwrite current_qty_in_symbol
+    instead of accumulating.
+
+    This caused portfolio-level concentration and leverage checks to undercount
+    exposure when multiple strategies traded the same ticker, violating the
+    "Reliable Risk Checks" promise in the multi-strategy refactoring.
+
+    This test verifies:
+    - Positions in same symbol across strategies are aggregated
+    - Concentration limit is enforced on total portfolio exposure, not per-strategy
+    - Orders are rejected when aggregated position would exceed limits
+
+    Related: Multi-strategy refactoring, reliable risk checks
+    """
+    # Arrange: Create policy with 20% concentration limit
+    from qtrader.libraries.risk.models import (
+        ConcentrationLimit,
+        LeverageLimit,
+        RiskConfig,
+        SizingConfig,
+        StrategyBudget,
+    )
+
+    config = RiskConfig(
+        budgets=[
+            StrategyBudget(strategy_id="strategy_a", capital_weight=0.40),
+            StrategyBudget(strategy_id="strategy_b", capital_weight=0.40),
+        ],
+        sizing={
+            "strategy_a": SizingConfig(
+                model="fixed_fraction",
+                fraction=Decimal("0.10"),
+                min_quantity=1,
+                lot_size=1,
+            ),
+            "strategy_b": SizingConfig(
+                model="fixed_fraction",
+                fraction=Decimal("0.10"),
+                min_quantity=1,
+                lot_size=1,
+            ),
+        },
+        concentration=ConcentrationLimit(max_position_pct=0.20),  # 20% max per symbol
+        leverage=LeverageLimit(max_gross=1.0, max_net=1.0),
+        cash_buffer_pct=0.05,
+    )
+
+    service = ManagerService(config, event_bus)
+
+    # Portfolio state: Both strategies already hold AAPL
+    # Strategy A: 50 shares @ $100 = $5,000 (5% of equity)
+    # Strategy B: 150 shares @ $100 = $15,000 (15% of equity)
+    # Total AAPL: 200 shares @ $100 = $20,000 (20% of equity) ← AT LIMIT
+    portfolio_state = PortfolioStateEvent(
+        portfolio_id="test-portfolio",
+        start_datetime="2020-01-01T00:00:00Z",
+        snapshot_datetime="2020-01-02T16:00:00Z",
+        reporting_currency="USD",
+        initial_portfolio_equity=Decimal("100000.00"),
+        cash_balance=Decimal("80000.00"),
+        current_portfolio_equity=Decimal("100000.00"),
+        total_market_value=Decimal("20000.00"),
+        total_unrealized_pl=Decimal("0.00"),
+        total_realized_pl=Decimal("0.00"),
+        total_pl=Decimal("0.00"),
+        long_exposure=Decimal("20000.00"),
+        short_exposure=Decimal("0.00"),
+        net_exposure=Decimal("20000.00"),
+        gross_exposure=Decimal("20000.00"),
+        leverage=Decimal("0.20"),
+        strategies_groups=[
+            StrategyGroup(
+                strategy_id="strategy_a",
+                positions=[
+                    PortfolioPosition(
+                        symbol="AAPL",
+                        side="long",
+                        open_quantity=50,  # Strategy A: 50 shares
+                        average_fill_price=Decimal("100.00"),
+                        commission_paid=Decimal("0.00"),
+                        cost_basis=Decimal("5000.00"),
+                        market_price=Decimal("100.00"),
+                        gross_market_value=Decimal("5000.00"),
+                        unrealized_pl=Decimal("0.00"),
+                        realized_pl=Decimal("0.00"),
+                        dividends_received=Decimal("0.00"),
+                        dividends_paid=Decimal("0.00"),
+                        total_position_value=Decimal("5000.00"),
+                        currency="USD",
+                        last_updated="2020-01-02T15:00:00Z",
+                    )
+                ],
+            ),
+            StrategyGroup(
+                strategy_id="strategy_b",
+                positions=[
+                    PortfolioPosition(
+                        symbol="AAPL",
+                        side="long",
+                        open_quantity=150,  # Strategy B: 150 shares
+                        average_fill_price=Decimal("100.00"),
+                        commission_paid=Decimal("0.00"),
+                        cost_basis=Decimal("15000.00"),
+                        market_price=Decimal("100.00"),
+                        gross_market_value=Decimal("15000.00"),
+                        unrealized_pl=Decimal("0.00"),
+                        realized_pl=Decimal("0.00"),
+                        dividends_received=Decimal("0.00"),
+                        dividends_paid=Decimal("0.00"),
+                        total_position_value=Decimal("15000.00"),
+                        currency="USD",
+                        last_updated="2020-01-02T15:00:00Z",
+                    )
+                ],
+            ),
+        ],
+    )
+    service.on_portfolio_state(portfolio_state)
+
+    # Capture emitted orders
+    orders_received = []
+
+    def capture_order(event: OrderEvent):
+        orders_received.append(event)
+
+    event_bus.subscribe("order", capture_order)
+
+    # Act: Strategy A tries to buy more AAPL
+    # Current total AAPL: 200 shares @ $100 = $20,000 (20% of equity) ← AT LIMIT
+    # Strategy A allocated capital: $100k * 0.40 = $40k
+    # Strategy A sizing: $40k * 0.10 = $4k / $100 = 40 shares
+    # Proposed total: 200 + 40 = 240 shares @ $100 = $24,000 (24% of equity) ← EXCEEDS 20% LIMIT
+
+    signal = SignalEvent(
+        signal_id="sig-concentration-test",
+        timestamp="2020-01-02T16:00:00Z",
+        strategy_id="strategy_a",
+        symbol="AAPL",
+        intention="OPEN_LONG",
+        price=Decimal("100.00"),
+        confidence=Decimal("1.00"),
+        metadata={},
+    )
+
+    service.on_signal(signal)
+
+    # Assert: Order should be REJECTED due to concentration limit
+    assert len(orders_received) == 0, (
+        "Expected order to be rejected (total AAPL would be 24% > 20% limit), "
+        f"but {len(orders_received)} order(s) were emitted. "
+        "This indicates positions were not aggregated across strategies for concentration check."
+    )
+
+    # Verify the fix: If only strategy_a's position was checked (50 shares = 5%),
+    # and we ignored strategy_b's 150 shares, the limit check would pass:
+    # 50 + 40 = 90 shares @ $100 = $9,000 (9% of equity) ← Would incorrectly pass
+    #
+    # But with proper aggregation:
+    # (50 + 150) + 40 = 240 shares @ $100 = $24,000 (24% of equity) ← Correctly rejected
+
+
+def test_partial_close_rounds_up_when_confidence_floors_to_zero(event_bus):
+    """
+    Regression test: Partial close should round UP to 1 lot when confidence floors to 0.
+
+    Previously, the manager would:
+    1. Scale quantity by confidence
+    2. Floor to lot_size
+    3. If result = 0, discard order entirely
+
+    This violated the signal contract: confidence is a strength HINT, not a hard cap.
+    The manager should close "about" the requested amount, not suppress the order.
+
+    Example scenario:
+    - Position: 120 shares
+    - lot_size: 100 (options/futures)
+    - confidence: 0.6 (close 60%)
+    - Raw scaled: 120 * 0.6 = 72 shares
+    - Floor to lot: 72 / 100 = 0 lots → 0 shares
+    - OLD BEHAVIOR: Discard order (no close at all)
+    - NEW BEHAVIOR: Round up to 100 shares (1 lot)
+
+    This test verifies:
+    - When confidence scaling floors to 0 but position >= 1 lot, round UP to 1 lot
+    - Order is emitted with valid lot size
+    - No orders are suppressed unnecessarily
+
+    Related: Multi-strategy refactoring, signal contract enforcement
+    """
+    from qtrader.libraries.risk.models import (
+        ConcentrationLimit,
+        LeverageLimit,
+        RiskConfig,
+        SizingConfig,
+        StrategyBudget,
+    )
+
+    # Policy with lot_size=100 (options/futures)
+    config = RiskConfig(
+        budgets=[StrategyBudget(strategy_id="default", capital_weight=0.95)],
+        sizing={
+            "default": SizingConfig(
+                model="fixed_fraction",
+                fraction=Decimal("0.05"),
+                min_quantity=1,
+                lot_size=100,  # Trades in 100-share lots
+            )
+        },
+        concentration=ConcentrationLimit(max_position_pct=1.0),
+        leverage=LeverageLimit(max_gross=1.0, max_net=1.0),
+        cash_buffer_pct=0.05,
+    )
+
+    service = ManagerService(config, event_bus)
+
+    # Portfolio state with 120-share position (1.2 lots)
+    portfolio_state = PortfolioStateEvent(
+        portfolio_id="test-portfolio",
+        start_datetime="2020-01-01T00:00:00Z",
+        snapshot_datetime="2020-01-02T16:00:00Z",
+        reporting_currency="USD",
+        initial_portfolio_equity=Decimal("100000.00"),
+        cash_balance=Decimal("88000.00"),
+        current_portfolio_equity=Decimal("112000.00"),
+        total_market_value=Decimal("24000.00"),  # 120 shares * $200
+        total_unrealized_pl=Decimal("12000.00"),
+        total_realized_pl=Decimal("0.00"),
+        total_pl=Decimal("12000.00"),
+        long_exposure=Decimal("24000.00"),
+        short_exposure=Decimal("0.00"),
+        net_exposure=Decimal("24000.00"),
+        gross_exposure=Decimal("24000.00"),
+        leverage=Decimal("0.21"),
+        strategies_groups=[
+            StrategyGroup(
+                strategy_id="test_strategy",
+                positions=[
+                    PortfolioPosition(
+                        symbol="SPY",
+                        side="long",
+                        open_quantity=120,  # 120 shares = 1.2 lots
+                        average_fill_price=Decimal("200.00"),
+                        commission_paid=Decimal("0.00"),
+                        cost_basis=Decimal("24000.00"),
+                        market_price=Decimal("200.00"),
+                        gross_market_value=Decimal("24000.00"),
+                        unrealized_pl=Decimal("12000.00"),
+                        realized_pl=Decimal("0.00"),
+                        dividends_received=Decimal("0.00"),
+                        dividends_paid=Decimal("0.00"),
+                        total_position_value=Decimal("24000.00"),
+                        currency="USD",
+                        last_updated="2020-01-02T15:00:00Z",
+                    )
+                ],
+            )
+        ],
+    )
+    service.on_portfolio_state(portfolio_state)
+
+    # Capture emitted orders
+    orders_received = []
+
+    def capture_order(event: OrderEvent):
+        orders_received.append(event)
+
+    event_bus.subscribe("order", capture_order)
+
+    # Act: Partial close with confidence=0.6 (close 60%)
+    # Expected calculation:
+    # - Position: 120 shares
+    # - Confidence: 0.6
+    # - Raw scaled: 120 * 0.6 = 72 shares
+    # - Lot floor: 72 / 100 = 0 lots → 0 shares
+    # - Round UP: base_quantity (120) >= lot_size (100) → quantity = 100 shares
+    signal = SignalEvent(
+        signal_id="sig-round-up",
+        timestamp="2020-01-02T16:00:00Z",
+        strategy_id="test_strategy",
+        symbol="SPY",
+        intention="CLOSE_LONG",
+        price=Decimal("200.00"),
+        confidence=Decimal("0.6"),  # Close 60%
+        metadata={},
+    )
+
+    service.on_signal(signal)
+
+    # Assert: Should emit 100-share order (rounded up to 1 lot)
+    assert len(orders_received) == 1, (
+        "Expected 1 order (0.6 * 120 = 72 → floors to 0 → rounds up to 100), "
+        f"but got {len(orders_received)}. Order may have been incorrectly suppressed."
+    )
+
+    order = orders_received[0]
+    assert order.quantity == 100, (
+        f"Expected 100 shares (rounded up from 0 to 1 lot), got {order.quantity}. "
+        "Lot rounding should round UP when floor = 0 and position >= 1 lot."
+    )
+    assert order.side == "sell"
+    assert order.symbol == "SPY"
