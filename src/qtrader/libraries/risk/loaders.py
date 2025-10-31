@@ -211,20 +211,66 @@ def _parse_policy(raw_policy: dict[str, Any], source_path: Path) -> RiskConfig:
 def _parse_budgets(policy: dict[str, Any], source_path: Path) -> list[StrategyBudget]:
     """Parse strategy budgets from policy.
 
-    For MVP, assumes equal weighting across strategies found in sizing config.
+    Looks for explicit 'budgets' section in the policy YAML. If not found,
+    creates a single 'default' budget at 95% capital weight.
+
+    Expected YAML structure:
+        budgets:
+          - strategy_id: "sma_crossover"
+            capital_weight: 0.30
+          - strategy_id: "momentum"
+            capital_weight: 0.30
+          - strategy_id: "default"
+            capital_weight: 0.35
+
+    Raises:
+        ValueError: If budget weights sum to > 1.0
     """
-    # In MVP, budgets are derived from sizing config
-    # Each strategy gets equal weight for simplicity
-    if "sizing" not in policy:
-        raise ValueError(f"Policy {source_path} missing 'sizing' section")
+    if "budgets" not in policy:
+        # No explicit budgets - create default budget
+        return [StrategyBudget(strategy_id="default", capital_weight=0.95)]
 
-    # Check if there are per-strategy sizing configs
-    # For now, assume single global config means single strategy
-    # TODO Phase 11: Parse explicit budgets section
+    budget_defs = policy["budgets"]
+    if not isinstance(budget_defs, list):
+        raise ValueError(f"Policy {source_path}: 'budgets' must be a list")
 
-    # For MVP: Create dummy budget assuming single strategy
-    # This will be replaced when we add explicit budgets to YAML
-    return [StrategyBudget(strategy_id="default", capital_weight=0.95)]
+    budgets = []
+    total_weight = 0.0
+
+    for budget_def in budget_defs:
+        if not isinstance(budget_def, dict):
+            raise ValueError(f"Policy {source_path}: each budget must be a dict with strategy_id and capital_weight")
+
+        strategy_id = budget_def.get("strategy_id")
+        capital_weight = budget_def.get("capital_weight")
+
+        if strategy_id is None:
+            raise ValueError(f"Policy {source_path}: budget missing 'strategy_id'")
+        if capital_weight is None:
+            raise ValueError(f"Policy {source_path}: budget for '{strategy_id}' missing 'capital_weight'")
+
+        # Validate weight is numeric and reasonable
+        try:
+            weight_float = float(capital_weight)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Policy {source_path}: capital_weight for '{strategy_id}' must be numeric: {e}")
+
+        if not 0.0 <= weight_float <= 1.0:
+            raise ValueError(
+                f"Policy {source_path}: capital_weight for '{strategy_id}' must be in [0, 1], got {weight_float}"
+            )
+
+        total_weight += weight_float
+        budgets.append(StrategyBudget(strategy_id=strategy_id, capital_weight=weight_float))
+
+    # Validate total doesn't exceed 1.0
+    if total_weight > 1.0:
+        raise ValueError(
+            f"Policy {source_path}: budget weights sum to {total_weight:.2f}, must be ≤ 1.0. "
+            f"This leaves {(1.0 - total_weight) * 100:.1f}% unallocated."
+        )
+
+    return budgets
 
 
 def _parse_sizing(policy: dict[str, Any], budgets: list[StrategyBudget], source_path: Path) -> dict[str, SizingConfig]:
