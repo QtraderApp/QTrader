@@ -212,7 +212,7 @@ class RiskConfig:
             Allocated capital for the strategy
 
         Raises:
-            KeyError: If strategy_id not found in budgets
+            KeyError: If strategy_id not found in budgets and no 'default' fallback
 
         Example:
             >>> config = RiskConfig(...)  # With sma_crossover at 30% weight
@@ -220,11 +220,18 @@ class RiskConfig:
             >>> allocated
             Decimal('30000')
         """
+        # Try strategy-specific budget first
         for budget in self.budgets:
             if budget.strategy_id == strategy_id:
                 return equity * Decimal(str(budget.capital_weight))
 
-        raise KeyError(f"Strategy '{strategy_id}' not found in budgets")
+        # Fall back to "default" budget if exists
+        for budget in self.budgets:
+            if budget.strategy_id == "default":
+                return equity * Decimal(str(budget.capital_weight))
+
+        # No budget found for strategy and no default
+        raise KeyError(f"Strategy '{strategy_id}' not found in budgets and no 'default' fallback defined")
 
     def get_sizing_config(self, strategy_id: str) -> SizingConfig:
         """Get sizing configuration for a strategy.
