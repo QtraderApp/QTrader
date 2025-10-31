@@ -324,9 +324,16 @@ class ManagerService:
             # confidence=1.0 → close full position
             # confidence=0.5 → close 50% of position
             if event.confidence < Decimal("1.0"):
-                quantity = int(base_quantity * float(event.confidence))
+                # Calculate raw scaled quantity
+                raw_quantity = base_quantity * float(event.confidence)
+
+                # Apply lot size constraints (same logic as risk sizer)
+                lot_size = sizing_config.lot_size
+                quantity = int(raw_quantity / lot_size) * lot_size
+
                 # Ensure at least minimum quantity if scaled down
-                if quantity == 0 and base_quantity > 0:
+                if quantity < sizing_config.min_quantity and base_quantity >= sizing_config.min_quantity:
+                    # Round up to minimum, but don't exceed position
                     quantity = min(base_quantity, sizing_config.min_quantity)
 
                 self._logger.debug(
@@ -337,6 +344,8 @@ class ManagerService:
                         "symbol": event.symbol,
                         "position_quantity": base_quantity,
                         "confidence": float(event.confidence),
+                        "raw_scaled_quantity": int(raw_quantity),
+                        "lot_size": lot_size,
                         "scaled_quantity": quantity,
                     },
                 )
