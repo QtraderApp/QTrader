@@ -19,7 +19,6 @@
 #   - Enforce risk controls automatically
 #
 
-
 portfolio_risk_policy:
   #############################################################################
   # Metadata
@@ -49,6 +48,75 @@ portfolio_risk_policy:
   evaluation:
     mode: "end_of_day"
     clock_alignment: "exchange_calendar"
+
+  #############################################################################
+  # Strategy Budgets (Capital Allocation)
+  # -------------------------------------------------------------------------
+  # Allocate portfolio capital across multiple strategies.
+  #
+  # Each strategy gets a dedicated capital pool based on its weight.
+  # Weights are fractions of total equity that sum to ≤ 1.0.
+  #
+  # IMPORTANT: If you omit this section, a single "default" budget at 95%
+  # weight will be created automatically, and all strategies will share it.
+  #
+  # Format:
+  #   budgets:
+  #     - strategy_id: "strategy_name"  # Must match strategy_id in portfolio.yaml
+  #       capital_weight: 0.30          # Fraction of equity (0.30 = 30%)
+  #
+  # Rules:
+  #   - capital_weight must be in [0.0, 1.0]
+  #   - Sum of all weights must be ≤ 1.0
+  #   - Remaining (1.0 - sum) stays as unallocated cash reserve
+  #   - Use "default" as strategy_id for unlisted strategies (fallback)
+  #
+  # Examples:
+  #
+  # Example 1: Equal allocation across 3 strategies
+  #   budgets:
+  #     - strategy_id: "sma_crossover"
+  #       capital_weight: 0.30  # 30% to SMA strategy
+  #     - strategy_id: "momentum"
+  #       capital_weight: 0.30  # 30% to momentum strategy
+  #     - strategy_id: "mean_reversion"
+  #       capital_weight: 0.30  # 30% to mean reversion
+  #   # Total: 90% allocated, 10% unallocated cash
+  #
+  # Example 2: Core-satellite approach
+  #   budgets:
+  #     - strategy_id: "buy_and_hold"
+  #       capital_weight: 0.60  # 60% core position
+  #     - strategy_id: "momentum"
+  #       capital_weight: 0.20  # 20% satellite 1
+  #     - strategy_id: "mean_reversion"
+  #       capital_weight: 0.15  # 15% satellite 2
+  #   # Total: 95% allocated, 5% unallocated cash
+  #
+  # Example 3: Single strategy with fallback
+  #   budgets:
+  #     - strategy_id: "main_strategy"
+  #       capital_weight: 0.70  # 70% to main strategy
+  #     - strategy_id: "default"
+  #       capital_weight: 0.20  # 20% fallback for any other strategies
+  #   # Total: 90% allocated, 10% unallocated cash
+  #
+  # Example 4: No explicit budgets (uses automatic default)
+  #   # Omit budgets section entirely
+  #   # System creates: budgets: [{"strategy_id": "default", "capital_weight": 0.95}]
+  #   # All strategies share 95% of equity
+  #############################################################################
+  budgets:
+    # UNCOMMENT AND CUSTOMIZE for multi-strategy portfolios:
+    # - strategy_id: "sma_crossover"
+    #   capital_weight: 0.30
+    # - strategy_id: "momentum"
+    #   capital_weight: 0.30
+    # - strategy_id: "default"
+    #   capital_weight: 0.35
+
+    # For single-strategy or shared allocation, you can omit this section entirely.
+    # The system will automatically create a "default" budget at 95% weight.
 
   #############################################################################
   # Sizing

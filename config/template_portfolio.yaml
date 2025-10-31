@@ -1,0 +1,73 @@
+# Portfolio Configuration Template
+# This file demonstrates all available configuration options for backtests
+
+# ==============================================================================
+# BACKTEST PARAMETERS
+# ==============================================================================
+start_date: "2019-01-02" # ISO format: YYYY-MM-DD
+end_date: "2021-12-31" # ISO format: YYYY-MM-DD
+initial_equity: 100_000 # Starting capital in USD
+
+# Replay speed for live visualization (optional)
+# 0.0 = full speed (no delay), 1.0 = 1 second per bar
+# This does NOT affect backtest execution, only visualization
+replay_speed: 0.0
+
+# ==============================================================================
+# DATA CONFIGURATION
+# ==============================================================================
+# Define which data sources to use and which symbols to load from each
+data:
+  sources:
+    # Each source references a registered data adapter (see data_sources.yaml)
+    - name: "algoseek-us-equity-1d-unadjusted" # Data source name from registry
+      universe: ["AAPL", "MSFT", "GOOGL"] # Symbols to load from this source
+
+    # Example: Multiple data sources for different asset classes
+    # - name: "futures-feed"
+    #   universe: ["ES", "NQ"]
+    # - name: "options-feed"
+    #   universe: ["SPY"]
+
+# ==============================================================================
+# STRATEGY CONFIGURATION
+# ==============================================================================
+# List of strategies to run concurrently in the backtest
+strategies:
+  # Strategy 1: SMA Crossover
+  - strategy_id: "sma_crossover" # Must match registry name
+    universe: ["AAPL", "MSFT"] # Symbols this strategy trades
+    data_sources: ["algoseek-us-equity-1d-unadjusted"] # Data feeds to use
+    configs: # Strategy-specific parameters
+      fast_period: 10
+      slow_period: 50
+
+  # Strategy 2: Momentum
+  # - strategy_id: "momentum"
+  #   universe: ["GOOGL"]
+  #   data_sources: ["algoseek-us-equity-1d-unadjusted"]
+  #   configs:
+  #     lookback_period: 20
+  #     threshold: 0.05
+
+  # Example: Single strategy (simplest case)
+  # - strategy_id: "buy_and_hold"
+  #   universe: ["AAPL"]
+  #   data_sources: ["algoseek-us-equity-1d-unadjusted"]
+  #   configs: {}
+
+# ==============================================================================
+# RISK POLICY CONFIGURATION
+# ==============================================================================
+# Risk policies define position sizing, limits, and capital allocation
+# Policies are loaded from the risk library (builtin or custom)
+
+risk_policy:
+  # Option 1: Use a built-in risk policy (naive, conservative, aggressive)
+  name: "naive"
+  configs: {} # Optional: overrides for the policy (not yet implemented)
+
+
+  # Option 2: Use a custom risk policy
+  # name: "my_custom_policy"  # Must exist in my_library/risk_policies/
+  # configs: {}

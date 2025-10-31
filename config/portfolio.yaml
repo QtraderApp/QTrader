@@ -7,6 +7,7 @@ end_date: "2021-12-31"
 initial_equity: 100_000
 
 # Replay speed for visualization (0.0 = full speed, 1.0 = 1 sec/bar)
+# This does not affect the backtest, only the replay visualization
 replay_speed: 0.25
 
 # Data configuration - per data source universe
