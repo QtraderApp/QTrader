@@ -1,0 +1,27 @@
+{
+    "event_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "event_type": "signal",
+    "event_version": 1,
+    "occurred_at": "2024-03-15T14:35:22Z",
+    "correlation_id": "backtest-2024-03-15-001",
+    "causation_id": "bar-550e8400-e29b-41d4-a716-446655440002",
+    "source_service": "strategy_service",
+    "payload": {
+        "signal_id": "signal-550e8400-e29b-41d4-a716-446655440001",
+        "timestamp": "2024-03-15T14:35:22Z",
+        "strategy_id": "sma_crossover",
+        "symbol": "AAPL",
+        "intention": "OPEN_LONG",
+        "price": "145.75",
+        "confidence": "0.85",
+        "reason": "Fast SMA (10) crossed above Slow SMA (20) with strong momentum",
+        "metadata": {
+            "fast_sma": 145.23,
+            "slow_sma": 143.87,
+            "momentum_score": 0.72,
+            "volume_ratio": 1.45
+        },
+        "stop_loss": "140.50",
+        "take_profit": "152.00"
+    }
+}

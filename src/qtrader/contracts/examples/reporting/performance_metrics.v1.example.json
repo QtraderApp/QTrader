@@ -1,0 +1,45 @@
+{
+    "timestamp": "2025-10-29T15:30:00Z",
+    "equity": "105432.50",
+    "cash": "48575.00",
+    "positions_value": "56857.50",
+    "total_return_pct": "5.4325",
+    "max_drawdown_pct": "8.25",
+    "current_drawdown_pct": "2.15",
+    "num_positions": 3,
+    "gross_exposure": "56857.50",
+    "net_exposure": "56857.50",
+    "leverage": "0.5392",
+    "total_trades": 15,
+    "winning_trades": 9,
+    "losing_trades": 6,
+    "total_commissions": "45.50",
+    "cagr": "18.75",
+    "volatility": "15.32",
+    "sharpe_ratio": "1.22",
+    "sortino_ratio": "1.85",
+    "calmar_ratio": "2.27",
+    "win_rate": "60.00",
+    "profit_factor": "2.15",
+    "expectancy": "285.50",
+    "strategy_metrics": [
+        {
+            "strategy_id": "sma_crossover",
+            "equity_allocated": "60000.00",
+            "positions_value": "33250.00",
+            "num_positions": 2,
+            "return_pct": "3.85",
+            "total_trades": 8,
+            "winning_trades": 5
+        },
+        {
+            "strategy_id": "momentum",
+            "equity_allocated": "40000.00",
+            "positions_value": "23607.50",
+            "num_positions": 1,
+            "return_pct": "7.52",
+            "total_trades": 7,
+            "winning_trades": 4
+        }
+    ]
+}

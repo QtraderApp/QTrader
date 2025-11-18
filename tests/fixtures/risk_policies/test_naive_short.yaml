@@ -1,0 +1,110 @@
+# Test Fixture: Naive Risk Policy with Shorting Enabled
+# =======================================================
+# DO NOT MODIFY - Used by integration tests
+#
+# This is a test fixture with known, fixed values for predictable test behavior.
+# Tests depend on these exact parameters - changes will break tests.
+#
+# Identical to test_naive.yaml except shorting is enabled.
+#
+# For user-configurable policies, see my_library/risk_policies/
+
+portfolio_risk_policy:
+  # Metadata
+  name: "test_naive_short"
+  description: "Test fixture - minimal risk controls with 5% position sizing and shorting enabled"
+  version: "1.0.0"
+  date_created: "2025-11-10"
+  author: "QTrader Test Suite"
+  policy_scope: "portfolio"
+
+  # Evaluation
+  evaluation:
+    mode: "end_of_day"
+    clock_alignment: "exchange_calendar"
+
+  # Strategy Budgets
+  # Omitted - creates automatic default budget at 95% weight
+  budgets: []
+
+  # Sizing - FIXED AT 5% FOR TESTS
+  sizing:
+    algorithm: "fixed_equity_pct"
+    fixed_equity_pct: 0.05 # 5% of allocated capital per position (DO NOT CHANGE)
+    volatility_targeting:
+      target_volatility_pct: null
+    kelly_criterion:
+      fraction: null
+
+  # Cash Management
+  cash_management:
+    cash_buffer_pct: 0.05 # Keep 5% cash unallocated
+
+  limits:
+    # Liquidity
+    liquidity:
+      max_participation_adv: 0.50 # Relaxed for testing
+      min_ticket_usd: 10
+
+    # Leverage
+    leverage:
+      allow_leveraged_positions: false
+      max_gross_leverage: 1.0
+      max_net_leverage: 1.0
+
+    # Shorting
+    shorting:
+      allow_short_positions: true # KEY: Shorting enabled for tests
+
+    # Margin Policy
+    margin_policy:
+      allow_negative_cash: false
+      initial_margin_rate: null
+      short_margin_rate: null
+
+    # Concentration
+    concentration:
+      max_sector_exposure_pct: null
+      max_industry_exposure_pct: null
+      max_country_exposure_pct: null
+      max_asset_exposure_pct: null
+      max_position_size_pct: 1.0
+
+    # Portfolio Drawdown
+    portfolio_drawdown:
+      max_drawdown_pct: null
+      daily_loss_limit_pct: null
+
+    # Position Count
+    position_count:
+      max_positions: null
+
+    # Diversification
+    diversification:
+      max_correlation_between_positions: null
+
+  # Drawdown Controls
+  drawdown_controls:
+    thresholds: []
+    multipliers: []
+
+  # Strategy Limits
+  strategy_limits:
+    defaults:
+      max_drawdown_pct: null
+      enforce_stop_loss: false
+      max_stop_loss_pct: null
+      enforce_take_profit: false
+      min_take_profit_pct: null
+    strategy_overrides: {}
+
+  # Execution Controls
+  execution_controls:
+    max_slippage_pct: null
+    max_commission_pct: null
+    max_order_size_pct_of_adv: null
+
+  # Rebalancing
+  rebalancing:
+    rebalance_on_risk_breach: false
+    rebalance_strategy: null

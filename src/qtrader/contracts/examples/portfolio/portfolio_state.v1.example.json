@@ -1,0 +1,98 @@
+{
+    "portfolio_id": "PORT123",
+    "start_datetime": "2025-01-01T00:00:00Z",
+    "snapshot_datetime": "2025-10-29T11:45:00Z",
+    "reporting_currency": "USD",
+    "initial_portfolio_equity": "100000.00",
+    "current_portfolio_equity": "546400.00",
+    "cash_balance": "50000.00",
+    "total_market_value": "496400.00",
+    "total_unrealized_pl": "-5255.50",
+    "total_realized_pl": "8500.00",
+    "total_pl": "3244.50",
+    "long_exposure": "135850.00",
+    "short_exposure": "360550.00",
+    "net_exposure": "-224700.00",
+    "gross_exposure": "496400.00",
+    "leverage": "0.9085",
+    "total_commissions_paid": "50.50",
+    "total_dividends_received": "850.00",
+    "total_dividends_paid": "550.00",
+    "total_borrow_fees": "125.75",
+    "total_margin_interest": "0.00",
+    "strategies_groups": [
+        {
+            "strategy_id": "growth_strategy_001",
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "side": "long",
+                    "open_quantity": 1000,
+                    "average_fill_price": "130.2755",
+                    "commission_paid": "25.50",
+                    "cost_basis": "130275.50",
+                    "market_price": "135.00",
+                    "gross_market_value": "135000.00",
+                    "unrealized_pl": "4724.50",
+                    "realized_pl": "2000.00",
+                    "dividends_received": "850.00",
+                    "dividends_paid": "0.00",
+                    "total_position_value": "135850.00",
+                    "sector": "Technology",
+                    "country": "US",
+                    "asset_class": "Equities",
+                    "currency": "USD",
+                    "last_updated": "2025-10-29T11:40:00Z"
+                }
+            ]
+        },
+        {
+            "strategy_id": "momentum_strategy_002",
+            "positions": [
+                {
+                    "symbol": "TSLA",
+                    "side": "short",
+                    "open_quantity": -500,
+                    "average_fill_price": "700.04",
+                    "commission_paid": "20.00",
+                    "cost_basis": "350020.00",
+                    "market_price": "720.00",
+                    "gross_market_value": "-360000.00",
+                    "unrealized_pl": "-9980.00",
+                    "realized_pl": "5000.00",
+                    "dividends_received": "0.00",
+                    "dividends_paid": "550.00",
+                    "total_position_value": "360550.00",
+                    "sector": "Automotive",
+                    "country": "US",
+                    "asset_class": "Equities",
+                    "currency": "USD",
+                    "last_updated": "2025-10-29T11:42:00Z"
+                },
+                {
+                    "symbol": "MSFT",
+                    "side": "flat",
+                    "open_quantity": 0,
+                    "average_fill_price": "0.00",
+                    "commission_paid": "5.00",
+                    "cost_basis": "0.00",
+                    "market_price": "420.00",
+                    "gross_market_value": "0.00",
+                    "unrealized_pl": "0.00",
+                    "realized_pl": "1500.00",
+                    "dividends_received": "0.00",
+                    "dividends_paid": "0.00",
+                    "total_position_value": "0.00",
+                    "sector": "Technology",
+                    "country": "US",
+                    "asset_class": "Equities",
+                    "currency": "USD",
+                    "last_updated": "2025-10-15T14:20:00Z"
+                }
+            ]
+        }
+    ],
+    "currency_conversion_rates": {
+        "USD": "1.0"
+    }
+}

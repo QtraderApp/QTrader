@@ -1,0 +1,24 @@
+{
+    "event_id": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
+    "event_type": "fill",
+    "event_version": 1,
+    "occurred_at": "2024-03-15T14:35:24.123Z",
+    "correlation_id": "backtest-2024-03-15-001",
+    "causation_id": "order-a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "source_service": "execution_service",
+    "payload": {
+        "fill_id": "f7e6d5c4-b3a2-1098-7654-321fedcba098",
+        "source_order_id": "order-a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "order_received_at": "2024-03-15T14:35:22.500Z",
+        "timestamp": "2024-03-15T14:35:24.123Z",
+        "symbol": "AAPL",
+        "side": "buy",
+        "filled_quantity": "100",
+        "fill_price": "145.75",
+        "commission": "1.00",
+        "slippage_bps": 5,
+        "strategy_id": "sma_crossover",
+        "gross_value": "14575.00",
+        "net_value": "-14576.00"
+    }
+}

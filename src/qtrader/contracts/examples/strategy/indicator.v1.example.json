@@ -1,0 +1,53 @@
+{
+    "event_id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+    "event_type": "indicator",
+    "occurred_at": "2024-03-15T14:30:00.123456Z",
+    "source_service": "strategy",
+    "correlation_id": "f1e2d3c4-b5a6-4a5b-8c9d-0e1f2a3b4c5d",
+    "causation_id": "e1f2a3b4-c5d6-4a5b-8c9d-0e1f2a3b4c5d",
+    "strategy_id": "multi_indicator_strategy",
+    "symbol": "AAPL",
+    "timestamp": "2024-03-15T14:30:00.000000Z",
+    "indicators": {
+        "sma_20": 150.25,
+        "sma_50": 148.50,
+        "ema_12": 151.00,
+        "rsi_14": 65.4,
+        "macd": {
+            "value": 2.5,
+            "signal": 1.8,
+            "histogram": 0.7
+        },
+        "bbands": {
+            "upper": 152.00,
+            "middle": 150.00,
+            "lower": 148.00
+        },
+        "atr_14": 3.25,
+        "volume_sma_ratio": 1.45,
+        "trend": "uptrend",
+        "support_level": 145.00,
+        "resistance_level": 155.00,
+        "pattern_detected": "ascending_triangle",
+        "breakout_confirmed": false,
+        "regime": "high_volatility",
+        "custom_score": 0.7823,
+        "signal_array": [
+            0.65,
+            0.72,
+            0.78
+        ],
+        "feature_importance": {
+            "momentum": 0.35,
+            "volume": 0.25,
+            "volatility": 0.40
+        }
+    },
+    "metadata": {
+        "signal_strength": "moderate",
+        "confluence_count": 3,
+        "bars_since_setup": 5,
+        "risk_reward_ratio": 2.5,
+        "notes": "Multiple confirmation signals present"
+    }
+}

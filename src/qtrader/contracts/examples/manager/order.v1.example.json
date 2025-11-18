@@ -1,0 +1,15 @@
+{
+    "intent_id": "signal-550e8400-e29b-41d4-a716-446655440001",
+    "idempotency_key": "sma_crossover-signal-550e8400-e29b-41d4-a716-446655440001-2024-03-15T14:35:22.123Z",
+    "timestamp": "2024-03-15T14:30:15.123Z",
+    "symbol": "AAPL",
+    "side": "buy",
+    "quantity": "100",
+    "order_type": "limit",
+    "limit_price": "145.50",
+    "stop_price": null,
+    "time_in_force": "GTC",
+    "source_strategy_id": "sma_crossover",
+    "stop_loss": "140.00",
+    "take_profit": "150.00"
+}
