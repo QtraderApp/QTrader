@@ -45,6 +45,8 @@ class HTMLReportGenerator:
         # Load data
         performance = self._load_performance()
         manifest = self._load_manifest()
+        metadata = self._load_metadata()
+        config_snapshot = self._load_config_snapshot()
         equity_curve = self._load_timeseries("equity_curve.parquet")
         returns = self._load_timeseries("returns.parquet")
         drawdowns = self._load_timeseries("drawdowns.parquet")
@@ -54,6 +56,8 @@ class HTMLReportGenerator:
         html = self._build_html(
             performance=performance,
             manifest=manifest,
+            metadata=metadata,
+            config_snapshot=config_snapshot,
             equity_curve=equity_curve,
             returns=returns,
             drawdowns=drawdowns,
@@ -117,10 +121,41 @@ class HTMLReportGenerator:
         except Exception:
             return []
 
+    def _load_metadata(self) -> dict[str, Any] | None:
+        """Load metadata.json if available."""
+        import json
+
+        metadata_path = self.output_dir / "metadata.json"
+        if not metadata_path.exists():
+            return None
+
+        try:
+            data: dict[str, Any] = json.loads(metadata_path.read_text())
+            return data
+        except Exception:
+            return None
+
+    def _load_config_snapshot(self) -> dict[str, Any] | None:
+        """Load config_snapshot.yaml if available."""
+        import yaml
+
+        config_path = self.output_dir / "config_snapshot.yaml"
+        if not config_path.exists():
+            return None
+
+        try:
+            with open(config_path) as f:
+                data: dict[str, Any] | None = yaml.safe_load(f)
+                return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
     def _build_html(
         self,
         performance: dict[str, Any],
         manifest: dict[str, Any] | None,
+        metadata: dict[str, Any] | None,
+        config_snapshot: dict[str, Any] | None,
         equity_curve: pd.DataFrame | None,
         returns: pd.DataFrame | None,
         drawdowns: pd.DataFrame | None,
@@ -340,7 +375,7 @@ class HTMLReportGenerator:
 
         {self._build_key_metrics(performance)}
 
-        {self._build_run_info(performance, manifest)}
+        {self._build_run_info(performance, manifest, metadata, config_snapshot)}
 
         {self._build_price_chart()}
 
@@ -421,44 +456,189 @@ class HTMLReportGenerator:
         </div>
         """
 
-    def _build_run_info(self, performance: dict[str, Any], manifest: dict[str, Any] | None) -> str:
-        """Build run information section."""
-        info_items = []
+    def _build_run_info(
+        self,
+        performance: dict[str, Any],
+        manifest: dict[str, Any] | None,
+        metadata: dict[str, Any] | None,
+        config_snapshot: dict[str, Any] | None,
+    ) -> str:
+        """Build run information sections."""
+        sections = []
 
-        # Basic info with currency formatting
+        # Section 1: Run Information
+        info_items_run = []
         initial_equity = float(performance.get("initial_equity", 0))
         final_equity = float(performance.get("final_equity", 0))
 
-        info_items.append(
+        info_items_run.append(
             f'<div class="info-item"><span class="info-label">Initial Equity</span><span class="info-value">${initial_equity:,.2f}</span></div>'
         )
-        info_items.append(
+        info_items_run.append(
             f'<div class="info-item"><span class="info-label">Final Equity</span><span class="info-value">${final_equity:,.2f}</span></div>'
         )
-        info_items.append(
+        info_items_run.append(
             f'<div class="info-item"><span class="info-label">Duration</span><span class="info-value">{performance.get("duration_days", 0)} days</span></div>'
         )
 
-        # Manifest info
         if manifest:
             if timestamp := manifest.get("timestamp"):
-                info_items.append(
+                info_items_run.append(
                     f'<div class="info-item"><span class="info-label">Run Time</span><span class="info-value">{timestamp}</span></div>'
                 )
             if git_info := manifest.get("git"):
                 if branch := git_info.get("branch"):
-                    info_items.append(
+                    info_items_run.append(
                         f'<div class="info-item"><span class="info-label">Git Branch</span><span class="info-value">{branch}</span></div>'
                     )
 
-        return f"""
+        sections.append(
+            f"""
         <div class="info-section">
-            <h3>Run Information</h3>
+            <h3>📋 Run Information</h3>
             <div class="info-grid">
-                {"".join(info_items)}
+                {"".join(info_items_run)}
             </div>
         </div>
         """
+        )
+
+        # Section 2: Configuration (from metadata)
+        if metadata:
+            info_items_config = []
+
+            # Backtest metadata
+            if backtest := metadata.get("backtest"):
+                if backtest_id := backtest.get("backtest_id"):
+                    info_items_config.append(
+                        f'<div class="info-item"><span class="info-label">Backtest ID</span><span class="info-value">{backtest_id}</span></div>'
+                    )
+
+                if start_date := backtest.get("start_date"):
+                    info_items_config.append(
+                        f'<div class="info-item"><span class="info-label">Start Date</span><span class="info-value">{start_date[:10]}</span></div>'
+                    )
+
+                if end_date := backtest.get("end_date"):
+                    info_items_config.append(
+                        f'<div class="info-item"><span class="info-label">End Date</span><span class="info-value">{end_date[:10]}</span></div>'
+                    )
+
+                if strategy_adj := backtest.get("strategy_adjustment_mode"):
+                    info_items_config.append(
+                        f'<div class="info-item"><span class="info-label">Strategy Adjustment</span><span class="info-value">{strategy_adj}</span></div>'
+                    )
+
+                if portfolio_adj := backtest.get("portfolio_adjustment_mode"):
+                    info_items_config.append(
+                        f'<div class="info-item"><span class="info-label">Portfolio Adjustment</span><span class="info-value">{portfolio_adj}</span></div>'
+                    )
+
+                if risk_policy := backtest.get("risk_policy"):
+                    if isinstance(risk_policy, dict):
+                        policy_name = risk_policy.get("name", "N/A")
+                    else:
+                        policy_name = str(risk_policy)
+                    info_items_config.append(
+                        f'<div class="info-item"><span class="info-label">Risk Policy</span><span class="info-value">{policy_name}</span></div>'
+                    )
+
+                # Data sources from backtest.data.sources
+                if data_config := backtest.get("data"):
+                    if sources := data_config.get("sources"):
+                        if isinstance(sources, list) and sources:
+                            source_names = [s.get("name", "") for s in sources if isinstance(s, dict)]
+                            sources_str = ", ".join(source_names) if source_names else "N/A"
+                            info_items_config.append(
+                                f'<div class="info-item"><span class="info-label">Data Sources</span><span class="info-value">{sources_str}</span></div>'
+                            )
+
+                # Reporting config
+                if reporting := backtest.get("reporting"):
+                    if risk_free := reporting.get("risk_free_rate"):
+                        info_items_config.append(
+                            f'<div class="info-item"><span class="info-label">Risk-Free Rate</span><span class="info-value">{risk_free:.2%}</span></div>'
+                        )
+
+            if info_items_config:
+                sections.append(
+                    f"""
+        <div class="info-section">
+            <h3>⚙️ Configuration</h3>
+            <div class="info-grid">
+                {"".join(info_items_config)}
+            </div>
+        </div>
+        """
+                )
+
+        # Section 3: Strategy & Universe (from config_snapshot)
+        if config_snapshot:
+            info_items_strategy = []
+
+            # Get universe from data.sources
+            if data_config := config_snapshot.get("data"):
+                if sources := data_config.get("sources"):
+                    if isinstance(sources, list):
+                        all_symbols = set()
+                        for source in sources:
+                            if isinstance(source, dict) and (universe := source.get("universe")):
+                                if isinstance(universe, list):
+                                    all_symbols.update(universe)
+
+                        if all_symbols:
+                            symbols_str = ", ".join(sorted(all_symbols))
+                            info_items_strategy.append(
+                                f'<div class="info-item"><span class="info-label">Universe</span><span class="info-value">{symbols_str}</span></div>'
+                            )
+
+            if strategies := config_snapshot.get("strategies"):
+                if isinstance(strategies, list) and strategies:
+                    strategy = strategies[0]
+                    if strategy_id := strategy.get("strategy_id"):
+                        info_items_strategy.append(
+                            f'<div class="info-item"><span class="info-label">Strategy ID</span><span class="info-value">{strategy_id}</span></div>'
+                        )
+
+                    # Strategy universe
+                    if strat_universe := strategy.get("universe"):
+                        if isinstance(strat_universe, list):
+                            strat_symbols = ", ".join(strat_universe)
+                            info_items_strategy.append(
+                                f'<div class="info-item"><span class="info-label">Strategy Universe</span><span class="info-value">{strat_symbols}</span></div>'
+                            )
+
+                    # Strategy data sources
+                    if strat_data := strategy.get("data_sources"):
+                        if isinstance(strat_data, list):
+                            data_str = ", ".join(strat_data)
+                            info_items_strategy.append(
+                                f'<div class="info-item"><span class="info-label">Strategy Data</span><span class="info-value">{data_str}</span></div>'
+                            )
+
+                    # Strategy config parameters (all of them)
+                    if config := strategy.get("config"):
+                        if isinstance(config, dict):
+                            for key, value in config.items():
+                                # Format the key nicely (convert snake_case to Title Case)
+                                label = key.replace("_", " ").title()
+                                info_items_strategy.append(
+                                    f'<div class="info-item"><span class="info-label">{label}</span><span class="info-value">{value}</span></div>'
+                                )
+
+            if info_items_strategy:
+                sections.append(
+                    f"""
+        <div class="info-section">
+            <h3>🎯 Strategy & Universe</h3>
+            <div class="info-grid">
+                {"".join(info_items_strategy)}
+            </div>
+        </div>
+        """
+                )
+
+        return "".join(sections)
 
     def _create_combined_chart(self, equity_curve: pd.DataFrame | None, drawdowns: pd.DataFrame | None) -> str:
         """Create combined equity curve and drawdown chart."""
