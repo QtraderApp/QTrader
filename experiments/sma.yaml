@@ -38,8 +38,8 @@ strategies:
     universe: ["AAPL"] # Symbols this strategy trades (subset of backtest universe)
     data_sources: ["yahoo-us-equity-1d-csv"] # Data feeds this strategy uses
     config: # Strategy-specific config overrides
-      fast_period: 20
-      slow_period: 50
+      fast_period: 10
+      slow_period: 20
       confidence: 1.0
       log_indicators: true # Enable indicator event logging
 
