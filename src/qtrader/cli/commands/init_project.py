@@ -96,10 +96,6 @@ def init_project_command(path: Path, force: bool) -> None:
         shutil.copy2(readme_src, readme_dst)
         created_items.append("QTRADER_README.md")
 
-    # Create output directory
-    (target_path / "output").mkdir(exist_ok=True)
-    created_items.append("output/")
-
     # Update config to point to local library
     _update_qtrader_config(target_path)
 
@@ -118,14 +114,20 @@ def init_project_command(path: Path, force: bool) -> None:
     # Next steps
     console.print("\n[bold]🚀 Quick Start:[/bold]")
     console.print("1. [cyan]cd " + (str(target_path) if target_path.name != "." else "# (already here)") + "[/cyan]")
-    console.print("2. [dim]# Review example strategies in library/strategies/[/dim]")
-    console.print("3. [dim]# Check example backtest configs in experiments/[/dim]")
-    console.print("4. [cyan]python examples/run_backtest.py experiments/buy_hold.yaml[/cyan]")
+    console.print("2. [dim]# Review example experiments in experiments/[/dim]")
+    console.print("3. [dim]# Check example strategies in library/strategies/[/dim]")
+    console.print("4. [cyan]qtrader backtest experiments/buy_hold[/cyan]")
     console.print("\n[bold]📚 What You Got:[/bold]")
+    console.print("• [green]2 example experiments[/green] (buy_hold, sma_crossover)")
     console.print("• [green]2 example strategies[/green] (buy & hold, SMA crossover)")
     console.print("• [green]Sample data[/green] (AAPL, limited history)")
     console.print("• [green]Complete configs[/green] (system, data sources)")
-    console.print("• [green]Custom library [/green] with examples")
+    console.print("• [green]Custom library[/green] with examples")
+    console.print("\n[bold]📊 Experiment Structure:[/bold]")
+    console.print("• Each experiment has its own directory: [cyan]experiments/{name}/[/cyan]")
+    console.print("• Config file matches directory: [cyan]{name}.yaml[/cyan]")
+    console.print("• Runs are isolated: [cyan]runs/{timestamp}/[/cyan]")
+    console.print("• Full provenance tracking with metadata")
     console.print("\n[dim]See QTRADER_README.md for full documentation[/dim]")
 
 
@@ -182,32 +184,33 @@ def _update_qtrader_config(project_path: Path) -> None:
     qtrader_config.write_text(content)
 
 
-def _display_project_structure(project_path: Path) -> None:
-    """Display project structure in a nice table."""
+def _display_project_structure(target_path: Path) -> None:
+    """Display the created project structure."""
     table = Table(title="Project Structure", show_header=True, header_style="bold cyan")
-    table.add_column("Directory/File", style="cyan")
-    table.add_column("Description", style="dim")
+    table.add_column("Component", style="cyan", no_wrap=True)
+    table.add_column("Description", style="white")
 
     structure = [
-        ("config/", "System and backtest configurations"),
-        ("  ├── qtrader.yaml", "System level settings (execution, portfolio)"),
-        ("  ├── data_sources.yaml", "Data source definitions"),
-        ("library/", "Your custom components"),
-        ("  ├── adapters/", "Custom adapters (examples included)"),
-        ("  ├── indicators/", "Custom indicators (template included)"),
-        ("  ├── strategies/", "Custom strategies (examples and template included)"),
-        ("  └── risk_policies/", "Custom risk policies (template included)"),
-        ("experiments/", "Experiment configurations"),
-        ("  ├── buy_hold.yaml", "Buy and hold experiment"),
-        ("  ├── sma.yaml", "SMA crossover experiment"),
-        ("  └── template.yaml", "Complete experiment template"),
-        ("data/", "Sample market data"),
-        ("examples/", "Example scripts and utilities"),
-        ("output/", "Backtest results"),
-        ("QTRADER_README.md", "QTrader project guide"),
+        ("config/", "System and data source configuration"),
+        ("  ├── system.yaml", "Main system configuration"),
+        ("  └── data_sources.yaml", "Data source definitions"),
+        ("experiments/", "Experiment configurations and runs"),
+        ("  ├── buy_hold/", "Buy and hold example experiment"),
+        ("  ├── sma_crossover/", "SMA crossover example experiment"),
+        ("  ├── template/", "Template for new experiments"),
+        ("  └── {name}/runs/", "Run artifacts (created on execution)"),
+        ("library/", "Custom implementations"),
+        ("  ├── strategies/", "Strategy implementations (2 examples)"),
+        ("  ├── adapters/", "Custom data adapters (1 example)"),
+        ("  ├── indicators/", "Custom indicators (template)"),
+        ("  └── risk_policies/", "Risk policies (template)"),
+        ("data/", "Market data storage"),
+        ("  ├── sample-csv/", "Sample data (AAPL, limited)"),
+        ("  └── us-equity-yahoo-csv/", "Yahoo CSV data location"),
+        ("QTRADER_README.md", "Complete project documentation"),
     ]
 
-    for item, desc in structure:
-        table.add_row(item, desc)
+    for component, description in structure:
+        table.add_row(component, description)
 
     console.print(table)

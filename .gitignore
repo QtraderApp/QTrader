@@ -4,7 +4,11 @@ library/
 data/
 output/
 logs/
-/examples/
+experiments/
+examples/
+QTRADER_README.md
+
+
 
 # IDE
 .vscode/
@@ -239,4 +243,5 @@ logs/*
 .~*
 
 
-QTRADER_README.md
+
+
