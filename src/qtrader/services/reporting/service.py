@@ -103,6 +103,7 @@ class ReportingService:
         self._bar_count = 0
         self._last_portfolio_state: PortfolioStateEvent | None = None
         self._strategy_ids: list[str] = []  # Track strategy IDs for CSV export
+        self._portfolio_states_history: dict[datetime, PortfolioStateEvent] = {}  # Historical snapshots
 
         # Calculators (stateful, incremental updates)
         self._equity_calc = EquityCurveCalculator(max_points=self.config.max_equity_points)
@@ -149,6 +150,11 @@ class ReportingService:
 
         self._bar_count += 1
         self._last_portfolio_state = event
+
+        # Store historical state for equity curve reconstruction
+        snapshot_dt_str = event.snapshot_datetime
+        snapshot_dt = datetime.fromisoformat(snapshot_dt_str.replace("Z", "+00:00"))
+        self._portfolio_states_history[snapshot_dt] = event
 
         # Initialize on first event
         if self._start_datetime is None:
@@ -781,6 +787,63 @@ class ReportingService:
             tracking_error=None,
         )
 
+    def _load_portfolio_states_from_events(self) -> dict[datetime, PortfolioStateEvent]:
+        """
+        Return historical portfolio state events cached during execution.
+
+        Returns:
+            Dictionary mapping snapshot_datetime to PortfolioStateEvent
+        """
+        if not self._portfolio_states_history:
+            self.logger.warning("portfolio_states.empty", fallback="using_last_state")
+        else:
+            self.logger.info(
+                "portfolio_states.available",
+                count=len(self._portfolio_states_history),
+                first=str(min(self._portfolio_states_history.keys())),
+                last=str(max(self._portfolio_states_history.keys())),
+            )
+
+        return self._portfolio_states_history
+
+    def _calculate_drawdown_at_timestamp(self, timestamp: datetime, equity: Decimal) -> Decimal:
+        """
+        Calculate drawdown percentage at specific timestamp.
+
+        Args:
+            timestamp: Timestamp to calculate drawdown for
+            equity: Equity value at timestamp
+
+        Returns:
+            Drawdown percentage (negative value)
+        """
+        peak = self._get_peak_equity_at_timestamp(timestamp)
+        if peak == Decimal("0"):
+            return Decimal("0")
+
+        dd = ((equity - peak) / peak) * Decimal("100")
+        return dd
+
+    def _get_peak_equity_at_timestamp(self, timestamp: datetime) -> Decimal:
+        """
+        Get peak equity up to given timestamp.
+
+        Args:
+            timestamp: Timestamp to get peak for
+
+        Returns:
+            Peak equity value
+        """
+        # Get all equity points up to this timestamp
+        peak = Decimal("0")
+        for ts, equity in self._equity_calc.get_curve():
+            if ts > timestamp:
+                break
+            if equity > peak:
+                peak = equity
+
+        return peak if peak > Decimal("0") else (self._initial_equity or Decimal("0"))
+
     def _write_outputs(self, metrics: "FullMetrics") -> None:
         """
         Write outputs to disk based on configuration.
@@ -805,20 +868,36 @@ class ReportingService:
             # Equity curve
             if self.config.include_equity_curve and self._last_portfolio_state:
                 equity_points = []
+
+                # Load historical portfolio states from event store
+                portfolio_states = self._load_portfolio_states_from_events()
+
                 for timestamp, equity in self._equity_calc.get_curve():
-                    # Find closest drawdown info
-                    dd_pct = self._drawdown_calc.current_drawdown_pct
-                    underwater = self._drawdown_calc.is_underwater
+                    # Find matching portfolio state by timestamp
+                    portfolio_state = portfolio_states.get(timestamp)
+
+                    if portfolio_state is None:
+                        # Fallback to last state if no match (shouldn't happen normally)
+                        portfolio_state = self._last_portfolio_state
+                        self.logger.warning(
+                            "equity_curve.missing_portfolio_state",
+                            timestamp=str(timestamp),
+                            using_fallback=True,
+                        )
+
+                    # Find drawdown info for this timestamp
+                    dd_pct = self._calculate_drawdown_at_timestamp(timestamp, equity)
+                    underwater = equity < self._get_peak_equity_at_timestamp(timestamp)
 
                     point = EquityCurvePoint(
                         timestamp=timestamp,
                         equity=equity,
-                        cash=self._last_portfolio_state.cash_balance,
-                        positions_value=self._last_portfolio_state.total_market_value,
-                        num_positions=sum(len(sg.positions) for sg in self._last_portfolio_state.strategies_groups),
-                        gross_exposure=self._last_portfolio_state.gross_exposure,
-                        net_exposure=self._last_portfolio_state.net_exposure,
-                        leverage=self._last_portfolio_state.leverage,
+                        cash=portfolio_state.cash_balance,
+                        positions_value=portfolio_state.total_market_value,
+                        num_positions=sum(len(sg.positions) for sg in portfolio_state.strategies_groups),
+                        gross_exposure=portfolio_state.gross_exposure,
+                        net_exposure=portfolio_state.net_exposure,
+                        leverage=portfolio_state.leverage,
                         drawdown_pct=dd_pct,
                         underwater=underwater,
                     )
@@ -1055,6 +1134,7 @@ class ReportingService:
         self._initial_equity = None
         self._bar_count = 0
         self._last_portfolio_state = None
+        self._portfolio_states_history = {}
 
         # Reset calculators
         self._equity_calc = EquityCurveCalculator(max_points=self.config.max_equity_points)
