@@ -71,20 +71,24 @@ class TestOutputConfig:
         config = OutputConfig()
 
         # Assert
-        assert config.default_results_dir == "output/backtests"
-        assert config.timestamp_format == "%Y%m%d_%H%M%S"
+        assert config.experiments_root == "experiments"
+        assert config.run_id_format == "%Y%m%d_%H%M%S"
+        assert config.capture_git_info is True
+        assert config.capture_environment is True
 
     def test_create_with_custom_values(self):
         """Test OutputConfig accepts custom values."""
         # Arrange & Act
         config = OutputConfig(
-            default_results_dir="results",
-            timestamp_format="%Y-%m-%d",
+            experiments_root="my_experiments",
+            run_id_format="%Y-%m-%d",
+            capture_git_info=False,
         )
 
         # Assert
-        assert config.default_results_dir == "results"
-        assert config.timestamp_format == "%Y-%m-%d"
+        assert config.experiments_root == "my_experiments"
+        assert config.run_id_format == "%Y-%m-%d"
+        assert config.capture_git_info is False
 
 
 class TestLoggingConfig:
@@ -181,7 +185,7 @@ class TestSystemConfig:
         """Test SystemConfig accepts custom sub-configs."""
         # Arrange
         custom_data = DataServiceConfig(default_timezone="UTC")
-        custom_output = OutputConfig(default_results_dir="results")
+        custom_output = OutputConfig(experiments_root="results")
         custom_logging = LoggingConfig(level="DEBUG")
 
         # Act
@@ -193,7 +197,7 @@ class TestSystemConfig:
 
         # Assert
         assert config.data.default_timezone == "UTC"
-        assert config.output.default_results_dir == "results"
+        assert config.output.experiments_root == "results"
         assert config.logging.level == "DEBUG"
 
     def test_has_minimal_config_sections(self):
@@ -226,7 +230,7 @@ class TestSystemConfigLoad:
 
         # Assert - Should have defaults
         assert config.data.sources_config == "config/data_sources.yaml"
-        assert config.output.default_results_dir == "output/backtests"
+        assert config.output.experiments_root == "experiments"
         assert config.logging.level == "INFO"
 
     def test_load_from_explicit_path(self, tmp_path):
@@ -239,7 +243,7 @@ data:
   price_decimals: 2
 
 output:
-  default_results_dir: custom/output
+  experiments_root: custom/output
 
 logging:
   level: DEBUG
@@ -251,7 +255,7 @@ logging:
 
         # Assert
         assert config.data.price_decimals == 2
-        assert config.output.default_results_dir == "custom/output"
+        assert config.output.experiments_root == "custom/output"
         assert config.logging.level == "DEBUG"
 
     def test_load_merges_partial_config(self, tmp_path):
@@ -278,7 +282,7 @@ logging:
         # Assert - Unspecified values use defaults
         assert config.data.sources_config == "config/data_sources.yaml"
         assert config.data.price_decimals == 4
-        assert config.output.default_results_dir == "output/backtests"
+        assert config.output.experiments_root == "experiments"
 
     def test_load_handles_empty_file(self, tmp_path):
         """Test load() handles empty YAML file gracefully."""
@@ -291,7 +295,7 @@ logging:
 
         # Assert - Should use all defaults
         assert config.data.default_timezone == "America/New_York"
-        assert config.output.default_results_dir == "output/backtests"
+        assert config.output.experiments_root == "experiments"
         assert config.logging.level == "INFO"
 
 
@@ -309,8 +313,8 @@ class TestSystemConfigFromDict:
                 "validate_on_load": False,
             },
             "output": {
-                "default_results_dir": "results",
-                "timestamp_format": "%Y-%m-%d",
+                "experiments_root": "results",
+                "run_id_format": "%Y-%m-%d",
             },
             "logging": {
                 "level": "DEBUG",
@@ -329,8 +333,8 @@ class TestSystemConfigFromDict:
         assert config.data.validate_on_load is False
 
         # Assert - Output
-        assert config.output.default_results_dir == "results"
-        assert config.output.timestamp_format == "%Y-%m-%d"
+        assert config.output.experiments_root == "results"
+        assert config.output.run_id_format == "%Y-%m-%d"
 
         # Assert - Logging
         assert config.logging.level == "DEBUG"
@@ -355,7 +359,7 @@ class TestSystemConfigFromDict:
         # Assert - Defaults for unspecified
         assert config.data.sources_config == "config/data_sources.yaml"
         assert config.data.price_decimals == 4
-        assert config.output.default_results_dir == "output/backtests"
+        assert config.output.experiments_root == "experiments"
         assert config.logging.level == "INFO"
 
     def test_from_dict_with_empty_dict_uses_all_defaults(self):
@@ -367,7 +371,7 @@ class TestSystemConfigFromDict:
         config = SystemConfig._from_dict(config_dict)
 
         # Assert
-        assert config.output.default_results_dir == "output/backtests"
+        assert config.output.experiments_root == "experiments"
         assert config.logging.level == "INFO"
 
 
@@ -589,13 +593,13 @@ data:
   validate_on_load: true
 
 output:
-  default_results_dir: output/backtests
-  timestamp_format: "%Y%m%d_%H%M%S"
+  experiments_root: experiments
+  run_id_format: "%Y%m%d_%H%M%S"
 
 logging:
   level: INFO
   format: console
-  timestamp_format: compact
+  run_id_format: compact
   enable_file: true
   file_path: logs/qtrader.log
   file_level: WARNING
@@ -611,7 +615,7 @@ logging:
 
         # Assert - All sections present
         assert config.data.sources_config == "config/sources.yaml"
-        assert config.output.default_results_dir == "output/backtests"
+        assert config.output.experiments_root == "experiments"
         assert config.logging.level == "INFO"
         assert config.logging.file_path == "logs/qtrader.log"
 
@@ -629,7 +633,7 @@ data:
   sources_config: ${QTRADER_DATA_DIR}/sources.yaml
 
 output:
-  default_results_dir: ${QTRADER_OUTPUT_DIR}
+  experiments_root: ${QTRADER_OUTPUT_DIR}
 
 logging:
   level: ${LOG_LEVEL}
@@ -641,5 +645,5 @@ logging:
 
         # Assert
         assert config.data.sources_config == "/custom/data/sources.yaml"
-        assert config.output.default_results_dir == "/custom/output"
+        assert config.output.experiments_root == "/custom/output"
         assert config.logging.level == "DEBUG"

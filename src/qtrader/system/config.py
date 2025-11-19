@@ -51,18 +51,23 @@ class EventStoreConfig:
 
 @dataclass
 class OutputConfig:
-    """Output and results configuration.
+    """Output and results configuration for experiment-based organization.
 
-    Directory structure: {default_results_dir}/{backtest_id}/{timestamp}/
-    Example: output/backtests/buy_and_hold/20251105_121348/
+    Directory structure: experiments/{experiment_id}/runs/{run_id}/
+    Example: experiments/momentum_strategy/runs/20251119_143022/
 
-    Timestamps are always used for run subdirectories to ensure uniqueness.
+    The run_id is generated using run_id_format (timestamp-based by default).
+    Each run is isolated with its own directory containing all artifacts.
     """
 
-    default_results_dir: str = "output/backtests"
-    timestamp_format: str = "%Y%m%d_%H%M%S"
+    experiments_root: str = "experiments"
+    run_id_format: str = "%Y%m%d_%H%M%S"
     display_format: Literal["line", "table"] = "line"
     event_store: EventStoreConfig = field(default_factory=EventStoreConfig)
+
+    # Metadata capture toggles
+    capture_git_info: bool = True
+    capture_environment: bool = True
 
 
 @dataclass
@@ -247,10 +252,12 @@ class SystemConfig:
         )
 
         output = OutputConfig(
-            default_results_dir=output_dict.get("default_results_dir", "output/backtests"),
-            timestamp_format=output_dict.get("timestamp_format", "%Y%m%d_%H%M%S"),
+            experiments_root=output_dict.get("experiments_root", output_dict.get("default_results_dir", "experiments")),
+            run_id_format=output_dict.get("run_id_format", output_dict.get("timestamp_format", "%Y%m%d_%H%M%S")),
             display_format=output_dict.get("display_format", "line"),
             event_store=event_store,
+            capture_git_info=output_dict.get("capture_git_info", True),
+            capture_environment=output_dict.get("capture_environment", True),
         )
 
         # Logging
