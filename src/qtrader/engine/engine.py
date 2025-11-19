@@ -771,6 +771,18 @@ class BacktestEngine:
                         error_type=type(e).__name__,
                     )
 
+            # Flush event store before reporting to ensure all events are written
+            # This is critical for Parquet backend which buffers events in memory
+            if self._event_store is not None and hasattr(self._event_store, "flush"):
+                try:
+                    self._event_store.flush()
+                    logger.debug("backtest.engine.event_store_flushed_before_reporting")
+                except Exception as e:
+                    logger.warning(
+                        "backtest.engine.event_store_flush_failed",
+                        error=str(e),
+                    )
+
             # Call reporting teardown after main loop
             if self._reporting_service is not None:
                 logger.info("backtest.reporting_teardown.starting")
