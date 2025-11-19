@@ -233,10 +233,6 @@ __marimo__/
 .streamlit/secrets.toml
 
 
-# QTrader specific
-output/*
-data/*
-logs/*
 
 
 # Editor backup files
