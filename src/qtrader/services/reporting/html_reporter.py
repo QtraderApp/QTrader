@@ -477,6 +477,18 @@ class HTMLReportGenerator:
         info_items_run.append(
             f'<div class="info-item"><span class="info-label">Final Equity</span><span class="info-value">${final_equity:,.2f}</span></div>'
         )
+
+        # Show actual date range processed (from performance data)
+        if actual_start := performance.get("start_date"):
+            info_items_run.append(
+                f'<div class="info-item"><span class="info-label">Actual Start Date</span><span class="info-value">{actual_start}</span></div>'
+            )
+
+        if actual_end := performance.get("end_date"):
+            info_items_run.append(
+                f'<div class="info-item"><span class="info-label">Actual End Date</span><span class="info-value">{actual_end}</span></div>'
+            )
+
         info_items_run.append(
             f'<div class="info-item"><span class="info-label">Duration</span><span class="info-value">{performance.get("duration_days", 0)} days</span></div>'
         )
@@ -516,12 +528,12 @@ class HTMLReportGenerator:
 
                 if start_date := backtest.get("start_date"):
                     info_items_config.append(
-                        f'<div class="info-item"><span class="info-label">Start Date</span><span class="info-value">{start_date[:10]}</span></div>'
+                        f'<div class="info-item"><span class="info-label">Requested Start</span><span class="info-value">{start_date[:10]}</span></div>'
                     )
 
                 if end_date := backtest.get("end_date"):
                     info_items_config.append(
-                        f'<div class="info-item"><span class="info-label">End Date</span><span class="info-value">{end_date[:10]}</span></div>'
+                        f'<div class="info-item"><span class="info-label">Requested End</span><span class="info-value">{end_date[:10]}</span></div>'
                     )
 
                 if strategy_adj := backtest.get("strategy_adjustment_mode"):
