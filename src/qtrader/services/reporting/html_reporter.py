@@ -1123,12 +1123,25 @@ class HTMLReportGenerator:
             return ""
 
     def _build_trades_table(self, trades: list[dict[str, Any]] | None, equity_curve: pd.DataFrame | None) -> str:
-        """Build trades table showing both closed and open trades."""
+        """Build trades table showing one row per trade (grouped by trade_id)."""
         if not trades:
             return ""
 
-        # Sort trades by entry timestamp
-        sorted_trades = sorted(trades, key=lambda t: t.get("entry_timestamp", ""))
+        # Group trades by trade_id and keep only the latest event per trade
+        # (closed status if available, otherwise the latest open status)
+
+        trades_by_id: dict[str, dict[str, Any]] = {}
+
+        for trade in trades:
+            trade_id = trade.get("trade_id", "")
+            status = trade.get("status", "")
+
+            # If we haven't seen this trade, or if this is a closed status, use it
+            if trade_id not in trades_by_id or status == "closed":
+                trades_by_id[trade_id] = trade
+
+        # Sort by entry timestamp
+        sorted_trades = sorted(trades_by_id.values(), key=lambda t: t.get("entry_timestamp", ""))
 
         rows = []
         for trade in sorted_trades:
@@ -1141,6 +1154,7 @@ class HTMLReportGenerator:
             exit_price = trade.get("exit_price")
             quantity = int(trade.get("current_quantity", 0))
             commission = float(trade.get("commission_total", 0))
+            realized_pnl = trade.get("realized_pnl")
             entry_time = trade.get("entry_timestamp", "")[:10] if trade.get("entry_timestamp") else ""
             exit_time = trade.get("exit_timestamp", "")[:10] if trade.get("exit_timestamp") else ""
 
@@ -1149,42 +1163,30 @@ class HTMLReportGenerator:
             exit_str = f"${float(exit_price):.2f}" if exit_price else "—"
 
             # Calculate PnL
-            if status == "closed" and exit_price:
-                exit_price_val = float(exit_price)
-                if side == "long":
-                    pnl = quantity * (exit_price_val - entry_price) - commission
-                else:
-                    pnl = quantity * (entry_price - exit_price_val) - commission
-                pnl_pct = (pnl / (entry_price * quantity)) * 100 if quantity > 0 else 0
+            if status == "closed" and realized_pnl is not None:
+                pnl = float(realized_pnl)
+                # Calculate percentage based on entry value (entry_price * original_quantity)
+                # Since quantity is 0 for closed trades, we need to calculate from realized_pnl
+                entry_value = abs(pnl + commission) if pnl != 0 else entry_price * 100  # Estimate
+                pnl_pct = (pnl / entry_value) * 100 if entry_value > 0 else 0
                 pnl_str = f"${pnl:,.2f}"
                 pnl_pct_str = f"({pnl_pct:+.2f}%)"
                 pnl_class = "positive" if pnl >= 0 else "negative"
                 status_badge = '<span class="badge success">Closed</span>'
+                quantity_str = "—"  # Closed trades have 0 quantity
             else:
-                # Open trade - calculate unrealized PnL if we have current price
-                if equity_curve is not None and len(equity_curve) > 0:
-                    # Get last available price for this symbol from equity curve
-                    # This is approximate; ideally we'd have current market price
-                    current_price = entry_price  # Fallback
-
-                    # Simple approximation: use equity change
-                    if side == "long":
-                        unrealized_pnl = quantity * (current_price - entry_price) - commission
-                    else:
-                        unrealized_pnl = quantity * (entry_price - current_price) - commission
-
-                    unrealized_pct = (unrealized_pnl / (entry_price * quantity)) * 100 if quantity > 0 else 0
-                    pnl_str = f"${unrealized_pnl:,.2f}"
-                    pnl_pct_str = f"({unrealized_pct:+.2f}%)"
-                    pnl_class = "positive" if unrealized_pnl >= 0 else "negative"
-                else:
-                    pnl_str = "—"
-                    pnl_pct_str = ""
-                    pnl_class = ""
+                # Open trade - show current quantity and unrealized P&L
+                # For open trades, P&L is negative commission (not yet realized)
+                pnl = -commission
+                pnl_pct = (pnl / (entry_price * quantity)) * 100 if quantity > 0 else 0
+                pnl_str = f"${pnl:,.2f}"
+                pnl_pct_str = f"({pnl_pct:+.2f}%)"
+                pnl_class = "negative"
                 status_badge = '<span class="badge warning">Open</span>'
+                quantity_str = f"{quantity:,}"
 
             row = f"""
-            <tr>
+            <tr style="font-size: 0.85em;">
                 <td>{trade_id}</td>
                 <td><strong>{symbol}</strong></td>
                 <td>{strategy}</td>
@@ -1192,9 +1194,9 @@ class HTMLReportGenerator:
                 <td style="text-align: center;">{side.upper()}</td>
                 <td>{entry_time}</td>
                 <td style="text-align: right;">{entry_str}</td>
-                <td>{exit_time}</td>
+                <td>{exit_time if exit_time else "—"}</td>
                 <td style="text-align: right;">{exit_str}</td>
-                <td style="text-align: right;">{quantity:,}</td>
+                <td style="text-align: right;">{quantity_str}</td>
                 <td style="text-align: right;">${commission:.2f}</td>
                 <td style="text-align: right;" class="{pnl_class}"><strong>{pnl_str}</strong> <small>{pnl_pct_str}</small></td>
             </tr>
@@ -1204,7 +1206,7 @@ class HTMLReportGenerator:
         return f"""
         <div class="chart-container">
             <div class="chart-title">💼 Trades</div>
-            <table>
+            <table style="font-size: 0.9em;">
                 <thead>
                     <tr>
                         <th>Trade ID</th>
