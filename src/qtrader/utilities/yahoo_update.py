@@ -291,6 +291,14 @@ def merge_data(existing_path: Path, new_data: Any, full_refresh: bool = False) -
         if new_rows.empty:
             return False  # No new data to add
 
+        # Ensure file ends with newline before appending
+        with existing_path.open("r+") as f:
+            f.seek(0, 2)  # Go to end of file
+            if f.tell() > 0:  # File is not empty
+                f.seek(f.tell() - 1)  # Go back one character
+                if f.read(1) != "\n":
+                    f.write("\n")
+
         # Append new rows
         with existing_path.open("a", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=["Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"])
