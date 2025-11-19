@@ -83,7 +83,14 @@ class HTMLReportGenerator:
         """Load a timeseries parquet file (returns None if not found)."""
         filepath = self.timeseries_dir / filename
         if filepath.exists():
-            return pd.read_parquet(filepath)
+            df = pd.read_parquet(filepath)
+
+            # Handle duplicate timestamps by keeping the last value for each timestamp
+            # This can occur when multiple portfolio state events are emitted at the same time
+            if "timestamp" in df.columns and df["timestamp"].duplicated().any():
+                df = df.drop_duplicates(subset=["timestamp"], keep="last")
+
+            return df
         return None
 
     def _build_html(
@@ -429,6 +436,9 @@ class HTMLReportGenerator:
         if equity_curve is None:
             return "<p>Equity curve data not available</p>"
 
+        # Reset index after deduplication to avoid gaps
+        equity_curve = equity_curve.reset_index(drop=True)
+
         # Create subplots
         fig = make_subplots(
             rows=2,
@@ -439,11 +449,11 @@ class HTMLReportGenerator:
             shared_xaxes=True,
         )
 
-        # Equity curve
+        # Equity curve - convert to lists to avoid pandas index issues
         fig.add_trace(
             go.Scatter(
-                x=equity_curve["timestamp"],
-                y=equity_curve["equity"],
+                x=equity_curve["timestamp"].tolist(),
+                y=equity_curve["equity"].tolist(),
                 mode="lines",
                 name="Portfolio Value",
                 line=dict(color="#667eea", width=2),
@@ -458,8 +468,8 @@ class HTMLReportGenerator:
         if "drawdown_pct" in equity_curve.columns:
             fig.add_trace(
                 go.Scatter(
-                    x=equity_curve["timestamp"],
-                    y=equity_curve["drawdown_pct"],
+                    x=equity_curve["timestamp"].tolist(),
+                    y=equity_curve["drawdown_pct"].tolist(),
                     mode="lines",
                     name="Drawdown %",
                     line=dict(color="#ef4444", width=2),
