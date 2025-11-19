@@ -6,7 +6,8 @@ output/
 logs/
 experiments/
 examples/
-QTRADER_README.md
+/QTRADER_README.md
+
 
 
 
@@ -241,7 +242,6 @@ logs/*
 # Editor backup files
 *~
 .~*
-
 
 
 
