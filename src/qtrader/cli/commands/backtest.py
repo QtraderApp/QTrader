@@ -88,8 +88,8 @@ def backtest_command(
     \b
     Output:
         - Displays backtest progress and results
-        - Event store location (if file-based backend in system.yaml)
-        - See config/system.yaml for event_store settings (sqlite/parquet/memory)
+        - Event store location (if file-based backend in qtrader.yaml)
+        - See config/qtrader.yaml for event_store settings (sqlite/parquet/memory)
     """
     try:
         # Header

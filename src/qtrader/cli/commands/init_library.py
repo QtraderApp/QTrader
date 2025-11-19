@@ -142,7 +142,7 @@ def init_library_command(path: Path, types: tuple[str, ...], force: bool) -> Non
     # Next steps
     console.print("\n[bold]Next steps:[/bold]")
     console.print("1. Edit the template files to implement your logic")
-    console.print("2. Update [cyan]config/system.yaml[/cyan] to point to your library:")
+    console.print("2. Update [cyan]config/qtrader.yaml[/cyan] to point to your library:")
     console.print("   [dim]custom_libraries:[/dim]")
     for comp_type in sorted(scaffold_types):
         if comp_type == "risk-policy":
@@ -196,7 +196,7 @@ This directory contains custom components for QTrader.
    - Add data loading logic to adapters
    - Configure risk parameters in YAML files
 
-2. **Update configuration** in `config/system.yaml`:
+2. **Update configuration** in `config/qtrader.yaml`:
 
 ```yaml
 custom_libraries:

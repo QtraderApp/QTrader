@@ -2,11 +2,11 @@
 Backtest Configuration Models.
 
 Philosophy: Clean separation of concerns
-- system.yaml: ALL service configurations (execution, risk, portfolio, data, etc.)
+- qtrader.yaml: ALL service configurations (execution, risk, portfolio, data, etc.)
 - backtest YAML: ONLY run parameters (dates, universe, capital) + strategies
 
 This module provides BacktestConfig for per-run parameters.
-Services get their configuration from SystemConfig (system.yaml).
+Services get their configuration from SystemConfig (qtrader.yaml).
 """
 
 import re

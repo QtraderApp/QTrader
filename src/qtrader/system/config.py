@@ -169,9 +169,9 @@ class SystemConfig:
 
         Configuration search order:
         1. Explicit config_path if provided
-        2. ./config/system.yaml (project-relative)
-        3. ./config/qtrader.yaml (legacy fallback)
-        4. ~/.qtrader/system.yaml (user home)
+        2. ./config/qtrader.yaml (project-relative)
+        3. ./config/system.yaml (legacy fallback)
+        4. ~/.qtrader/qtrader.yaml (user home)
         5. Built-in defaults (if no files found)
 
         Args:
@@ -195,18 +195,18 @@ class SystemConfig:
         if config_path:
             search_paths.append(config_path)
         else:
-            # Project-relative (new location)
-            project_config = Path("config/system.yaml")
+            # Project-relative (primary location)
+            project_config = Path("config/qtrader.yaml")
             if project_config.exists():
                 search_paths.append(project_config)
 
-            # Project-relative (legacy location)
-            legacy_config = Path("config/qtrader.yaml")
+            # Project-relative (legacy fallback)
+            legacy_config = Path("config/system.yaml")
             if legacy_config.exists():
                 search_paths.append(legacy_config)
 
             # User home
-            home_config = Path.home() / ".qtrader" / "system.yaml"
+            home_config = Path.home() / ".qtrader" / "qtrader.yaml"
             if home_config.exists():
                 search_paths.append(home_config)
 

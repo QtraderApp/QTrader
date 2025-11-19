@@ -5,7 +5,7 @@ RiskConfig dataclasses.
 
 Search Order:
 1. Built-in policies: src/qtrader/libraries/risk/builtin/{name}.yaml
-2. Custom policies: {custom_libraries.risk_policies}/{name}.yaml (from system.yaml)
+2. Custom policies: {custom_libraries.risk_policies}/{name}.yaml (from qtrader.yaml)
 
 Design Principles:
 - Clear error messages for missing/invalid policies
@@ -110,7 +110,7 @@ def load_policy(name: str, custom_path: str | None = None) -> RiskConfig:
         custom_path_msg = (
             f"  3. Custom: {custom_policy_path}\n"
             if custom_policy_path
-            else "  3. Custom: (not configured - set custom_libraries.risk_policies in system.yaml)\n"
+            else "  3. Custom: (not configured - set custom_libraries.risk_policies in qtrader.yaml)\n"
         )
         raise FileNotFoundError(
             f"Policy '{name}' not found. Searched:\n"
