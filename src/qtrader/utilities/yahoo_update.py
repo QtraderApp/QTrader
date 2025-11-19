@@ -11,6 +11,9 @@ Features:
 - Dividend tracking: Maintains dividends_calendar.csv for all symbols
 - Multi-symbol support: Updates all CSV files in the directory
 - Error handling: Continues processing other symbols if one fails
+- Rate limiting: Prevents API blacklisting with configurable request throttling
+- Retry logic: Exponential backoff for transient failures and rate limit errors
+- Batch processing: Processes symbols in batches with pauses to avoid sustained high load
 
 CSV Format (per symbol):
     Date,Open,High,Low,Close,Adj Close,Volume
@@ -47,17 +50,54 @@ import argparse
 import csv
 import json
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+import yaml
 import yfinance as yf  # type: ignore[import-untyped]
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 console = Console()
+
+# ==============================================================================
+# RATE LIMITING CONFIGURATION
+# ==============================================================================
+# Yahoo Finance has undocumented rate limits. Exceeding these limits can result
+# in temporary IP blacklisting (typically 1-24 hours). This configuration implements
+# a conservative multi-layer approach to prevent blacklisting:
+#
+# Layer 1: Per-Request Throttling
+#   - Enforces minimum time between individual API requests
+#   - 20 requests/minute = 1 request every 3 seconds
+#
+# Layer 2: Batch Processing
+#   - Groups symbols into batches with mandatory pauses between batches
+#   - 50 symbols per batch with 30-second pause between batches
+#   - Prevents sustained high-frequency requests
+#
+# Layer 3: Exponential Backoff Retry
+#   - Automatically retries transient failures and rate limit errors
+#   - Delay doubles with each retry: 5s, 10s, 20s
+#   - Detects common rate limit indicators: "429", "rate limit", "too many requests"
+#
+# These limits are conservative and can be adjusted based on actual API behavior.
+# Monitor for 429 errors or connection failures and adjust REQUESTS_PER_MINUTE down if needed.
+# ==============================================================================
+
+REQUESTS_PER_MINUTE = 20  # Conservative limit for Yahoo Finance API
+MIN_REQUEST_INTERVAL = 60.0 / REQUESTS_PER_MINUTE  # Seconds between requests (3.0s)
+MAX_RETRIES = 3  # Maximum retry attempts on failure
+RETRY_DELAY = 5.0  # Initial delay before retry (exponential backoff)
+BATCH_SIZE = 50  # Process symbols in batches with longer pauses between batches
+BATCH_PAUSE = 30.0  # Seconds to pause between batches
+
+# Global state for rate limiting (module-level to persist across function calls)
+_last_request_time: float = 0.0
 
 
 def is_market_closed() -> bool:
@@ -118,14 +158,23 @@ def get_existing_date_range(csv_path: Path) -> Optional[Tuple[str, str]]:
         return None
 
 
-def fetch_yahoo_data(symbol: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Tuple[Any, Any]:
+def fetch_yahoo_data(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    retry_count: int = 0,
+) -> Tuple[Any, Any]:
     """
-    Fetch OHLCV and dividend data from Yahoo Finance.
+    Fetch OHLCV and dividend data from Yahoo Finance with retry logic.
+
+    Implements exponential backoff retry strategy to handle transient failures
+    and rate limiting from Yahoo Finance API.
 
     Args:
         symbol: Ticker symbol
         start_date: Start date (ISO format YYYY-MM-DD), or None for all available
         end_date: End date (ISO format YYYY-MM-DD), or None for safe date (excludes today if market open)
+        retry_count: Current retry attempt (used internally for exponential backoff)
 
     Returns:
         Tuple of (price_df, dividends_series) or (None, None) on error
@@ -168,8 +217,25 @@ def fetch_yahoo_data(symbol: str, start_date: Optional[str] = None, end_date: Op
         return price_data, dividends if not dividends.empty else None
 
     except Exception as e:
-        console.print(f"[red]Error fetching {symbol}: {e}[/red]")
-        return None, None
+        error_msg = str(e).lower()
+
+        # Check if error is rate limiting or transient
+        is_retryable = any(
+            keyword in error_msg
+            for keyword in ["rate limit", "too many requests", "429", "connection", "timeout", "temporarily"]
+        )
+
+        if is_retryable and retry_count < MAX_RETRIES:
+            # Exponential backoff: delay increases with each retry
+            delay = RETRY_DELAY * (2**retry_count)
+            console.print(
+                f"[yellow]Rate limit or transient error for {symbol}, retrying in {delay:.1f}s (attempt {retry_count + 1}/{MAX_RETRIES})...[/yellow]"
+            )
+            time.sleep(delay)
+            return fetch_yahoo_data(symbol, start_date, end_date, retry_count + 1)
+        else:
+            console.print(f"[red]Error fetching {symbol}: {e}[/red]")
+            return None, None
 
 
 def merge_data(existing_path: Path, new_data: Any, full_refresh: bool = False) -> bool:
@@ -300,9 +366,10 @@ def update_symbol(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     full_refresh: bool = False,
+    rate_limit: bool = True,
 ) -> Dict[str, Any]:
     """
-    Update data for a single symbol.
+    Update data for a single symbol with rate limiting.
 
     Args:
         symbol: Ticker symbol
@@ -311,10 +378,23 @@ def update_symbol(
         start_date: Override start date
         end_date: Override end date
         full_refresh: Force full data refresh
+        rate_limit: If True, enforces minimum delay between API requests
 
     Returns:
         Dict with update status and stats
     """
+    global _last_request_time
+
+    # Rate limiting: enforce minimum time between requests
+    if rate_limit and _last_request_time > 0:
+        elapsed = time.time() - _last_request_time
+        if elapsed < MIN_REQUEST_INTERVAL:
+            time.sleep(MIN_REQUEST_INTERVAL - elapsed)
+
+    # Track request time for rate limiting
+    if rate_limit:
+        _last_request_time = time.time()
+
     csv_path = data_dir / f"{symbol}.csv"
     result = {
         "symbol": symbol,
@@ -423,6 +503,74 @@ def discover_symbols(data_dir: Path) -> List[str]:
     return sorted(symbols)
 
 
+def load_data_sources_config() -> Optional[Dict[str, Any]]:
+    """
+    Load data_sources.yaml configuration file.
+
+    Searches for data_sources.yaml in:
+    1. ./config/data_sources.yaml (project-relative)
+    2. ~/.qtrader/data_sources.yaml (user home)
+
+    Returns:
+        Dictionary with data sources configuration, or None if not found
+    """
+    # Get project root (4 levels up from this file)
+    script_path = Path(__file__).resolve()
+    project_root = script_path.parent.parent.parent.parent
+
+    config_paths = [
+        project_root / "config" / "data_sources.yaml",
+        Path.home() / ".qtrader" / "data_sources.yaml",
+    ]
+
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                with config_path.open("r") as f:
+                    cfg: Any = yaml.safe_load(f)
+                    if isinstance(cfg, dict):
+                        return cfg
+            except Exception as e:
+                console.print(f"[yellow]Warning: Could not read {config_path}: {e}[/yellow]")
+
+    return None
+
+
+def get_yahoo_data_dir(source_name: str = "yahoo-us-equity-1d-csv") -> Optional[Path]:
+    """
+    Get data directory path for Yahoo Finance dataset from data_sources.yaml.
+
+    Args:
+        source_name: Name of the data source in data_sources.yaml
+
+    Returns:
+        Path to data directory, or None if not found in config
+    """
+    config = load_data_sources_config()
+    if config is None:
+        return None
+
+    # Get the data source configuration
+    sources = config.get("data_sources", {})
+    if source_name not in sources:
+        return None
+
+    source_config = sources[source_name]
+    root_path = source_config.get("root_path")
+    if not root_path:
+        return None
+
+    # Resolve path (make absolute if relative)
+    data_dir = Path(root_path)
+    if not data_dir.is_absolute():
+        # Assume relative to project root
+        script_path = Path(__file__).resolve()
+        project_root = script_path.parent.parent.parent.parent
+        data_dir = project_root / root_path
+
+    return data_dir
+
+
 def main():
     """Main entry point for the update script."""
     parser = argparse.ArgumentParser(
@@ -430,11 +578,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Update all symbols from universe.json
+  # Update all symbols from universe.json (uses data_sources.yaml for path)
   python -m qtrader.utilities.yahoo_update
 
   # Update specific symbols
   python -m qtrader.utilities.yahoo_update AAPL MSFT
+
+  # Use different data source from data_sources.yaml
+  python -m qtrader.utilities.yahoo_update --data-source yahoo-us-equity-1d-csv
+
+  # Override data directory path
+  python -m qtrader.utilities.yahoo_update --data-dir /path/to/data
 
   # Update with date range
   python -m qtrader.utilities.yahoo_update --start 2020-01-01 --end 2024-12-31
@@ -442,27 +596,53 @@ Examples:
   # Force full refresh
   python -m qtrader.utilities.yahoo_update --full-refresh
 
-Note: If universe.json is not found, the script will discover symbols from existing CSV files.
+Note: By default, reads data directory from data_sources.yaml. If universe.json is not
+found in the data directory, the script will discover symbols from existing CSV files.
         """,
     )
     parser.add_argument("symbols", nargs="*", help="Symbols to update (default: from universe.json or all CSV files)")
     parser.add_argument("--start", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", help="End date (YYYY-MM-DD)")
     parser.add_argument("--full-refresh", action="store_true", help="Re-download all data")
-    parser.add_argument("--data-dir", default="data/us-equity-yahoo-csv", help="Data directory")
+    parser.add_argument(
+        "--data-source",
+        default="yahoo-us-equity-1d-csv",
+        help="Data source name from data_sources.yaml (default: yahoo-us-equity-1d-csv)",
+    )
+    parser.add_argument(
+        "--data-dir",
+        help="Override data directory path (default: read from data_sources.yaml)",
+    )
 
     args = parser.parse_args()
 
     # Resolve data directory
-    data_dir = Path(args.data_dir)
-    if not data_dir.is_absolute():
-        # Assume relative to project root
-        script_path = Path(__file__).resolve()
-        project_root = script_path.parent.parent.parent.parent
-        data_dir = project_root / args.data_dir
+    if args.data_dir:
+        # Use explicit override
+        data_dir = Path(args.data_dir)
+        if not data_dir.is_absolute():
+            # Assume relative to project root
+            script_path = Path(__file__).resolve()
+            project_root = script_path.parent.parent.parent.parent
+            data_dir = project_root / args.data_dir
+        console.print(f"[dim]Using explicit data directory: {data_dir}[/dim]")
+    else:
+        # Load from data_sources.yaml
+        data_dir = get_yahoo_data_dir(args.data_source)
+        if data_dir is None:
+            console.print(
+                f"[yellow]Could not find '{args.data_source}' in data_sources.yaml, using default path[/yellow]"
+            )
+            # Fallback to default
+            script_path = Path(__file__).resolve()
+            project_root = script_path.parent.parent.parent.parent
+            data_dir = project_root / "data" / "us-equity-yahoo-csv"
+        else:
+            console.print(f"[dim]Loaded data directory from data_sources.yaml: {data_dir}[/dim]")
 
     if not data_dir.exists():
         console.print(f"[red]Error: Data directory not found: {data_dir}[/red]")
+        console.print("[yellow]Tip: Check data_sources.yaml or use --data-dir to specify path[/yellow]")
         sys.exit(1)
 
     universe_path = data_dir / "universe.json"
@@ -501,8 +681,19 @@ Note: If universe.json is not found, the script will discover symbols from exist
             console.print(f"[green]Market is closed - including today's data (end date: {safe_date})[/green]")
     console.print()
 
-    # Update symbols with progress bar
+    # Update symbols with progress bar and batch processing
     results = []
+    total_symbols = len(symbols)
+    num_batches = (total_symbols + BATCH_SIZE - 1) // BATCH_SIZE
+
+    console.print(f"[dim]Processing {total_symbols} symbols in {num_batches} batch(es) of up to {BATCH_SIZE}[/dim]")
+    console.print(
+        f"[dim]Rate limit: {REQUESTS_PER_MINUTE} requests/minute ({MIN_REQUEST_INTERVAL:.2f}s between requests)[/dim]"
+    )
+    if num_batches > 1:
+        console.print(f"[dim]Batch pause: {BATCH_PAUSE:.0f}s between batches to avoid rate limiting[/dim]")
+    console.print()
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -511,20 +702,36 @@ Note: If universe.json is not found, the script will discover symbols from exist
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("[cyan]Updating symbols...", total=len(symbols))
+        task = progress.add_task("[cyan]Updating symbols...", total=total_symbols)
 
-        for symbol in symbols:
-            progress.update(task, description=f"[cyan]Updating {symbol}...")
-            result = update_symbol(
-                symbol,
-                data_dir,
-                dividends_path,
-                start_date=args.start,
-                end_date=args.end,
-                full_refresh=args.full_refresh,
-            )
-            results.append(result)
-            progress.advance(task)
+        # Process symbols in batches
+        for batch_num in range(num_batches):
+            start_idx = batch_num * BATCH_SIZE
+            end_idx = min(start_idx + BATCH_SIZE, total_symbols)
+            batch_symbols = symbols[start_idx:end_idx]
+
+            # Update each symbol in batch
+            for symbol in batch_symbols:
+                progress.update(task, description=f"[cyan]Batch {batch_num + 1}/{num_batches}: Updating {symbol}...")
+                result = update_symbol(
+                    symbol,
+                    data_dir,
+                    dividends_path,
+                    start_date=args.start,
+                    end_date=args.end,
+                    full_refresh=args.full_refresh,
+                    rate_limit=True,
+                )
+                results.append(result)
+                progress.advance(task)
+
+            # Pause between batches (except after last batch)
+            if batch_num < num_batches - 1:
+                progress.update(
+                    task,
+                    description=f"[yellow]Pausing {BATCH_PAUSE:.0f}s before next batch to avoid rate limiting...[/yellow]",
+                )
+                time.sleep(BATCH_PAUSE)
 
     # Display results
     console.print("\n[bold]Update Summary:[/bold]\n")
