@@ -139,6 +139,12 @@ class ReportingConfigItem(BaseModel):
         default=True,
         description="Display rich-formatted performance report in console at end of backtest",
     )
+
+    # HTML report
+    write_html_report: bool = Field(
+        default=True,
+        description="Generate standalone HTML report with interactive charts",
+    )
     report_detail_level: str = Field(
         default="full",
         description="Report detail level: 'summary' (basic metrics), 'standard' (+ risk metrics), 'full' (+ period breakdowns)",

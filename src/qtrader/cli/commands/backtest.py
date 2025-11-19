@@ -59,6 +59,11 @@ console = Console()
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
     help="Set logging level (DEBUG shows all initialization details)",
 )
+@click.option(
+    "--html-report/--no-html-report",
+    default=True,
+    help="Generate interactive HTML report (default: enabled)",
+)
 def backtest_command(
     config_path: Path,
     config_file_deprecated: Optional[Path],
@@ -67,6 +72,7 @@ def backtest_command(
     start_date: Optional[datetime],
     end_date: Optional[datetime],
     log_level: Optional[str],
+    html_report: bool,
 ):
     """
     Run a backtest from experiment directory or configuration file.
@@ -198,6 +204,10 @@ def backtest_command(
 
         if end_date:
             config.end_date = end_date
+
+        # Apply HTML report setting
+        if config.reporting:
+            config.reporting.write_html_report = html_report
 
         # Display config summary
         console.print(f"  Backtest ID: [yellow]{config.backtest_id}[/yellow]")

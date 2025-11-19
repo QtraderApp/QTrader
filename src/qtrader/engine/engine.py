@@ -508,6 +508,7 @@ class BacktestEngine:
                     display_final_report=config.reporting.display_final_report,
                     report_detail_level=config.reporting.report_detail_level,  # type: ignore[arg-type]
                     benchmark_symbol=config.reporting.benchmark_symbol,
+                    write_html_report=config.reporting.write_html_report,
                 )
 
                 reporting_service = ReportingService(

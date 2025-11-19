@@ -894,6 +894,21 @@ class ReportingService:
                             error_type=type(e).__name__,
                         )
 
+        # Write HTML report
+        if self.config.write_html_report:
+            try:
+                from qtrader.services.reporting.html_reporter import HTMLReportGenerator
+
+                html_gen = HTMLReportGenerator(output_path)
+                report_path = html_gen.generate()
+                self.logger.info("html_report.generated", path=str(report_path))
+            except Exception as e:
+                self.logger.error(
+                    "html_report.generation_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+
     def _write_metadata(self, context: dict) -> None:
         """
         Write backtest metadata to JSON file.

@@ -95,6 +95,12 @@ class ReportingConfig(BaseModel):
         description="Report detail level: 'summary', 'standard', 'full'",
     )
 
+    # HTML report output
+    write_html_report: bool = Field(
+        default=True,
+        description="Generate standalone HTML report with interactive charts",
+    )
+
     # Period breakdowns (always calculated, per user decision 3)
     calculate_monthly: bool = Field(
         default=True,

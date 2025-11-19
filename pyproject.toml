@@ -47,6 +47,8 @@ dependencies = [
     "jsonschema>=4.25.1",
     # Logging
     "structlog>=24.4.0",
+    # Visualization
+    "plotly>=5.0.0",
     # Market data
     "yfinance>=0.2.66",
 ]
@@ -76,6 +78,7 @@ dev = [
     "types-pyyaml>=6.0.12.20250915",
     "types-requests>=2.32.4.20250913",
     "types-jsonschema>=4.25.1.20251009",
+    "plotly-stubs>=0.0.6",
 ]
 
 ################################################################################
