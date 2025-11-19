@@ -4,7 +4,7 @@ library/
 data/
 output/
 logs/
-experiments/
+/experiments/
 examples/
 /QTRADER_README.md
 
