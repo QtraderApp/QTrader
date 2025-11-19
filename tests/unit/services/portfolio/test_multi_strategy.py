@@ -340,7 +340,7 @@ class TestMultiStrategyAttribution:
         # $0.82 dividend per share
         service.process_dividend(
             symbol="AAPL",
-            ex_date=timestamp,
+            effective_date=timestamp,
             amount_per_share=Decimal("0.82"),
         )
 

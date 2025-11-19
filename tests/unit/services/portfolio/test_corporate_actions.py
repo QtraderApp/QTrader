@@ -273,8 +273,8 @@ class TestDividends:
         initial_cash = service.get_cash()
 
         # Process dividend: $0.82 per share
-        ex_date = timestamp.replace(day=20)
-        service.process_dividend(symbol="AAPL", ex_date=ex_date, amount_per_share=Decimal("0.82"))
+        effective_date = timestamp.replace(day=20)
+        service.process_dividend(symbol="AAPL", effective_date=effective_date, amount_per_share=Decimal("0.82"))
 
         # Cash should increase by $82 (100 * $0.82)
         expected_cash = initial_cash + Decimal("82.00")
@@ -312,8 +312,8 @@ class TestDividends:
         initial_cash = service.get_cash()
 
         # Process dividend: $1.50 per share (short position pays)
-        ex_date = timestamp.replace(day=20)
-        service.process_dividend(symbol="TSLA", ex_date=ex_date, amount_per_share=Decimal("1.50"))
+        effective_date = timestamp.replace(day=20)
+        service.process_dividend(symbol="TSLA", effective_date=effective_date, amount_per_share=Decimal("1.50"))
 
         # Cash should decrease by $75 (-50 * $1.50 = -$75)
         expected_cash = initial_cash - Decimal("75.00")
@@ -362,9 +362,9 @@ class TestDividends:
         initial_cash = service.get_cash()
 
         # Process dividends
-        ex_date = timestamp.replace(day=20)
-        service.process_dividend(symbol="AAPL", ex_date=ex_date, amount_per_share=Decimal("0.82"))
-        service.process_dividend(symbol="MSFT", ex_date=ex_date, amount_per_share=Decimal("2.24"))
+        effective_date = timestamp.replace(day=20)
+        service.process_dividend(symbol="AAPL", effective_date=effective_date, amount_per_share=Decimal("0.82"))
+        service.process_dividend(symbol="MSFT", effective_date=effective_date, amount_per_share=Decimal("2.24"))
 
         # Total dividends: $82 (AAPL) + $112 (MSFT) = $194
         expected_cash = initial_cash + Decimal("194.00")
@@ -391,7 +391,7 @@ class TestDividends:
         )
 
         with pytest.raises(ValueError, match="cannot be negative"):
-            service.process_dividend(symbol="AAPL", ex_date=timestamp, amount_per_share=Decimal("-0.82"))
+            service.process_dividend(symbol="AAPL", effective_date=timestamp, amount_per_share=Decimal("-0.82"))
 
     def test_dividend_no_position(
         self,
@@ -402,7 +402,7 @@ class TestDividends:
         initial_cash = service.get_cash()
 
         # Should not raise, just log and return
-        service.process_dividend(symbol="AAPL", ex_date=timestamp, amount_per_share=Decimal("0.82"))
+        service.process_dividend(symbol="AAPL", effective_date=timestamp, amount_per_share=Decimal("0.82"))
 
         # Verify cash unchanged
         assert service.get_cash() == initial_cash

@@ -959,7 +959,7 @@ class PortfolioService:
     def process_dividend(
         self,
         symbol: str,
-        ex_date: datetime,
+        effective_date: datetime,
         amount_per_share: Decimal,
     ) -> None:
         """
@@ -974,7 +974,7 @@ class PortfolioService:
 
         Args:
             symbol: Symbol paying dividend
-            ex_date: Ex-dividend date
+            effective_date: Effective date when dividend is applied to accounts
             amount_per_share: Dividend per share
 
         Raises:
@@ -996,7 +996,7 @@ class PortfolioService:
             logger.debug(
                 "portfolio_service.dividend_skipped",
                 symbol=symbol,
-                ex_date=ex_date.isoformat(),
+                effective_date=effective_date.isoformat(),
                 amount_per_share=str(amount_per_share),
                 reason="Using total-return adjusted prices - dividends already reflected in price appreciation",
                 adjustment_mode=self._adjustment_mode,
@@ -1094,8 +1094,8 @@ class PortfolioService:
 
             # Create ledger entry
             entry = LedgerEntry(
-                entry_id=f"{strategy_id}_{symbol}_dividend_{ex_date.isoformat()}",
-                timestamp=ex_date,
+                entry_id=f"{strategy_id}_{symbol}_dividend_{effective_date.isoformat()}",
+                timestamp=effective_date,
                 entry_type=LedgerEntryType.DIVIDEND,
                 symbol=symbol,
                 quantity=position.quantity,
@@ -2046,8 +2046,8 @@ class PortfolioService:
         """
         from datetime import datetime
 
-        # Convert ISO8601 date string to datetime (ex_date is the relevant date)
-        ex_date_dt = datetime.fromisoformat(event.ex_date)
+        # Convert ISO8601 effective_date to datetime for applying corporate actions
+        effective_date_dt = datetime.fromisoformat(event.effective_date)
 
         # Dispatch based on action type - extensible design
         if event.action_type.lower() == "split":
@@ -2061,7 +2061,7 @@ class PortfolioService:
 
             self.process_split(
                 symbol=event.symbol,
-                split_date=ex_date_dt,
+                split_date=effective_date_dt,  # Use effective_date for splits
                 ratio=event.split_ratio,
             )
 
@@ -2076,7 +2076,7 @@ class PortfolioService:
 
             self.process_dividend(
                 symbol=event.symbol,
-                ex_date=ex_date_dt,
+                effective_date=effective_date_dt,  # Use effective_date for dividends
                 amount_per_share=event.dividend_amount,
             )
 

@@ -103,7 +103,7 @@ class TestPortfolioServiceSplitAdjusted:
         # Process dividend
         portfolio.process_dividend(
             symbol="AAPL",
-            ex_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
+            effective_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
             amount_per_share=Decimal("0.82"),
         )
 
@@ -151,11 +151,11 @@ class TestPortfolioServiceTotalReturn:
         # Process dividend
         portfolio.process_dividend(
             symbol="AAPL",
-            ex_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
+            effective_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
             amount_per_share=Decimal("0.82"),
         )
 
-        # Cash should NOT change (dividend already in close_adj)
+        # Cash should NOT change (total_return mode skips dividends)
         assert portfolio._cash == initial_cash
         assert portfolio._total_dividends_received == Decimal("0.00")
 
@@ -185,7 +185,7 @@ class TestPortfolioServiceTotalReturn:
         # Process dividend
         portfolio.process_dividend(
             symbol="AAPL",
-            ex_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
+            effective_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
             amount_per_share=Decimal("0.82"),
         )
 
@@ -243,7 +243,7 @@ class TestPortfolioDividendDoubleCounting:
         # Process dividend (should be skipped)
         portfolio.process_dividend(
             symbol="AAPL",
-            ex_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
+            effective_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
             amount_per_share=Decimal("0.82"),
         )
 
