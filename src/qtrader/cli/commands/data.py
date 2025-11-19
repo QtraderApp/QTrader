@@ -127,7 +127,7 @@ def raw_data(symbol: str, start_date: str, end_date: str, dataset: str):
     """
     Browse raw unadjusted historical data bars interactively.
 
-    Displays data exactly as provided by the source (unadjusted prices).
+    Displays data exactly as provided by the source.
     Press ENTER to display next bar, CTRL+C to exit.
 
     Example:
