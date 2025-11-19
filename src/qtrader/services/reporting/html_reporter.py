@@ -1127,36 +1127,46 @@ class HTMLReportGenerator:
         if not trades:
             return ""
 
-        # Group trades by trade_id and keep only the latest event per trade
-        # (closed status if available, otherwise the latest open status)
+        # Group trades by trade_id, keeping both open and closed events
+        # We need the open event to get original quantity
+        from collections import defaultdict
 
-        trades_by_id: dict[str, dict[str, Any]] = {}
+        trades_by_id: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
 
         for trade in trades:
             trade_id = trade.get("trade_id", "")
             status = trade.get("status", "")
+            trades_by_id[trade_id][status] = trade
 
-            # If we haven't seen this trade, or if this is a closed status, use it
-            if trade_id not in trades_by_id or status == "closed":
-                trades_by_id[trade_id] = trade
-
-        # Sort by entry timestamp
-        sorted_trades = sorted(trades_by_id.values(), key=lambda t: t.get("entry_timestamp", ""))
+        # Sort by entry timestamp (use closed event if available, else open)
+        sorted_trade_ids = sorted(
+            trades_by_id.keys(),
+            key=lambda tid: trades_by_id[tid]
+            .get("closed", trades_by_id[tid].get("open", {}))
+            .get("entry_timestamp", ""),
+        )
 
         rows = []
-        for trade in sorted_trades:
-            trade_id = trade.get("trade_id", "")
+        for trade_id in sorted_trade_ids:
+            trade_events = trades_by_id[trade_id]
+
+            # Use closed event if available, otherwise open
+            trade = trade_events.get("closed", trade_events.get("open", {}))
+            open_trade = trade_events.get("open", {})
+
             symbol = trade.get("symbol", "")
             strategy = trade.get("strategy_id", "")
             side = trade.get("side", "")
             status = trade.get("status", "")
             entry_price = float(trade.get("entry_price", 0))
             exit_price = trade.get("exit_price")
-            quantity = int(trade.get("current_quantity", 0))
             commission = float(trade.get("commission_total", 0))
             realized_pnl = trade.get("realized_pnl")
             entry_time = trade.get("entry_timestamp", "")[:10] if trade.get("entry_timestamp") else ""
             exit_time = trade.get("exit_timestamp", "")[:10] if trade.get("exit_timestamp") else ""
+
+            # Get original quantity from open event
+            original_quantity = int(open_trade.get("current_quantity", 0))
 
             # Format entry/exit prices
             entry_str = f"${entry_price:.2f}"
@@ -1165,25 +1175,24 @@ class HTMLReportGenerator:
             # Calculate PnL
             if status == "closed" and realized_pnl is not None:
                 pnl = float(realized_pnl)
-                # Calculate percentage based on entry value (entry_price * original_quantity)
-                # Since quantity is 0 for closed trades, we need to calculate from realized_pnl
-                entry_value = abs(pnl + commission) if pnl != 0 else entry_price * 100  # Estimate
-                pnl_pct = (pnl / entry_value) * 100 if entry_value > 0 else 0
+                # Calculate percentage based on entry cost (entry_price × original_quantity)
+                entry_cost = entry_price * original_quantity
+                pnl_pct = (pnl / entry_cost) * 100 if entry_cost > 0 else 0
                 pnl_str = f"${pnl:,.2f}"
                 pnl_pct_str = f"({pnl_pct:+.2f}%)"
                 pnl_class = "positive" if pnl >= 0 else "negative"
                 status_badge = '<span class="badge success">Closed</span>'
-                quantity_str = "—"  # Closed trades have 0 quantity
+                quantity_str = f"{original_quantity:,}"  # Show original quantity
             else:
                 # Open trade - show current quantity and unrealized P&L
                 # For open trades, P&L is negative commission (not yet realized)
                 pnl = -commission
-                pnl_pct = (pnl / (entry_price * quantity)) * 100 if quantity > 0 else 0
+                pnl_pct = (pnl / (entry_price * original_quantity)) * 100 if original_quantity > 0 else 0
                 pnl_str = f"${pnl:,.2f}"
                 pnl_pct_str = f"({pnl_pct:+.2f}%)"
                 pnl_class = "negative"
                 status_badge = '<span class="badge warning">Open</span>'
-                quantity_str = f"{quantity:,}"
+                quantity_str = f"{original_quantity:,}"
 
             row = f"""
             <tr style="font-size: 0.85em;">
