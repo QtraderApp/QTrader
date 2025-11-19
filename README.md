@@ -157,9 +157,9 @@ Suggested Workflow:
 - Step 2. Create a baseline backtest YAML (canonical scenario).
 - Step 3. Duplicate YAML into variants (e.g., `sma_fast.yaml`, `sma_large_universe.yaml`) changing only experiment-specific fields.
 - Step 4. Use naming convention: `backtest_id` reflects purpose (`sma_crossover_fast_2020_2023`).
-- Step 5. Collect outputs under `output/backtests/{backtest_id}` for comparison; automate summary metrics across runs.
+- Step 5. Collect outputs from each run under `experiments/{backtest_id}/runs/{timestamp}/` (with `latest` symlink for convenience) and automate summary metrics across runs.
 
-Outcome: You maintain a small, high-quality library of strategies while scaling the number of experiments safely.
+Outcome: You maintain a high-quality library of strategies while scaling the number of experiments safely.
 
 ______________________________________________________________________
 
@@ -178,27 +178,55 @@ qtrader init-project my-trading-system
 cd my-trading-system
 ```
 
-Project scaffold (abbreviated):
+and you get:
 
-```
-my-trading-system/
-├── config/
-│   ├── system.yaml
-│   ├── data_sources.yaml
-│   └── backtests/
-│       ├── buy_hold.yaml
-│       └── sma_crossover.yaml
-├── library/
-│   └── strategies/
-│       ├── buy_and_hold.py
-│       └── sma_crossover.py
-├── data/
-│   └── us-equity-yahoo-csv/
-│       └── AAPL.csv
-├── output/
-├── examples/
-│   └── run_backtest.py
-└── run_backtest.py
+```text
+|-- QTRADER_README.md              # Scaffold-specific README for this project
+|-- config                         # Global system & data-source configuration
+|   |-- data_sources.yaml          # Defines available datasets/adapters
+|   `-- qtrader.yaml               # Engine/system settings (execution, portfolio, paths)
+|-- data                           # Local market data cache
+|   |-- sample-csv                 # Tiny bundled sample dataset
+|   |   |-- AAPL.csv               # Example OHLCV for AAPL
+|   |   `-- README.md              # Notes about the sample data
+|   `-- us-equity-yahoo-csv        # Yahoo Finance daily OHLCV store
+|       |-- AAPL.csv               # Cached CSV for AAPL
+|       `-- universe.json          # Symbol universe used by yahoo-update CLI
+|-- experiments                    # Experiment definitions (what to backtest)
+|   |-- buy_hold
+|   |   |-- README.md              # Notes/documentation for this experiment
+|   |   `-- buy_hold.yaml          # Canonical buy & hold experiment config
+|   |-- sma_crossover
+|   |   |-- README.md
+|   |   `-- sma_crossover.yaml     # SMA crossover experiment config
+|   |-- template
+|   |   |-- README.md
+|   |   `-- template.yaml          # Full configuration template to copy from
+|   `-- weekly_monday_friday
+|       |-- README.md
+|       `-- weekly_monday_friday.yaml # Weekly entry/exit example experiment
+`-- library                        # Your custom code extensions
+  |-- __init__.py
+  |-- adapters                     # Custom data adapters
+  |   |-- README.md
+  |   |-- __init__.py
+  |   |-- models
+  |   |   |-- __init__.py
+  |   |   `-- ohlcv_csv.py         # Pydantic model for OHLCV CSV rows
+  |   `-- ohlcv_csv.py             # Built-in CSV adapter implementation
+  |-- indicators                   # Custom technical indicators
+  |   |-- README.md
+  |   `-- template.py              # Indicator template to copy
+  |-- risk_policies                # Position sizing / risk rules
+  |   |-- README.md
+  |   `-- template.yaml            # Risk policy config template
+  `-- strategies                   # Custom trading strategies
+    |-- README.md
+    |-- __init__.py
+    |-- buy_and_hold.py            # Example buy & hold strategy
+    |-- sma_crossover.py           # Example SMA crossover strategy
+    `-- weekly_monday_friday.py    # Example weekday-based strategy
+
 ```
 
 ### Run a Backtest (CLI)
@@ -217,7 +245,7 @@ Artifacts: `experiments/{backtest_id}/runs` (metrics, equity curve, trades, conf
 from qtrader.engine import BacktestEngine
 from qtrader.engine.config import BacktestConfig
 
-config = BacktestConfig.from_yaml("config/backtests/buy_hold.yaml")
+config = BacktestConfig.from_yaml("experiments/buy_hold/buy_hold.yaml")
 engine = BacktestEngine(config)
 results = engine.run()
 print(results.final_value, results.total_return)
@@ -305,8 +333,7 @@ my-qtrader-extensions/
 ├── strategies/
 ├── indicators/
 ├── adapters/
-├── risk_policies/
-└── metrics/
+└── risk_policies/
 ```
 
 Configure paths in `config/system.yaml` (set to `null` for built-in only):
@@ -317,7 +344,6 @@ custom_libraries:
   indicators: null
   adapters: null
   risk_policies: null
-  metrics: null
 ```
 
 ______________________________________________________________________
@@ -340,8 +366,7 @@ src/qtrader/
 
 ```bash
 make qa            # Lint + format (ruff, isort, mdformat)
-make test          # Run full test suite
-make test-coverage # Run tests with coverage report
+make test          # Run full test suite with coverage
 ```
 
 Current internal metrics (may differ in CI): ~1600+ tests, ~80% coverage.

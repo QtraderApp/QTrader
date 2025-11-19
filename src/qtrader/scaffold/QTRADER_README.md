@@ -4,39 +4,52 @@ Welcome to your QTrader backtesting environment! This project was initialized wi
 
 ## 📁 Project Structure
 
-```
-.
-├── config/
-│   ├── system.yaml             # System configuration (execution, portfolio, etc.)
-│   └── data_sources.yaml       # Data source definitions
-├── experiments/                # Experiment-centric organization
-│   ├── buy_hold/               # Buy and hold experiment
-│   │   ├── buy_hold.yaml       # Experiment configuration
-│   │   ├── README.md           # Experiment documentation
-│   │   └── runs/               # Run artifacts (created on execution)
-│   ├── sma_crossover/          # SMA crossover experiment
-│   │   ├── sma_crossover.yaml  # Experiment configuration
-│   │   ├── README.md           # Experiment documentation
-│   │   └── runs/               # Run artifacts (created on execution)
-│   ├── template/               # Template for new experiments
-│   │   └── template.yaml       # Complete configuration template
-│   ├── others/                 # Buy and hold experiment
-│   │   ├── others.yaml         # Experiment configuration
-│   │   ├── README.md           # Experiment documentation
-│   │   └── runs/               # Run artifacts (created on execution)
-├── library/                    # Custom components
-│   ├── strategies/
-│   │   ├── buy_and_hold.py     # Example buy & hold implementation
-│   │   └── sma_crossover.py    # Example SMA crossover implementation
-│   ├── adapters/               # Custom data adapters
-│   ├── indicators/             # Custom indicators
-│   └── risk_policies/          # Custom risk policies
-├── data/                       # Market data storage
-│   ├── sample-csv/             # Sample data (AAPL, limited)
-│   └── us-equity-yahoo-csv/    # Yahoo CSV data location
-├── examples/
-│   └── run_backtest.py         # Example runner script
-└── QTRADER_README.md           # This file
+```text
+|-- QTRADER_README.md              # Scaffold-specific README for this project
+|-- config                         # Global system & data-source configuration
+|   |-- data_sources.yaml          # Defines available datasets/adapters
+|   `-- qtrader.yaml               # Engine/system settings (execution, portfolio, paths)
+|-- data                           # Local market data cache
+|   |-- sample-csv                 # Tiny bundled sample dataset
+|   |   |-- AAPL.csv               # Example OHLCV for AAPL
+|   |   `-- README.md              # Notes about the sample data
+|   `-- us-equity-yahoo-csv        # Yahoo Finance daily OHLCV store
+|       |-- AAPL.csv               # Cached CSV for AAPL
+|       `-- universe.json          # Symbol universe used by yahoo-update CLI
+|-- experiments                    # Experiment definitions (what to backtest)
+|   |-- buy_hold
+|   |   |-- README.md              # Notes/documentation for this experiment
+|   |   `-- buy_hold.yaml          # Canonical buy & hold experiment config
+|   |-- sma_crossover
+|   |   |-- README.md
+|   |   `-- sma_crossover.yaml     # SMA crossover experiment config
+|   |-- template
+|   |   |-- README.md
+|   |   `-- template.yaml          # Full configuration template to copy from
+|   `-- weekly_monday_friday
+|       |-- README.md
+|       `-- weekly_monday_friday.yaml # Weekly entry/exit example experiment
+`-- library                        # Your custom code extensions
+  |-- __init__.py
+  |-- adapters                     # Custom data adapters
+  |   |-- README.md
+  |   |-- __init__.py
+  |   |-- models
+  |   |   |-- __init__.py
+  |   |   `-- ohlcv_csv.py         # Pydantic model for OHLCV CSV rows
+  |   `-- ohlcv_csv.py             # Built-in CSV adapter implementation
+  |-- indicators                   # Custom technical indicators
+  |   |-- README.md
+  |   `-- template.py              # Indicator template to copy
+  |-- risk_policies                # Position sizing / risk rules
+  |   |-- README.md
+  |   `-- template.yaml            # Risk policy config template
+  `-- strategies                   # Custom trading strategies
+    |-- README.md
+    |-- __init__.py
+    |-- buy_and_hold.py            # Example buy & hold strategy
+    |-- sma_crossover.py           # Example SMA crossover strategy
+    `-- weekly_monday_friday.py    # Example weekday-based strategy
 
 ```
 
@@ -127,7 +140,7 @@ Make sure the symbols in your experiment configuration match the data you downlo
 ### 4. Run Example Experiments
 
 ```bash
-# Run buy and hold experiment (directory-based)
+# Run buy and hold experiment
 qtrader backtest experiments/buy_hold
 
 # Run SMA crossover experiment
