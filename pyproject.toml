@@ -47,6 +47,8 @@ dependencies = [
     "jsonschema>=4.25.1",
     # Logging
     "structlog>=24.4.0",
+    # Market data
+    "yfinance>=0.2.66",
 ]
 
 [project.scripts]

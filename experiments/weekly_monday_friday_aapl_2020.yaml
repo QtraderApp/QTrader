@@ -1,0 +1,72 @@
+# Backtest configuration for Weekly Monday-Friday strategy on AAPL in 2020
+# useful to see lot of trades to debug processing of corporate actions like dividends
+
+# Unique identifier for this backtest run - used for organizing results
+backtest_id: "weekly_monday_friday_aapl_2020"
+
+# Backtest date range (inclusive) - format: "YYYY-MM-DD"
+start_date: "2020-01-01"
+end_date: "2020-12-31"
+
+# Starting capital in dollars
+initial_equity: 100000
+
+# Price adjustment mode for strategy calculations (what prices the strategy sees)
+# Options: "split_adjusted" (adjust for splits only) | "total_return" (adjust for splits + dividends)
+strategy_adjustment_mode: "split_adjusted"
+
+# Price adjustment mode for portfolio accounting (how portfolio processes corporate actions)
+# Options: "split_adjusted" (process dividends as cash) | "total_return" (skip dividends, use adjusted prices)
+portfolio_adjustment_mode: "split_adjusted"
+
+# Event display speed for visualization during backtest
+# -1.0 = silent (no display), 0.0 = instant display, positive value = delay in seconds per event
+replay_speed: 0.0
+
+# Event types to display during backtest (only used if replay_speed >= 0)
+# Options: "bar", "signal", "order", "fill", "corporate_action", "portfolio_state", "*" (all)
+display_events:
+  - "*"
+
+# Data source configuration - can specify multiple sources with different universes
+data:
+  sources:
+    - name: "yahoo-us-equity-1d-csv" # Data source name from data_sources.yaml
+      universe: ["AAPL"] # List of symbols to load from this source
+
+# Strategy configurations - can run multiple strategies simultaneously
+strategies:
+  - strategy_id: "weekly_monday_friday" # Strategy name from registry
+    universe: ["AAPL"] # Symbols this strategy trades (subset of data universe)
+    data_sources: ["yahoo-us-equity-1d-csv"] # Data feeds this strategy uses
+    config: # Strategy-specific configuration parameters
+      confidence: 1.0 # Signal confidence level (0.0 to 1.0)
+
+# Risk management policy
+risk_policy:
+  name: "naive" # Policy name from registry - "naive" applies no position limits
+  config: {} # Policy-specific configuration overrides
+
+# Performance reporting configuration
+reporting:
+  # Live metrics display during backtest execution
+  emit_metrics_events: true # true = show performance metrics during backtest | false = suppress
+  event_frequency: 1 # Emit metrics event every N bars (e.g., 1 = every bar, 10 = every 10 bars)
+
+  # Risk-free rate for calculating risk-adjusted returns (Sharpe, Sortino ratios)
+  risk_free_rate: 0.02 # Annual rate as decimal (0.02 = 2%)
+
+  # Output file generation flags - results saved to output/backtests/{backtest_id}/{timestamp}/
+  write_json: true # true = write performance.json summary | false = skip
+  write_parquet: true # true = write Parquet time-series files | false = skip
+  write_csv_timeline: true # true = write human-readable CSV timeline per strategy | false = skip
+
+  # Specific time-series data files to include (only if write_parquet = true)
+  include_equity_curve: true # Include equity_curve.parquet (portfolio value over time)
+  include_returns: true # Include returns.parquet (period returns)
+  include_trades: true # Include trades.parquet (completed trade records)
+  include_drawdowns: true # Include drawdowns.parquet (drawdown analysis)
+
+  # Console display at backtest completion
+  display_final_report: true # true = show rich-formatted report at end | false = suppress
+  report_detail_level: full # Options: "summary" (key metrics) | "standard" (+ monthly) | "full" (+ all details)
