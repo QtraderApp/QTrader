@@ -11,19 +11,25 @@ from rich.console import Console
 
 from qtrader.engine.config import load_backtest_config
 from qtrader.engine.engine import BacktestEngine
+from qtrader.engine.experiment import ExperimentMetadata, ExperimentResolver, RunMetadata
 from qtrader.system.config import get_system_config, reload_system_config
 
 console = Console()
 
 
 @click.command("backtest")
+@click.argument(
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+)
 @click.option(
     "--file",
     "-f",
-    "config_file",
+    "config_file_deprecated",
     type=click.Path(exists=True, path_type=Path),
-    required=True,
-    help="Path to backtest configuration file (YAML)",
+    help="[Deprecated] Use positional argument instead",
+    hidden=True,
 )
 @click.option(
     "--silent",
@@ -54,7 +60,8 @@ console = Console()
     help="Set logging level (DEBUG shows all initialization details)",
 )
 def backtest_command(
-    config_file: Path,
+    config_path: Path,
+    config_file_deprecated: Optional[Path],
     silent: bool,
     replay_speed: Optional[float],
     start_date: Optional[datetime],
@@ -62,44 +69,110 @@ def backtest_command(
     log_level: Optional[str],
 ):
     """
-    Run a backtest from configuration file.
+    Run a backtest from experiment directory or configuration file.
 
-    Loads backtest configuration and executes the simulation. CLI options
-    override config file values without modifying files.
+    Supports two invocation patterns:
+    1. Experiment directory: qtrader backtest experiments/my_strategy/
+       - Automatically finds my_strategy.yaml inside
+       - Creates timestamped run directory with full metadata
+    2. Direct config file: qtrader backtest path/to/config.yaml
+       - Traditional file-based invocation
+       - Uses experiment structure if inside experiments/
+
+    CLI options override config file values without modifying files.
 
     \b
     Examples:
-        # Basic run with config defaults
-        qtrader backtest --file config/portfolio.yaml
+        # Run experiment (preferred)
+        qtrader backtest experiments/momentum_strategy
+
+        # Run with config file
+        qtrader backtest experiments/momentum_strategy/momentum_strategy.yaml
 
         # Silent mode (fastest execution)
-        qtrader backtest -f config/portfolio.yaml --silent
+        qtrader backtest experiments/momentum_strategy --silent
 
         # Override replay speed
-        qtrader backtest -f config/portfolio.yaml -r 0.5
+        qtrader backtest experiments/momentum_strategy -r 0.5
 
         # Quick date range test
-        qtrader backtest -f config/portfolio.yaml \\
+        qtrader backtest experiments/momentum_strategy \\
             --start-date 2020-01-01 --end-date 2020-03-31
 
         # Debug mode (show all initialization logs)
-        qtrader backtest -f config/portfolio.yaml -l debug
+        qtrader backtest experiments/momentum_strategy -l debug
 
     \b
-    Output:
-        - Displays backtest progress and results
-        - Event store location (if file-based backend in qtrader.yaml)
-        - See config/qtrader.yaml for event_store settings (sqlite/parquet/memory)
+    Output Structure:
+        experiments/{experiment_id}/
+            {experiment_id}.yaml           # Configuration
+            runs/
+                {timestamp}/               # This run's artifacts
+                    run_manifest.json      # Metadata
+                    config_snapshot.yaml   # Config copy
+                    events.{backend}       # Event store
+                    logs/                  # If file logging enabled
+                latest -> {timestamp}/     # Symlink to latest run
     """
     try:
         # Header
         console.rule("[bold blue]QTrader Backtest[/bold blue]")
         console.print()
 
+        # Handle deprecated --file option
+        if config_file_deprecated:
+            console.print("[yellow]Note: --file/-f is deprecated. Use positional argument instead.[/yellow]")
+            config_path = config_file_deprecated
+
+        # Resolve config file (supports both directory and file paths)
+        console.print("[cyan]Resolving experiment configuration...[/cyan]")
+        resolved_config_path = ExperimentResolver.resolve_config_path(config_path)
+        experiment_dir = ExperimentResolver.get_experiment_dir(resolved_config_path)
+
+        console.print(f"  Config: [dim]{resolved_config_path}[/dim]")
+        console.print(f"  Experiment: [cyan]{experiment_dir.name}[/cyan]")
+        console.print()
+
+        # Validate experiment structure
+        try:
+            ExperimentResolver.validate_experiment_structure(experiment_dir, resolved_config_path)
+        except ValueError as e:
+            console.print(f"[yellow]Warning: {e}[/yellow]")
+
         # Load configuration
         console.print("[cyan]Loading configuration...[/cyan]")
         reload_system_config()
-        config = load_backtest_config(config_file)
+        config = load_backtest_config(resolved_config_path)
+        system_config = get_system_config()
+
+        # Create run directory and metadata
+        run_id = ExperimentResolver.generate_run_id(system_config.output.run_id_format)
+        run_dir = ExperimentResolver.create_run_dir(experiment_dir, run_id)
+
+        console.print(f"  Run ID: [yellow]{run_id}[/yellow]")
+        console.print(f"  Run directory: [dim]{run_dir}[/dim]")
+        console.print()
+
+        # Initialize run metadata
+        run_metadata = RunMetadata(
+            experiment_id=experiment_dir.name,
+            run_id=run_id,
+            started_at=datetime.now().isoformat(),
+            config_sha256=ExperimentMetadata.compute_config_hash(resolved_config_path),
+        )
+
+        # Capture git info if enabled
+        if system_config.output.capture_git_info:
+            run_metadata.git = ExperimentMetadata.capture_git_info()
+            if run_metadata.git and run_metadata.git.dirty:
+                console.print("[yellow]⚠ Git repository has uncommitted changes[/yellow]")
+
+        # Capture environment if enabled
+        if system_config.output.capture_environment:
+            run_metadata.environment = ExperimentMetadata.capture_environment()
+
+        # Save config snapshot
+        ExperimentMetadata.save_config_snapshot(resolved_config_path, run_dir)
 
         # Apply log level override if specified
         if log_level:
@@ -141,11 +214,31 @@ def backtest_command(
             console.print(f"  Display: [yellow]{config.display_events}[/yellow] ({config.replay_speed}s per event)")
         console.print()
 
-        # Initialize engine
+        # Initialize engine with run directory for artifact output
         with console.status("[cyan]Initializing backtest engine...[/cyan]"):
-            engine = BacktestEngine.from_config(config)
+            engine = BacktestEngine.from_config(config, results_dir=run_dir)
 
-        result = engine.run()
+        # Run backtest
+        try:
+            result = engine.run()
+
+            # Update run metadata with success
+            run_metadata.status = "success"
+            run_metadata.finished_at = datetime.now().isoformat()
+            run_metadata.metrics = {
+                "bars_processed": result.bars_processed,
+                "duration_seconds": result.duration.total_seconds(),
+            }
+        except Exception as e:
+            # Update run metadata with failure
+            run_metadata.status = "failed"
+            run_metadata.finished_at = datetime.now().isoformat()
+            run_metadata.error = str(e)
+            raise
+        finally:
+            # Always write metadata
+            ExperimentMetadata.write_run_metadata(run_dir, run_metadata)
+            ExperimentMetadata.create_latest_symlink(experiment_dir, run_id)
 
         console.print()
         console.print("[bold green]✓ Backtest completed successfully![/bold green]")
@@ -154,20 +247,23 @@ def backtest_command(
         # Display results
         console.rule("[bold green]RESULTS[/bold green]")
         console.print()
+        console.print(f"[cyan]Experiment:[/cyan]      {experiment_dir.name}")
+        console.print(f"[cyan]Run ID:[/cyan]          {run_id}")
         console.print(f"[cyan]Date Range:[/cyan]      {result.start_date} to {result.end_date}")
         console.print(f"[cyan]Bars Processed:[/cyan]  {result.bars_processed:,}")
         console.print(f"[cyan]Duration:[/cyan]        {result.duration}")
         console.print()
 
+        # Experiment artifacts
+        console.print(f"[cyan]Run Directory:[/cyan]   {run_dir}")
+        console.print(f"[cyan]Metadata:[/cyan]        run_manifest.json")
+
         # Event store info
-        system_config = get_system_config()
         backend_type = system_config.output.event_store.backend
 
         if backend_type == "memory":
             console.print("[cyan]Event Store:[/cyan]     memory (no files created)")
         elif hasattr(engine, "_results_dir") and engine._results_dir:
-            console.print(f"[cyan]Results Dir:[/cyan]     {engine._results_dir}")
-
             event_store_filename = system_config.output.event_store.filename
             if "{backend}" in event_store_filename:
                 extension_map = {"sqlite": "sqlite", "parquet": "parquet"}
@@ -177,6 +273,11 @@ def backtest_command(
             if event_file.exists():
                 size_mb = os.path.getsize(event_file) / (1024 * 1024)
                 console.print(f"[cyan]Event Store:[/cyan]     {event_file.name} ({size_mb:.2f} MB)")
+
+        # Check for latest symlink
+        latest_link = experiment_dir / "runs" / "latest"
+        if latest_link.exists():
+            console.print(f"[cyan]Latest Run:[/cyan]      runs/latest → {run_id}")
 
         console.print()
         console.rule()
