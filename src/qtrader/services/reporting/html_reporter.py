@@ -1122,6 +1122,51 @@ class HTMLReportGenerator:
         except Exception:
             return ""
 
+    def _calculate_total_dividends(
+        self,
+        trades_by_id: dict[str, dict[str, dict[str, Any]]],
+        equity_curve: pd.DataFrame | None,
+        performance: dict[str, Any],
+    ) -> float:
+        """Calculate total dividends from equity accounting.
+
+        Dividends = Final Equity - Initial Equity - Realized P&L from Trades - Unrealized P&L
+        """
+        # Get equity values
+        initial_equity = float(performance.get("initial_equity", 100_000))
+        final_equity = float(performance.get("final_equity", initial_equity))
+        equity_change = final_equity - initial_equity
+
+        # Calculate realized P&L from closed trades
+        total_realized_pnl = sum(
+            float(trade_events.get("closed", {}).get("realized_pnl", 0))
+            for trade_events in trades_by_id.values()
+            if "closed" in trade_events and trade_events["closed"].get("realized_pnl") is not None
+        )
+
+        # Calculate unrealized P&L from open positions
+        total_unrealized_pnl = 0.0
+        if equity_curve is not None and not equity_curve.empty:
+            last_row = equity_curve.iloc[-1]
+            current_market_value = float(last_row.get("positions_value", 0))
+
+            # Sum entry costs of all open positions
+            open_entry_cost = 0.0
+            for trade_events in trades_by_id.values():
+                if "open" in trade_events and "closed" not in trade_events:
+                    open_trade = trade_events["open"]
+                    qty = int(open_trade.get("current_quantity", 0))
+                    entry_price = float(open_trade.get("entry_price", 0))
+                    commission = float(open_trade.get("commission_total", 0))
+                    open_entry_cost += qty * entry_price + commission
+
+            total_unrealized_pnl = current_market_value - open_entry_cost
+
+        # Dividends are the residual
+        total_dividends = equity_change - total_realized_pnl - total_unrealized_pnl
+
+        return total_dividends
+
     def _build_trades_table(
         self, trades: list[dict[str, Any]] | None, equity_curve: pd.DataFrame | None, performance: dict[str, Any]
     ) -> str:
@@ -1148,7 +1193,11 @@ class HTMLReportGenerator:
             .get("entry_timestamp", ""),
         )
 
+        # Calculate total dividends from equity accounting
+        total_dividends = self._calculate_total_dividends(trades_by_id, equity_curve, performance)
+
         rows = []
+        total_unrealized_pnl = 0.0
         for trade_id in sorted_trade_ids:
             trade_events = trades_by_id[trade_id]
 
@@ -1186,13 +1235,27 @@ class HTMLReportGenerator:
                 status_badge = '<span class="badge success">Closed</span>'
                 quantity_str = f"{original_quantity:,}"  # Show original quantity
             else:
-                # Open trade - show current quantity and unrealized P&L
-                # For open trades, P&L is negative commission (not yet realized)
-                pnl = -commission
-                pnl_pct = (pnl / (entry_price * original_quantity)) * 100 if original_quantity > 0 else 0
-                pnl_str = f"${pnl:,.2f}"
+                # Open trade - calculate mark-to-market unrealized P&L
+                if equity_curve is not None and not equity_curve.empty:
+                    last_row = equity_curve.iloc[-1]
+                    current_market_value = float(last_row.get("positions_value", 0))
+
+                    # Calculate MTM unrealized P&L
+                    entry_cost = entry_price * original_quantity + commission
+                    mtm_pnl = current_market_value - entry_cost
+                    total_unrealized_pnl += mtm_pnl
+
+                    pnl = mtm_pnl
+                    pnl_pct = (pnl / (entry_price * original_quantity)) * 100 if original_quantity > 0 else 0
+                    pnl_str = f"${pnl:,.2f}*"  # Add asterisk for unrealized/MTM
+                else:
+                    # Fallback if no equity curve data
+                    pnl = -commission
+                    pnl_pct = (pnl / (entry_price * original_quantity)) * 100 if original_quantity > 0 else 0
+                    pnl_str = f"${pnl:,.2f}*"
+
                 pnl_pct_str = f"({pnl_pct:+.2f}%)"
-                pnl_class = "negative"
+                pnl_class = "positive" if pnl >= 0 else "negative"
                 status_badge = '<span class="badge warning">Open</span>'
                 quantity_str = f"{original_quantity:,}"
 
@@ -1215,11 +1278,28 @@ class HTMLReportGenerator:
             rows.append(row)
 
         # Calculate total P&L from trades
-        total_pnl = sum(
+        total_realized_pnl = sum(
             float(trade_events.get("closed", {}).get("realized_pnl", 0))
             for trade_events in trades_by_id.values()
             if "closed" in trade_events and trade_events["closed"].get("realized_pnl") is not None
         )
+
+        # Add dividend row if dividends exist
+        dividend_row = ""
+        if abs(total_dividends) >= 0.01:
+            div_class = "positive" if total_dividends >= 0 else "negative"
+            dividend_row = f"""
+            <tr style="font-size: 0.85em; background: #f0fdf4;">
+                <td>—</td>
+                <td><strong>DIVIDENDS</strong></td>
+                <td colspan="8">Total dividend income received</td>
+                <td style="text-align: right;">—</td>
+                <td style="text-align: right;" class="{div_class}"><strong>${total_dividends:,.2f}</strong></td>
+            </tr>
+            """
+
+        # Total P&L includes realized, unrealized, and dividends
+        total_pnl = total_realized_pnl + total_unrealized_pnl + total_dividends
 
         # Get initial and final equity for comparison
         initial_equity = float(performance.get("initial_equity", 0))
@@ -1232,20 +1312,38 @@ class HTMLReportGenerator:
 
         # Summary row
         total_pnl_class = "positive" if total_pnl >= 0 else "negative"
-        unrealized = equity_change - total_pnl
+
+        # Build summary breakdown
+        summary_parts = []
+        if abs(total_realized_pnl) >= 0.01:
+            summary_parts.append(f"Realized: ${total_realized_pnl:,.2f}")
+        if abs(total_unrealized_pnl) >= 0.01:
+            summary_parts.append(f"Unrealized: ${total_unrealized_pnl:,.2f}*")
+        if abs(total_dividends) >= 0.01:
+            summary_parts.append(f"Dividends: ${total_dividends:,.2f}")
+
+        summary_details = (
+            f"<br>Equity: ${initial_equity:,.0f} → ${final_equity:,.0f} ({match_icon}${equity_change:,.2f})"
+        )
+        if summary_parts:
+            summary_details += "<br>" + " + ".join(summary_parts)
 
         summary_row = f"""
             <tr style="font-weight: bold; border-top: 2px solid #667eea; background: #f9fafb;">
-                <td colspan="11" style="text-align: right; padding-right: 1rem;">Total Realized P&L:</td>
+                <td colspan="11" style="text-align: right; padding-right: 1rem;">Total P&L:</td>
                 <td style="text-align: right;" class="{total_pnl_class}">
                     <strong>${total_pnl:,.2f}</strong>
                     <small style="color: #6b7280; font-weight: normal;">
-                        <br>Equity: ${initial_equity:,.0f} → ${final_equity:,.0f} ({match_icon}${equity_change:,.2f})
-                        {f"<br>Unrealized: ${unrealized:,.2f}" if abs(unrealized) >= 1.0 else ""}
+                        {summary_details}
                     </small>
                 </td>
             </tr>
         """
+
+        # Add footnote if there are unrealized P&L values
+        footnote = ""
+        if abs(total_unrealized_pnl) >= 1.0:
+            footnote = '<p style="font-size: 0.85em; color: #6b7280; margin-top: 0.5rem; font-style: italic;">* Mark-to-market valuation at end of backtest period</p>'
 
         return f"""
         <div class="chart-container">
@@ -1269,8 +1367,10 @@ class HTMLReportGenerator:
                 </thead>
                 <tbody>
                     {"".join(rows)}
+                    {dividend_row}
                     {summary_row}
                 </tbody>
             </table>
+            {footnote}
         </div>
         """
