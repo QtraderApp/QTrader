@@ -148,7 +148,7 @@ clean: ## 🧹 Clean workspace (remove cache, temp files, and scaffolded project
 	@rm -f .coverage coverage.xml
 	@rm -rf htmlcov/ mypy-report/ .coverage.*
 	@echo "$(BLUE)ℹ️  Removing scaffolded project files...$(END)"
-	@rm -rf config/ library/ data/ output/ logs/ examples/ QTRADER_README.md run_backtest.py
+	@rm -rf config/ library/ data/ output/ logs/ examples/ experiments/ QTRADER_README.md
 	@echo "$(GREEN)✅ Workspace cleaned$(END)"
 
 

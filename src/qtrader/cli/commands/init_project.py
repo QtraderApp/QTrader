@@ -24,7 +24,7 @@ def init_project_command(path: Path, force: bool) -> None:
     Initialize a complete QTrader project environment.
 
     Creates a production-ready backtesting system with:
-    - Configuration files (system.yaml, data_sources.yaml)
+    - Configuration files (qtrader.yaml, data_sources.yaml)
     - Example backtests (buy & hold, SMA crossover)
     - Example strategies (ready to run)
     - Sample data
@@ -86,13 +86,8 @@ def init_project_command(path: Path, force: bool) -> None:
     # Copy examples/
     _copy_directory(templates_dir / "examples", target_path / "examples", created_items)
 
-    # Copy run_backtest.py to project root for convenience
-    runner_src = templates_dir / "examples" / "run_backtest.py"
-    runner_dst = target_path / "run_backtest.py"
-    if runner_src.exists():
-        shutil.copy2(runner_src, runner_dst)
-        runner_dst.chmod(0o755)  # Make executable
-        created_items.append("run_backtest.py")
+    # Copy experiments/
+    _copy_directory(templates_dir / "experiments", target_path / "experiments", created_items)
 
     # Copy QTrader README (named QTRADER_README.md to avoid collision with user's README)
     readme_src = templates_dir / "QTRADER_README.md"
@@ -101,19 +96,12 @@ def init_project_command(path: Path, force: bool) -> None:
         shutil.copy2(readme_src, readme_dst)
         created_items.append("QTRADER_README.md")
 
-    # Copy .gitignore
-    gitignore_src = templates_dir / ".gitignore"
-    gitignore_dst = target_path / ".gitignore"
-    if gitignore_src.exists():
-        shutil.copy2(gitignore_src, gitignore_dst)
-        created_items.append(".gitignore")
-
     # Create output directory
     (target_path / "output").mkdir(exist_ok=True)
     created_items.append("output/")
 
     # Update config to point to local library
-    _update_system_config(target_path)
+    _update_qtrader_config(target_path)
 
     # Success message with structure
     console.print(
@@ -131,14 +119,13 @@ def init_project_command(path: Path, force: bool) -> None:
     console.print("\n[bold]🚀 Quick Start:[/bold]")
     console.print("1. [cyan]cd " + (str(target_path) if target_path.name != "." else "# (already here)") + "[/cyan]")
     console.print("2. [dim]# Review example strategies in library/strategies/[/dim]")
-    console.print("3. [dim]# Check example backtests in config/backtests/[/dim]")
-    console.print("4. [cyan]python run_backtest.py config/backtests/buy_hold.yaml[/cyan]")
+    console.print("3. [dim]# Check example backtest configs in experiments/[/dim]")
+    console.print("4. [cyan]python examples/run_backtest.py experiments/buy_hold.yaml[/cyan]")
     console.print("\n[bold]📚 What You Got:[/bold]")
     console.print("• [green]2 example strategies[/green] (buy & hold, SMA crossover)")
-    console.print("• [green]2 example backtests[/green] ready to run")
     console.print("• [green]Sample data[/green] (AAPL, limited history)")
     console.print("• [green]Complete configs[/green] (system, data sources)")
-    console.print("• [green]Custom library scaffold[/green] with examples")
+    console.print("• [green]Custom library [/green] with examples")
     console.print("\n[dim]See QTRADER_README.md for full documentation[/dim]")
 
 
@@ -163,14 +150,14 @@ def _copy_directory(src: Path, dst: Path, items_list: list[str]) -> None:
     items_list.append(rel_to_parent)
 
 
-def _update_system_config(project_path: Path) -> None:
-    """Update system.yaml to point to local library."""
-    system_config = project_path / "config" / "system.yaml"
+def _update_qtrader_config(project_path: Path) -> None:
+    """Update qtrader.yaml to point to local library."""
+    qtrader_config = project_path / "config" / "qtrader.yaml"
 
-    if not system_config.exists():
+    if not qtrader_config.exists():
         return
 
-    content = system_config.read_text()
+    content = qtrader_config.read_text()
 
     # Update custom_libraries to point to local library
     # Match the line and replace entire line
@@ -192,7 +179,7 @@ def _update_system_config(project_path: Path) -> None:
         flags=re.MULTILINE,
     )
 
-    system_config.write_text(content)
+    qtrader_config.write_text(content)
 
 
 def _display_project_structure(project_path: Path) -> None:
@@ -203,18 +190,21 @@ def _display_project_structure(project_path: Path) -> None:
 
     structure = [
         ("config/", "System and backtest configurations"),
-        ("  ├── system.yaml", "System settings (execution, portfolio)"),
+        ("  ├── qtrader.yaml", "System settings (execution, portfolio)"),
         ("  ├── data_sources.yaml", "Data source definitions"),
         ("  └── backtests/", "Backtest configurations"),
         ("library/", "Your custom components"),
         ("  ├── strategies/", "Custom strategies (examples included)"),
         ("  └── risk_policies/", "Risk policies (template included)"),
+        ("experiments/", "Experiment configurations"),
+        ("  ├── buy_hold.yaml", "Buy and hold experiment"),
+        ("  ├── sma.yaml", "SMA crossover experiment"),
+        ("  └── template.yaml", "Complete experiment template"),
         ("data/", "Market data"),
         ("  └── sample/", "Sample data (AAPL.csv)"),
         ("examples/", "Example scripts and utilities"),
-        ("  └── run_backtest.py", "Backtest runner (also in root)"),
+        ("  └── run_backtest.py", "Backtest runner script"),
         ("output/", "Backtest results"),
-        ("run_backtest.py", "Simple backtest runner script"),
         ("QTRADER_README.md", "QTrader project guide"),
     ]
 
