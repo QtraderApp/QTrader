@@ -1,0 +1,32 @@
+{
+    "event_id": "550e8400-e29b-41d4-a716-446655440001",
+    "event_type": "corporate_action",
+    "event_version": 1,
+    "occurred_at": "2020-08-31T09:30:00Z",
+    "correlation_id": "corp-action-aapl-split-2020",
+    "causation_id": null,
+    "source_service": "data_service",
+    "payload": {
+        "symbol": "AAPL",
+        "asset_class": "equity",
+        "action_type": "split",
+        "announcement_date": "2020-07-30",
+        "ex_date": "2020-08-31",
+        "record_date": "2020-08-24",
+        "payment_date": "2020-08-31",
+        "effective_date": "2020-08-31",
+        "split_ratio": "4.0",
+        "split_from": 1,
+        "split_to": 4,
+        "dividend_amount": null,
+        "dividend_currency": null,
+        "dividend_type": null,
+        "price_adjustment_factor": "0.25",
+        "volume_adjustment_factor": "4.0",
+        "new_symbol": null,
+        "source": "algoseek-us-equity-1d-unadjusted",
+        "source_reference": "https://investor.apple.com/investor-relations/default.aspx",
+        "notes": "1-for-4 forward stock split. Each shareholder receives 4 shares for every 1 share held.",
+        "trace_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+    }
+}
