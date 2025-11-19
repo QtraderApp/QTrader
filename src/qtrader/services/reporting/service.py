@@ -932,8 +932,8 @@ class ReportingService:
                     "validate_on_load": system_config.data.validate_on_load,
                 },
                 "output": {
-                    "default_results_dir": system_config.output.default_results_dir,
-                    "timestamp_format": system_config.output.timestamp_format,
+                    "experiments_root": system_config.output.experiments_root,
+                    "run_id_format": system_config.output.run_id_format,
                     "display_format": system_config.output.display_format,
                 },
                 "logging": {

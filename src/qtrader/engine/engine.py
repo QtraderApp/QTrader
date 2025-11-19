@@ -172,7 +172,7 @@ class BacktestEngine:
         )
 
     @classmethod
-    def from_config(cls, config: BacktestConfig) -> "BacktestEngine":
+    def from_config(cls, config: BacktestConfig, results_dir: Path | None = None) -> "BacktestEngine":
         """
         Factory method to create engine from configuration.
 
@@ -181,6 +181,7 @@ class BacktestEngine:
 
         Args:
             config: Backtest configuration loaded from YAML
+            results_dir: Optional directory for run artifacts (experiment run directory)
 
         Returns:
             Configured BacktestEngine instance
@@ -226,7 +227,7 @@ class BacktestEngine:
 
         event_store: EventStore
         backend_type = output_cfg.event_store.backend
-        results_dir: Path | None = None
+        # results_dir is passed from CLI for experiment structure, or created here as fallback
 
         # Create event store based on configured backend
         try:
@@ -239,12 +240,15 @@ class BacktestEngine:
                 )
             else:
                 # File-based backends (sqlite, parquet) - need results directory
-                results_base = Path(output_cfg.default_results_dir)
-                backtest_id = config.sanitized_backtest_id
-                run_timestamp = run_started_at.strftime(output_cfg.timestamp_format)
+                # NOTE: results_dir should be provided by CLI when using experiment structure
+                # This is a fallback for direct engine usage without experiments
+                if not results_dir:
+                    experiments_root = Path(output_cfg.experiments_root)
+                    backtest_id = config.sanitized_backtest_id
+                    run_timestamp = run_started_at.strftime(output_cfg.run_id_format)
 
-                results_dir = results_base / backtest_id / run_timestamp
-                results_dir.mkdir(parents=True, exist_ok=True)
+                    results_dir = experiments_root / backtest_id / "runs" / run_timestamp
+                    results_dir.mkdir(parents=True, exist_ok=True)
 
                 # Auto-determine filename from backend
                 store_filename = output_cfg.event_store.filename
@@ -477,8 +481,8 @@ class BacktestEngine:
         # Initialize ReportingService if reporting configured (optional)
         reporting_service: ReportingService | None = None
         if hasattr(config, "reporting") and config.reporting:
-            # Determine output directory: use timestamped results_dir if available, else base dir
-            reporting_output_dir = results_dir if results_dir else Path(system_config.output.default_results_dir)
+            # Determine output directory: use timestamped results_dir if available, else experiments root
+            reporting_output_dir = results_dir if results_dir else Path(system_config.output.experiments_root)
 
             logger.debug(
                 "backtest.engine.loading_reporting_service",
