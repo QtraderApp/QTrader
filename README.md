@@ -1,26 +1,100 @@
 # QTrader
 
-A Python backtesting framework for quantitative trading strategies.
+> Event-driven Python backtesting framework for quantitative trading strategies.
 
-> 📦 **This is the QTrader package repository** for developers. After installing (`pip install qtrader`), use `qtrader init-project` to create your **trading project** with configs, strategies, and data.
+QTrader helps you design, test, and iterate on trading ideas using historical market data. It provides an extensible, typed, and composable environment focused on correctness, transparency, and reproducibility.
 
-## What It Does
+______________________________________________________________________
 
-QTrader lets you backtest trading strategies with real market data. It handles data loading, order execution simulation, portfolio tracking, and performance reporting.
+## Table of Contents
 
-## Features
+1. Intro & Philosophy
+1. Architecture & Workflow (Event Driven)
+1. User Guide (Getting Started)
+1. CLI Reference (Essentials)
+1. Extending (Strategies, Indicators, Libraries, Adapters)
+1. Developer Guide (Source Layout, Testing, Quality, Principles)
+1. Indicator Library Overview
+1. Status & Roadmap
+1. License
 
-- Extensible data adapter system with built-in Yahoo CSV support
-- Realistic execution simulation with slippage and commissions
-- Portfolio and position management
-- Corporate actions handling (splits, dividends)
-- Event-driven architecture
-- 22 technical indicators across 5 categories (moving averages, momentum, volatility, volume, trend)
-- Comprehensive test coverage (1664 tests, 80% coverage)
+______________________________________________________________________
 
-## Quick Start
+## 1. Intro & Philosophy
 
-### Installation
+QTrader aims to:
+
+- Separate concerns cleanly (data, strategy, execution, portfolio, reporting).
+- Make strategy iteration fast: scaffold projects in seconds with `init-project`.
+- Provide strong typing and validated configuration (pydantic) for safer refactors.
+- Be transparent: everything is represented as explicit events you can inspect.
+- Remain extensible: plug in custom data adapters, indicators, strategies, risk policies.
+
+> 📦 This repository is the **package source**. End users create a *project* via `qtrader init-project`. The scaffolded project has its own structure (configs, strategies, data) distinct from this source tree.
+
+______________________________________________________________________
+
+## 2. Architecture & Workflow (Event Driven)
+
+The engine processes a stream of domain events. Each service reacts deterministically and may emit new events. This enables fine-grained auditing and reproducibility.
+
+### High-Level Components
+
+- **Data Service**: Reads raw bars via adapters, emits `PriceBarEvent`.
+- **Strategy Service**: Consumes market events, computes indicators, emits `SignalEvent` (intentions).
+- **Execution Service**: Translates signals → orders, applies slippage/commission, emits `OrderEvent` / `FillEvent`.
+- **Portfolio Service**: Updates positions, cash, P&L on fills.
+- **Metrics/Reporting Service**: Aggregates performance and writes outputs.
+- **Event Bus / Store**: Dispatches & persists ordered events for replay and inspection.
+
+### Event Flow Diagram
+
+```
+           +------------------+
+           |  Data Adapter(s) |  (CSV, API, Custom)
+           +---------+--------+
+                     |
+                     v  PriceBarEvent
+                +----+----+
+                |  Bus    |  (dispatch)
+                +----+----+
+                     |
+                     v
+             +---------------+
+             | Strategy Svc  |  (Indicators, context)
+             +-------+-------+
+                     |
+             SignalEvent |
+                     v
+            +---------------+
+            | Execution Svc |  (Routing, slippage, commission)
+            +-------+-------+
+                    |
+             OrderEvent/FillEvent
+                    v
+            +---------------+
+            | Portfolio Svc |  (Positions, cash, NAV)
+            +-------+-------+
+                    |
+                 Metrics
+                    v
+            +---------------+
+            | Reporting Svc |  (Results, artifacts)
+            +---------------+
+```
+
+### Design Principles
+
+- **Event Immutability**: Events are append-only; derived state is recomputable.
+- **Typed Configuration**: Backtest & system configs validated at load time.
+- **Deterministic Runs**: Same inputs → same sequence of events → same results.
+- **Progressive Extension**: Start with defaults, selectively override pieces.
+
+______________________________________________________________________
+
+## 3. User Guide (Getting Started)
+
+### Install
 
 ```bash
 pip install qtrader
@@ -29,239 +103,225 @@ pip install qtrader
 ### Initialize a New Project
 
 ```bash
-# Create a complete backtesting project with sample strategies and data
 qtrader init-project my-trading-system
 cd my-trading-system
 ```
 
-> **Note:** This documentation refers to the **QTrader package repository**. When you run `qtrader init-project`, you get a **scaffolded project** with a different structure (configs, strategies, data). The templates and examples are in your new project, not in this repository.
-
-This creates a ready-to-use project structure:
+Project scaffold (abbreviated):
 
 ```
 my-trading-system/
 ├── config/
-│   ├── system.yaml              # System configuration
-│   ├── data_sources.yaml        # Data source definitions
+│   ├── system.yaml
+│   ├── data_sources.yaml
 │   └── backtests/
-│       ├── buy_hold.yaml        # Example: Buy and hold
-│       └── sma_crossover.yaml   # Example: SMA crossover
+│       ├── buy_hold.yaml
+│       └── sma_crossover.yaml
 ├── library/
 │   └── strategies/
-│       ├── buy_and_hold.py     # Example strategy
-│       └── sma_crossover.py    # Example strategy
+│       ├── buy_and_hold.py
+│       └── sma_crossover.py
 ├── data/
 │   └── us-equity-yahoo-csv/
-│       └── AAPL.csv            # Sample data (100 bars)
+│       └── AAPL.csv
+├── output/
 ├── examples/
-│   └── run_backtest.py         # Example scripts
-└── run_backtest.py             # Simple runner script (copy)
+│   └── run_backtest.py
+└── run_backtest.py
 ```
 
-### Run Your First Backtest
-
-**Using the CLI (Recommended):**
+### Run a Backtest (CLI)
 
 ```bash
-# Inside your scaffolded project directory
-cd my-trading-system
-
-# Run the buy-and-hold example
-qtrader backtest --file config/backtests/buy_hold.yaml
-
-# Run the SMA crossover example
+qtrader backtest config/backtests/buy_hold.yaml
 qtrader backtest --file config/backtests/sma_crossover.yaml
-
-# See all available options
 qtrader backtest --help
 ```
 
-**Or use the helper script:**
+Artifacts: `output/backtests/{backtest_id}/` (metrics, equity curve, trades, config snapshot).
 
-```bash
-# Alternative: use the included runner script
-python run_backtest.py config/backtests/buy_hold.yaml
-```
-
-Results are saved to `output/backtests/{backtest_id}/` with performance metrics, equity curves, and trade history.
-
-### Programmatic Usage
+### Programmatic API
 
 ```python
 from qtrader.engine import BacktestEngine
 from qtrader.engine.config import BacktestConfig
 
-# Load configuration
 config = BacktestConfig.from_yaml("config/backtests/buy_hold.yaml")
-
-# Run backtest
 engine = BacktestEngine(config)
 results = engine.run()
-
-# View results
-print(f"Final Portfolio Value: ${results.final_value:,.2f}")
-print(f"Total Return: {results.total_return:.2%}")
+print(results.final_value, results.total_return)
 ```
 
-## Indicator Library
-
-QTrader includes 22 technical indicators across 5 categories:
-
-- **Moving Averages** (7): SMA, EMA, WMA, DEMA, TEMA, HMA, SMMA
-- **Momentum** (6): RSI, MACD, Stochastic, CCI, ROC, Williams %R
-- **Volatility** (3): ATR, Bollinger Bands, Standard Deviation
-- **Volume** (4): VWAP, OBV, A/D, CMF
-- **Trend** (2): ADX, Aroon
-
-All indicators support both stateful (streaming) and stateless (batch) computation modes.
-
-For detailed documentation, formulas, parameters, and usage examples, see [Indicators Documentation](docs/packages/indicators/README.md).
-
-## Project Structure
-
-```
-qtrader/
-├── engine/         # Backtest orchestration
-├── services/       # Core services (data, portfolio, execution, strategy)
-├── events/         # Event system and event types
-├── libraries/      # Indicators, strategies, risk policies
-└── cli/            # Command-line interface
-```
-
-## Extending QTrader
-
-QTrader is designed to be extended with custom strategies, indicators, data adapters, and risk policies. Use the scaffolding commands to generate template files with documentation and examples.
-
-### Option 1: Generate Individual Components
-
-Create individual custom components in your project:
+### Basic CLI Surface (Core Commands)
 
 ```bash
-# Navigate to your project
-cd my-trading-system
+# Run a backtest
+qtrader backtest --file config/backtests/sma_crossover.yaml
 
-# Generate templates for specific component types
+# Update Yahoo CSV data incrementally (auto symbol discovery)
+qtrader data yahoo-update --days 365
+
+# Generate component templates
 qtrader init-library ./library --type strategy --type indicator
 
-# This creates:
-# library/strategies/template.py
-# library/indicators/template.py
+# Show data source names
+qtrader data list
 ```
 
-### Option 2: Generate Full Custom Library
+______________________________________________________________________
 
-Create a complete external library for reuse across projects:
+## 4. CLI Reference (Essentials)
 
-```bash
-# Create a full library structure
-qtrader init-library ~/my-qtrader-extensions
+| Command                                                      | Purpose                                      |
+| ------------------------------------------------------------ | -------------------------------------------- |
+| `qtrader init-project <path>`                                | Scaffold a new backtesting project           |
+| `qtrader backtest --file <yaml>`                             | Run a configured backtest                    |
+| `qtrader data yahoo-update [--days N] [--symbols AAPL MSFT]` | Download/refresh local Yahoo OHLCV CSVs      |
+| `qtrader data list`                                          | List configured data adapters/sources        |
+| `qtrader init-library <path> [--type ...]`                   | Generate template code for custom components |
 
-# This creates:
-# ~/my-qtrader-extensions/
-# ├── strategies/
-# ├── indicators/
-# ├── adapters/
-# ├── risk_policies/
-# └── metrics/
-```
+Extended docs: `docs/packages/cli/backtest.md`.
 
-### Configure Custom Libraries
+______________________________________________________________________
 
-After generating templates, configure `config/system.yaml` to use them:
+## 5. Extending
 
-```yaml
-custom_libraries:
-  strategies: "./library/strategies"      # Path to your strategies
-  indicators: null                        # null = use built-in only
-  adapters: null                          # null = use built-in only
-  risk_policies: null                     # null = use built-in only
-  metrics: null                           # null = use built-in only
-```
+### Strategies & Indicators
 
-**Important:** Set paths to `null` for components you don't customize. QTrader will use built-in components only.
+Use `qtrader init-library` to create template files then implement logic in `on_bar` / indicator calculate methods.
 
-### Example: Custom Strategy
-
-The scaffolded templates show the structure. Here's a minimal example:
+Minimal custom strategy example:
 
 ```python
-# library/strategies/my_strategy.py
 from qtrader.libraries.strategies import Strategy, StrategyConfig
 from qtrader.services.strategy.models import SignalIntention
 
 class MyStrategyConfig(StrategyConfig):
     name: str = "my_strategy"
     sma_period: int = 20
-    # Add your parameters here
 
 class MyStrategy(Strategy[MyStrategyConfig]):
     def on_bar(self, event, context):
-        # Your trading logic
         sma = context.sma(symbol=event.symbol, period=self.config.sma_period)
-
         if event.close > sma and not context.has_position(event.symbol):
-            context.emit_signal(
-                symbol=event.symbol,
-                intention=SignalIntention.OPEN_LONG,
-                quantity=100
-            )
+            context.emit_signal(symbol=event.symbol,
+                                intention=SignalIntention.OPEN_LONG,
+                                quantity=100)
 
-CONFIG = MyStrategyConfig()  # Required for auto-discovery
+CONFIG = MyStrategyConfig()  # Required for discovery
 ```
 
-**Reference:** See `src/qtrader/scaffold/library/strategies/sma_crossover.py` for a complete example with comments.
+### Data Adapters
 
-### Example: Custom Data Adapter
-
-Integrate proprietary data sources:
+Implement the adapter protocol to load proprietary data and emit events.
 
 ```python
-# library/adapters/my_adapter.py
 from qtrader.services.data.adapters.protocol import IDataAdapter
 
-class MyProprietaryAdapter(IDataAdapter):
+class MyAdapter(IDataAdapter):
     def read_bars(self, start_date: str, end_date: str):
-        # Load from your proprietary database
-        return self.db.query(...)
-
-    def to_price_bar_event(self, bar) -> PriceBarEvent:
-        # Convert to QTrader event format
-        return PriceBarEvent(...)
+        # return iterable of raw bar records
+        ...
+    def to_price_bar_event(self, bar):
+        # convert to PriceBarEvent
+        ...
 ```
 
-**Reference:** See `src/qtrader/services/data/adapters/builtin/yahoo_csv.py` for a complete implementation.
+### Custom Library Layout
 
-## Development
+```
+my-qtrader-extensions/
+├── strategies/
+├── indicators/
+├── adapters/
+├── risk_policies/
+└── metrics/
+```
 
-### Run Tests
+Configure paths in `config/system.yaml` (set to `null` for built-in only):
+
+```yaml
+custom_libraries:
+  strategies: "./library/strategies"
+  indicators: null
+  adapters: null
+  risk_policies: null
+  metrics: null
+```
+
+______________________________________________________________________
+
+## 6. Developer Guide
+
+### Source Layout (Package Repository)
+
+```
+src/qtrader/
+├── engine/      # Orchestration & backtest engine
+├── services/    # data, strategy, execution, portfolio, reports
+├── events/      # Event definitions & bus/store
+├── libraries/   # Built-in indicators, strategies, risk policies
+├── cli/         # Command-line interface
+└── scaffold/    # Project & library templates distributed with package
+```
+
+### Quality & Tests
 
 ```bash
-# All tests
-make test
-
-# With coverage
-make test-coverage
-
-# Quality checks
-make qa
+make qa            # Lint + format (ruff, isort, mdformat)
+make test          # Run full test suite
+make test-coverage # Run tests with coverage report
 ```
 
-### Configuration
+Current internal metrics (may differ in CI): ~1600+ tests, ~80% coverage.
 
-Backtests are configured via YAML files. See `config/` directory for examples.
+### Principles
 
-## Documentation
+- Typed configs (pydantic) reduce runtime surprises.
+- Indicators support streaming & batch modes.
+- Services are cohesive; cross-service communication only via events.
+- Deterministic sequencing enables replay & debugging.
 
-Detailed documentation available in `docs/`:
+### Contributing (Early Phase)
 
-- [Indicators Documentation](docs/packages/indicators/README.md) - Complete indicator reference
-- [CLI Documentation](docs/packages/cli/backtest.md) - Command-line usage
-- [Architecture Notes](docs/MULTI_STRATEGY_REFACTORING.md) - Design decisions
+Open issues for feature proposals or architecture questions. Please include reproducible examples for bug reports (config YAML, sample data snippet, strategy code).
 
-## Status
+______________________________________________________________________
 
-Active development. Core features implemented and tested.
+## 7. Indicator Library Overview
 
-## License
+Categories & examples:
 
-MIT License - see [LICENSE](LICENSE) file for details.
+- **Moving Averages (7)**: SMA, EMA, WMA, DEMA, TEMA, HMA, SMMA
+- **Momentum (6)**: RSI, MACD, Stochastic, CCI, ROC, Williams %R
+- **Volatility (3)**: ATR, Bollinger Bands, StdDev
+- **Volume (4)**: VWAP, OBV, Acc/Dist, CMF
+- **Trend (2)**: ADX, Aroon
+
+Indicators are accessible through the strategy context (e.g., `context.sma(...)`).
+
+See: `docs/packages/indicators/README.md` for parameters & formulas.
+
+______________________________________________________________________
+
+## 8. Status & Roadmap
+
+Status: Active development (beta). Core single-strategy backtesting stable.
+
+Planned / Evaluating:
+
+- Multi-strategy portfolio coordination.
+- Streaming / live paper feed integration.
+- Enhanced risk & order routing models.
+- More built-in adapters (Parquet, SQL, APIs).
+- Scenario & walk-forward utilities.
+
+______________________________________________________________________
+
+## 9. License
+
+MIT License. See [LICENSE](LICENSE).
+
+______________________________________________________________________
+
+Enjoy building! If something feels unclear or friction-heavy, open an issue early—we iterate fast during beta.
