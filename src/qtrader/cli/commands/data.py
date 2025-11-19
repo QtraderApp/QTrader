@@ -1,10 +1,13 @@
 """Data management commands - thin CLI orchestration layer."""
 
 import sys
+import time
 from datetime import datetime
+from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from qtrader.cli.ui import (
@@ -16,6 +19,18 @@ from qtrader.cli.ui import (
 from qtrader.cli.ui.formatters import add_bar_data, add_cache_info_row, add_update_result_row
 from qtrader.services.data.adapters.resolver import DataSourceResolver
 from qtrader.services.data.update_service import UpdateService
+from qtrader.utilities.yahoo_update import (
+    BATCH_PAUSE,
+    BATCH_SIZE,
+    MIN_REQUEST_INTERVAL,
+    REQUESTS_PER_MINUTE,
+    discover_symbols,
+    get_safe_end_date,
+    get_yahoo_data_dir,
+    is_market_closed,
+    load_universe,
+    update_symbol,
+)
 
 
 @click.group("data")
@@ -448,6 +463,231 @@ def cache_info(dataset: str):
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {e}[/red]")
+        import traceback
+
+        console.print(traceback.format_exc())
+        sys.exit(1)
+
+
+@data_group.command("yahoo-update")
+@click.argument("symbols", nargs=-1)
+@click.option("--start", help="Start date (YYYY-MM-DD)")
+@click.option("--end", help="End date (YYYY-MM-DD)")
+@click.option("--full-refresh", is_flag=True, help="Re-download all data")
+@click.option(
+    "--data-source",
+    default="yahoo-us-equity-1d-csv",
+    help="Data source name from data_sources.yaml (default: yahoo-us-equity-1d-csv)",
+)
+@click.option(
+    "--data-dir",
+    type=click.Path(exists=False),
+    help="Override data directory path (default: read from data_sources.yaml)",
+)
+def yahoo_update_command(symbols: tuple, start: str, end: str, full_refresh: bool, data_source: str, data_dir: str):
+    """
+    Update Yahoo Finance data for symbols.
+
+    Uses yahoo_update.py functions to fetch and update OHLCV data and dividends.
+    Performs incremental updates by default, fetching only new bars since last update.
+
+    Features:
+    - Incremental updates (only new data since last date)
+    - Full refresh mode (re-download all data)
+    - Dividend tracking (maintains dividends_calendar.json)
+    - Rate limiting (20 req/min to avoid API blacklisting)
+    - Batch processing (50 symbols per batch with 30s pauses)
+    - Automatic retry with exponential backoff
+
+    If no symbols provided, updates all symbols from universe.json or discovers
+    symbols from existing CSV files in the data directory.
+
+    Examples:
+
+        \b
+        # Update all symbols from universe.json
+        qtrader data yahoo-update
+
+        # Update specific symbols
+        qtrader data yahoo-update AAPL MSFT GOOGL
+
+        # Use different data source
+        qtrader data yahoo-update --data-source yahoo-us-equity-1d-csv
+
+        # Override data directory
+        qtrader data yahoo-update --data-dir /path/to/data
+
+        # Update with date range
+        qtrader data yahoo-update --start 2020-01-01 --end 2024-12-31
+
+        # Force full refresh
+        qtrader data yahoo-update --full-refresh
+    """
+    console = Console()
+
+    try:
+        # Resolve data directory
+        data_path: Path
+        if data_dir:
+            # Use explicit override
+            data_path = Path(data_dir)
+            if not data_path.is_absolute():
+                # Make relative to current directory
+                data_path = Path.cwd() / data_path
+            console.print(f"[dim]Using explicit data directory: {data_path}[/dim]")
+        else:
+            # Load from data_sources.yaml
+            loaded_path = get_yahoo_data_dir(data_source)
+            if loaded_path is None:
+                console.print(
+                    f"[yellow]Could not find '{data_source}' in data_sources.yaml, using default path[/yellow]"
+                )
+                # Fallback to default
+                data_path = Path.cwd() / "data" / "us-equity-yahoo-csv"
+            else:
+                data_path = loaded_path
+                console.print(f"[dim]Loaded data directory from data_sources.yaml: {data_path}[/dim]")
+
+        if not data_path.exists():
+            console.print(f"[red]Error: Data directory not found: {data_path}[/red]")
+            console.print("[yellow]Tip: Check data_sources.yaml or use --data-dir to specify path[/yellow]")
+            sys.exit(1)
+
+        universe_path = data_path / "universe.json"
+        dividends_path = data_path / "dividends_calendar.json"
+
+        # Determine symbols to update
+        symbol_list: list[str]
+        if symbols:
+            symbol_list = list(symbols)
+        else:
+            # Try to load from universe.json first
+            loaded_symbols = load_universe(universe_path)
+            if loaded_symbols is None:
+                # Fallback: discover from existing CSV files
+                console.print("[yellow]universe.json not found, discovering symbols from CSV files...[/yellow]")
+                symbol_list = discover_symbols(data_path)
+                if not symbol_list:
+                    console.print(f"[yellow]No CSV files found in {data_path}[/yellow]")
+                    sys.exit(0)
+            elif not loaded_symbols:
+                console.print("[yellow]universe.json exists but contains no tickers[/yellow]")
+                sys.exit(0)
+            else:
+                symbol_list = loaded_symbols
+
+        console.print(f"\n[cyan]Yahoo Finance Data Updater[/cyan]")
+        console.print(f"Data directory: {data_path}")
+        console.print(f"Symbols: {', '.join(symbol_list)}")
+        console.print(f"Mode: {'Full Refresh' if full_refresh else 'Incremental Update'}")
+        if start:
+            console.print(f"Start date: {start}")
+        if end:
+            console.print(f"End date: {end}")
+        else:
+            safe_date = get_safe_end_date()
+            if not is_market_closed():
+                console.print(f"[yellow]Market is still open - excluding today's data (end date: {safe_date})[/yellow]")
+            else:
+                console.print(f"[green]Market is closed - including today's data (end date: {safe_date})[/green]")
+        console.print()
+
+        # Update symbols with progress bar and batch processing
+        results = []
+        total_symbols = len(symbol_list)
+        num_batches = (total_symbols + BATCH_SIZE - 1) // BATCH_SIZE
+
+        console.print(f"[dim]Processing {total_symbols} symbols in {num_batches} batch(es) of up to {BATCH_SIZE}[/dim]")
+        console.print(
+            f"[dim]Rate limit: {REQUESTS_PER_MINUTE} requests/minute ({MIN_REQUEST_INTERVAL:.2f}s between requests)[/dim]"
+        )
+        if num_batches > 1:
+            console.print(f"[dim]Batch pause: {BATCH_PAUSE:.0f}s between batches to avoid rate limiting[/dim]")
+        console.print()
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("[cyan]Updating symbols...", total=total_symbols)
+
+            # Process symbols in batches
+            for batch_num in range(num_batches):
+                start_idx = batch_num * BATCH_SIZE
+                end_idx = min(start_idx + BATCH_SIZE, total_symbols)
+                batch_symbols = symbol_list[start_idx:end_idx]
+
+                # Update each symbol in batch
+                for symbol in batch_symbols:
+                    progress.update(
+                        task, description=f"[cyan]Batch {batch_num + 1}/{num_batches}: Updating {symbol}..."
+                    )
+                    result = update_symbol(
+                        symbol,
+                        data_path,
+                        dividends_path,
+                        start_date=start,
+                        end_date=end,
+                        full_refresh=full_refresh,
+                        rate_limit=True,
+                    )
+                    results.append(result)
+                    progress.advance(task)
+
+                # Pause between batches (except after last batch)
+                if batch_num < num_batches - 1:
+                    progress.update(
+                        task,
+                        description=f"[yellow]Pausing {BATCH_PAUSE:.0f}s before next batch to avoid rate limiting...[/yellow]",
+                    )
+                    time.sleep(BATCH_PAUSE)
+
+        # Display results
+        console.print("\n[bold]Update Summary:[/bold]\n")
+
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Symbol", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Action")
+        table.add_column("Bars Added", justify="right")
+        table.add_column("Dividends", justify="right")
+
+        success_count = 0
+        total_bars = 0
+        total_dividends = 0
+
+        for result in results:
+            status = "✓" if result["success"] else "✗"
+
+            table.add_row(
+                result["symbol"],
+                status,
+                result["action"],
+                str(result["bars_added"]),
+                str(result["dividends_added"]),
+            )
+
+            if result["success"]:
+                success_count += 1
+                total_bars += result["bars_added"]
+                total_dividends += result["dividends_added"]
+
+        console.print(table)
+
+        console.print(f"\n[bold]Results:[/bold]")
+        console.print(f"  Successful: {success_count}/{len(symbol_list)}")
+        console.print(f"  Total bars added: {total_bars}")
+        console.print(f"  Total dividends added: {total_dividends}")
+
+        if dividends_path.exists():
+            console.print(f"\n[dim]Dividends calendar: {dividends_path}[/dim]")
+
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
         import traceback
