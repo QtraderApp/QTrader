@@ -162,7 +162,7 @@ class TestInitLibraryCommand:
         assert "Custom QTrader Library" in content
         assert "Structure" in content
         assert "Usage" in content
-        assert "config/system.yaml" in content
+        assert "config/qtrader.yaml" in content
 
     def test_template_files_valid_python(self, runner, temp_lib_dir):
         """Test that generated Python files are valid."""
@@ -232,5 +232,5 @@ class TestInitLibraryCommand:
 
         assert result.exit_code == 0
         assert "Next steps:" in result.output
-        assert "config/system.yaml" in result.output
+        assert "config/qtrader.yaml" in result.output
         assert "custom_libraries:" in result.output
