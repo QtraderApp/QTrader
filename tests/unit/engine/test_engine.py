@@ -49,8 +49,8 @@ def mock_system_config(tmp_path: Path):
     mock_config.output.timestamp_format = "%Y%m%d_%H%M%S"
     mock_config.output.organize_by_date = False
     mock_config.output.event_store = Mock()
-    mock_config.output.event_store.backend = "sqlite"
-    mock_config.output.event_store.filename = "events.db"
+    mock_config.output.event_store.backend = "parquet"
+    mock_config.output.event_store.filename = "events.{backend}"
 
     # Custom libraries - use test fixtures
     mock_config.custom_libraries = Mock()
@@ -283,10 +283,10 @@ class TestBacktestEngineFromConfig:
     @patch("qtrader.system.log_system.LoggerFactory")
     @patch("qtrader.engine.engine.DataService")
     @patch("qtrader.engine.engine.EventBus")
-    @patch("qtrader.engine.engine.SQLiteEventStore")
+    @patch("qtrader.engine.engine.ParquetEventStore")
     def test_from_config_creates_results_directory(
         self,
-        mock_sqlite_store,
+        mock_parquet_store,
         mock_event_bus_class,
         mock_data_service_class,
         mock_logger_factory,
@@ -300,11 +300,14 @@ class TestBacktestEngineFromConfig:
         mock_get_system_config.return_value = mock_system_config
         mock_event_bus_class.return_value = Mock()
         mock_data_service_class.from_config.return_value = Mock()
-        mock_sqlite_store.return_value = Mock()
+        mock_parquet_store.return_value = Mock()
 
-        # Set output dir to tmp_path
-        output_dir = tmp_path / "output" / "backtests"
-        mock_system_config.output.default_results_dir = str(output_dir)
+        # Set output dir to tmp_path and use parquet backend
+        experiments_root = tmp_path / "experiments"
+        mock_system_config.output.experiments_root = str(experiments_root)
+        mock_system_config.output.run_id_format = "%Y%m%d_%H%M%S"
+        mock_system_config.output.event_store.backend = "parquet"
+        mock_system_config.output.event_store.filename = "events.{backend}"
 
         # Act
         engine = BacktestEngine.from_config(sample_backtest_config)

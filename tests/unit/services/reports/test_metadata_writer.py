@@ -31,7 +31,7 @@ class TestWriteBacktestMetadata:
                 "sources_config": "config/data_sources.yaml",
                 "default_mode": "adjusted",
             },
-            "output": {"default_results_dir": "output/backtests"},
+            "output": {"experiments_root": "output/backtests"},
             "logging": {"level": "INFO", "format": "console"},
         }
 
@@ -154,7 +154,7 @@ class TestWriteBacktestMetadata:
                 "price_decimals": 2,
             },
             "output": {
-                "default_results_dir": "output/backtests",
+                "experiments_root": "output/backtests",
                 "timestamp_format": "%Y%m%d_%H%M%S",
             },
             "logging": {
@@ -177,7 +177,7 @@ class TestWriteBacktestMetadata:
         sys_cfg = metadata["system"]
         assert sys_cfg["data"]["sources_config"] == "config/data_sources.yaml"
         assert sys_cfg["data"]["default_mode"] == "adjusted"
-        assert sys_cfg["output"]["default_results_dir"] == "output/backtests"
+        assert sys_cfg["output"]["experiments_root"] == "output/backtests"
         assert sys_cfg["logging"]["level"] == "INFO"
 
     def test_handles_decimal_types(self, tmp_path: Path):

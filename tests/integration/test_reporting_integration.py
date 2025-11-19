@@ -33,11 +33,13 @@ class TestReportingIntegration:
         assert result.bars_processed > 0
 
         # Find the output directory - use temp dir from mock config
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
         assert output_base.exists()
 
-        # Should have timestamped subdirectory
-        timestamped_dirs = list(output_base.iterdir())
+        # Should have runs/ directory with timestamped subdirectories
+        runs_dir = output_base / "runs"
+        assert runs_dir.exists()
+        timestamped_dirs = list(runs_dir.iterdir())
         assert len(timestamped_dirs) > 0
 
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
@@ -79,8 +81,9 @@ class TestReportingIntegration:
         assert result.bars_processed > 0
 
         # Find output directory - use temp dir from mock config
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
 
         # Check for timeseries directory
@@ -121,8 +124,9 @@ class TestReportingIntegration:
         assert result.bars_processed > 0
 
         # Find output directory - use temp dir from mock config
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
 
         # Check that both event store and reporting are in same directory
@@ -158,8 +162,9 @@ class TestReportingIntegration:
             _ = engine.run()
 
         # Find performance.json - use temp dir from mock config
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
         perf_json = latest_dir / "performance.json"
 
@@ -210,8 +215,9 @@ class TestReportingIntegration:
         assert result.bars_processed > 0, "Should have processed bars"
 
         # Find output directory - use temp dir from mock config
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
 
         # Check performance.json exists
@@ -252,8 +258,9 @@ class TestReportingIntegration:
         assert result.bars_processed > 0
 
         # Find output - use temp dir from mock config
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
 
         # Check equity curve was sampled
@@ -282,8 +289,9 @@ class TestReportingIntegration:
             _ = engine.run()
 
         # Find performance.json
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
         perf_json = latest_dir / "performance.json"
 
@@ -366,8 +374,9 @@ class TestReportingIntegration:
             _ = engine.run()
 
         # Find performance.json
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
         perf_json = latest_dir / "performance.json"
 
@@ -427,8 +436,9 @@ class TestReportingIntegration:
             _ = engine.run()
 
         # Find performance.json
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
         perf_json = latest_dir / "performance.json"
 
@@ -483,8 +493,9 @@ class TestReportingIntegration:
             _ = engine.run()
 
         # Find performance.json
-        output_base = Path(mock_system_config.output.default_results_dir) / config.sanitized_backtest_id
-        timestamped_dirs = list(output_base.iterdir())
+        output_base = Path(mock_system_config.output.experiments_root) / config.sanitized_backtest_id
+        runs_dir = output_base / "runs"
+        timestamped_dirs = list(runs_dir.iterdir())
         latest_dir = max(timestamped_dirs, key=lambda p: p.name)
         perf_json = latest_dir / "performance.json"
 

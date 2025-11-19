@@ -36,13 +36,16 @@ def mock_system_config(tmp_path: Path):
     mock_config.data.default_timezone = "America/New_York"
 
     # Output configuration - use temp directory
-    output_dir = tmp_path / "output" / "backtests"
+    output_dir = tmp_path / "experiments"
     output_dir.mkdir(parents=True, exist_ok=True)
     mock_config.output = Mock()
-    mock_config.output.default_results_dir = str(output_dir)
+    mock_config.output.experiments_root = str(output_dir)
     mock_config.output.use_timestamps = True
-    mock_config.output.timestamp_format = "%Y%m%d_%H%M%S"
+    mock_config.output.run_id_format = "%Y%m%d_%H%M%S"
+    mock_config.output.timestamp_format = "%Y%m%d_%H%M%S"  # Legacy support
     mock_config.output.organize_by_date = False
+    mock_config.output.capture_git_info = False
+    mock_config.output.capture_environment = False
     mock_config.output.event_store = Mock()
     mock_config.output.event_store.backend = "parquet"
     mock_config.output.event_store.filename = "events.parquet"
@@ -168,6 +171,6 @@ def temp_output_dir(tmp_path: Path) -> Path:
 
     Creates clean directory for each test, automatically cleaned up after.
     """
-    output_dir = tmp_path / "output" / "backtests"
+    output_dir = tmp_path / "experiments"
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir

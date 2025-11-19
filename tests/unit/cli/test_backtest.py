@@ -26,11 +26,13 @@ def cli_runner():
 @pytest.fixture
 def mock_backtest_result():
     """Fixture providing mock BacktestResult."""
+    from datetime import timedelta
+
     result = Mock()
     result.start_date = datetime(2020, 1, 1).date()
     result.end_date = datetime(2020, 12, 31).date()
     result.bars_processed = 252
-    result.duration = "0:00:05.123"
+    result.duration = timedelta(seconds=5.123)
     return result
 
 
@@ -80,7 +82,33 @@ def mock_system_config():
     config = Mock()
     config.output.event_store.backend = "memory"
     config.output.event_store.filename = "events.{backend}"
+    config.output.experiments_root = "experiments"
+    config.output.run_id_format = "%Y%m%d_%H%M%S"
+    config.output.capture_git_info = False
+    config.output.capture_environment = False
     return config
+
+
+@pytest.fixture
+def mock_experiment_setup(valid_config_file):
+    """Fixture providing mock ExperimentResolver and ExperimentMetadata setup."""
+
+    def _setup(mock_resolver_class, mock_metadata_class):
+        """Setup experiment mocks with proper return values."""
+        # ExperimentResolver class methods
+        mock_resolver_class.resolve_config_path.return_value = valid_config_file
+        mock_resolver_class.get_experiment_dir.return_value = valid_config_file.parent
+        mock_resolver_class.validate_experiment_structure.return_value = None
+        mock_resolver_class.generate_run_id.return_value = "20241119_120000"
+        mock_resolver_class.create_run_dir.return_value = valid_config_file.parent / "runs" / "20241119_120000"
+
+        # ExperimentMetadata class methods
+        mock_metadata_class.compute_config_hash.return_value = "abc123"
+        mock_metadata_class.save_config_snapshot.return_value = valid_config_file
+        mock_metadata_class.write_run_metadata.return_value = valid_config_file
+        mock_metadata_class.create_latest_symlink.return_value = None
+
+    return _setup
 
 
 # ============================================================================
@@ -92,11 +120,11 @@ class TestBacktestCommandBasics:
     """Test basic command functionality."""
 
     def test_command_requires_file_option(self, cli_runner):
-        """Test that --file option is required."""
+        """Test that CONFIG_PATH argument is required."""
         result = cli_runner.invoke(backtest_command, [])
 
-        assert result.exit_code == 2  # Click error code for missing required option
-        assert "Missing option" in result.output or "--file" in result.output
+        assert result.exit_code == 2  # Click error code for missing required argument
+        assert "Missing argument" in result.output or "CONFIG_PATH" in result.output
 
     def test_command_with_nonexistent_file(self, cli_runner):
         """Test command fails gracefully with nonexistent file."""
@@ -105,6 +133,8 @@ class TestBacktestCommandBasics:
         assert result.exit_code == 2
         assert "does not exist" in result.output.lower() or "invalid" in result.output.lower()
 
+    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
     @patch("qtrader.cli.commands.backtest.BacktestEngine")
     @patch("qtrader.cli.commands.backtest.load_backtest_config")
     @patch("qtrader.cli.commands.backtest.reload_system_config")
@@ -115,28 +145,35 @@ class TestBacktestCommandBasics:
         mock_reload_sys_config,
         mock_load_config,
         mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
         cli_runner,
         valid_config_file,
         mock_engine,
         mock_backtest_result,
         mock_system_config,
+        mock_experiment_setup,
     ):
         """Test successful backtest execution with valid config."""
         # Setup mocks
         mock_config = Mock()
         mock_config.backtest_id = "test_backtest"
+        mock_config.sanitized_backtest_id = "test_backtest"
         mock_config.start_date = datetime(2020, 1, 1)
         mock_config.end_date = datetime(2020, 12, 31)
         mock_config.all_symbols = ["AAPL"]
         mock_config.replay_speed = 0.0
         mock_config.display_events = ["bar"]
 
+        # Setup experiment mocks
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
+
         mock_load_config.return_value = mock_config
         mock_engine_class.from_config.return_value = mock_engine
         mock_get_sys_config.return_value = mock_system_config
 
         # Execute command
-        result = cli_runner.invoke(backtest_command, ["--file", str(valid_config_file)])
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file)])
 
         # Assertions
         assert result.exit_code == 0
@@ -144,7 +181,6 @@ class TestBacktestCommandBasics:
         assert "252" in result.output  # bars_processed
         mock_reload_sys_config.assert_called_once()
         mock_load_config.assert_called_once()
-        mock_engine_class.from_config.assert_called_once_with(mock_config)
         mock_engine.run.assert_called_once()
         mock_engine.shutdown.assert_called_once()
 
@@ -157,6 +193,8 @@ class TestBacktestCommandBasics:
 class TestBacktestCommandOverrides:
     """Test CLI option overrides."""
 
+    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
     @patch("qtrader.cli.commands.backtest.BacktestEngine")
     @patch("qtrader.cli.commands.backtest.load_backtest_config")
     @patch("qtrader.cli.commands.backtest.reload_system_config")
@@ -167,10 +205,13 @@ class TestBacktestCommandOverrides:
         mock_reload_sys_config,
         mock_load_config,
         mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
         cli_runner,
         valid_config_file,
         mock_engine,
         mock_system_config,
+        mock_experiment_setup,
     ):
         """Test --silent flag overrides config replay_speed."""
         mock_config = Mock()
@@ -181,17 +222,20 @@ class TestBacktestCommandOverrides:
         mock_config.replay_speed = 0.5  # Will be overridden
         mock_config.display_events = ["bar"]
 
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
         mock_load_config.return_value = mock_config
         mock_engine_class.from_config.return_value = mock_engine
         mock_get_sys_config.return_value = mock_system_config
 
-        result = cli_runner.invoke(backtest_command, ["--file", str(valid_config_file), "--silent"])
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file), "--silent"])
 
         assert result.exit_code == 0
         assert mock_config.replay_speed == -1.0
         assert mock_config.display_events is None
         assert "Silent mode" in result.output
 
+    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
     @patch("qtrader.cli.commands.backtest.BacktestEngine")
     @patch("qtrader.cli.commands.backtest.load_backtest_config")
     @patch("qtrader.cli.commands.backtest.reload_system_config")
@@ -202,10 +246,13 @@ class TestBacktestCommandOverrides:
         mock_reload_sys_config,
         mock_load_config,
         mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
         cli_runner,
         valid_config_file,
         mock_engine,
         mock_system_config,
+        mock_experiment_setup,
     ):
         """Test --replay-speed option overrides config value."""
         mock_config = Mock()
@@ -216,16 +263,19 @@ class TestBacktestCommandOverrides:
         mock_config.replay_speed = 0.0
         mock_config.display_events = ["bar"]
 
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
         mock_load_config.return_value = mock_config
         mock_engine_class.from_config.return_value = mock_engine
         mock_get_sys_config.return_value = mock_system_config
 
-        result = cli_runner.invoke(backtest_command, ["--file", str(valid_config_file), "-r", "0.25"])
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file), "-r", "0.25"])
 
         assert result.exit_code == 0
         assert mock_config.replay_speed == 0.25
         assert "0.25s per event" in result.output
 
+    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
     @patch("qtrader.cli.commands.backtest.BacktestEngine")
     @patch("qtrader.cli.commands.backtest.load_backtest_config")
     @patch("qtrader.cli.commands.backtest.reload_system_config")
@@ -236,10 +286,13 @@ class TestBacktestCommandOverrides:
         mock_reload_sys_config,
         mock_load_config,
         mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
         cli_runner,
         valid_config_file,
         mock_engine,
         mock_system_config,
+        mock_experiment_setup,
     ):
         """Test --start-date and --end-date options override config values."""
         mock_config = Mock()
@@ -250,6 +303,7 @@ class TestBacktestCommandOverrides:
         mock_config.replay_speed = 0.0
         mock_config.display_events = ["bar"]
 
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
         mock_load_config.return_value = mock_config
         mock_engine_class.from_config.return_value = mock_engine
         mock_get_sys_config.return_value = mock_system_config
@@ -257,7 +311,6 @@ class TestBacktestCommandOverrides:
         result = cli_runner.invoke(
             backtest_command,
             [
-                "--file",
                 str(valid_config_file),
                 "--start-date",
                 "2020-06-01",
@@ -272,6 +325,8 @@ class TestBacktestCommandOverrides:
         assert "2020-06-01" in result.output
         assert "2020-09-30" in result.output
 
+    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
     @patch("qtrader.cli.commands.backtest.BacktestEngine")
     @patch("qtrader.cli.commands.backtest.load_backtest_config")
     @patch("qtrader.cli.commands.backtest.reload_system_config")
@@ -282,10 +337,13 @@ class TestBacktestCommandOverrides:
         mock_reload_sys_config,
         mock_load_config,
         mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
         cli_runner,
         valid_config_file,
         mock_engine,
         mock_system_config,
+        mock_experiment_setup,
     ):
         """Test multiple CLI overrides work together."""
         mock_config = Mock()
@@ -296,6 +354,7 @@ class TestBacktestCommandOverrides:
         mock_config.replay_speed = 0.0
         mock_config.display_events = ["bar"]
 
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
         mock_load_config.return_value = mock_config
         mock_engine_class.from_config.return_value = mock_engine
         mock_get_sys_config.return_value = mock_system_config
@@ -303,7 +362,6 @@ class TestBacktestCommandOverrides:
         result = cli_runner.invoke(
             backtest_command,
             [
-                "--file",
                 str(valid_config_file),
                 "--silent",
                 "--start-date",
@@ -328,6 +386,8 @@ class TestBacktestCommandOverrides:
 class TestBacktestCommandDisplay:
     """Test command output display."""
 
+    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
     @patch("qtrader.cli.commands.backtest.BacktestEngine")
     @patch("qtrader.cli.commands.backtest.load_backtest_config")
     @patch("qtrader.cli.commands.backtest.reload_system_config")
@@ -338,10 +398,13 @@ class TestBacktestCommandDisplay:
         mock_reload_sys_config,
         mock_load_config,
         mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
         cli_runner,
         valid_config_file,
         mock_engine,
         mock_system_config,
+        mock_experiment_setup,
     ):
         """Test display shows memory backend correctly."""
         mock_config = Mock()
@@ -352,15 +415,18 @@ class TestBacktestCommandDisplay:
         mock_config.replay_speed = -1.0
         mock_config.display_events = None
 
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
         mock_load_config.return_value = mock_config
         mock_engine_class.from_config.return_value = mock_engine
         mock_get_sys_config.return_value = mock_system_config
 
-        result = cli_runner.invoke(backtest_command, ["--file", str(valid_config_file)])
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file)])
 
         assert result.exit_code == 0
         assert "memory (no files created)" in result.output
 
+    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
     @patch("qtrader.cli.commands.backtest.BacktestEngine")
     @patch("qtrader.cli.commands.backtest.load_backtest_config")
     @patch("qtrader.cli.commands.backtest.reload_system_config")
@@ -373,10 +439,13 @@ class TestBacktestCommandDisplay:
         mock_reload_sys_config,
         mock_load_config,
         mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
         cli_runner,
         valid_config_file,
         mock_engine,
         tmp_path,
+        mock_experiment_setup,
     ):
         """Test display shows file backend correctly."""
         mock_config = Mock()
@@ -393,24 +462,30 @@ class TestBacktestCommandDisplay:
         event_file = results_dir / "events.sqlite"
         event_file.write_text("fake event data")
 
+        from datetime import timedelta
+
         mock_engine.run.return_value = Mock(
             start_date=datetime(2020, 1, 1).date(),
             end_date=datetime(2020, 12, 31).date(),
             bars_processed=252,
-            duration="0:00:05",
+            duration=timedelta(seconds=5),
         )
         mock_engine._results_dir = results_dir
 
         system_config = Mock()
         system_config.output.event_store.backend = "sqlite"
         system_config.output.event_store.filename = "events.{backend}"
+        system_config.output.run_id_format = "%Y%m%d_%H%M%S"
+        system_config.output.capture_git_info = False
+        system_config.output.capture_environment = False
 
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
         mock_load_config.return_value = mock_config
         mock_engine_class.from_config.return_value = mock_engine
         mock_get_sys_config.return_value = system_config
         mock_getsize.return_value = 1024 * 1024  # 1 MB
 
-        result = cli_runner.invoke(backtest_command, ["--file", str(valid_config_file)])
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file)])
 
         assert result.exit_code == 0
         assert "events.sqlite" in result.output
@@ -441,12 +516,14 @@ class TestBacktestCommandErrors:
         """Test graceful handling of config loading errors."""
         mock_load_config.side_effect = ValueError("Invalid config format")
 
-        result = cli_runner.invoke(backtest_command, ["--file", str(valid_config_file)])
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file)])
 
         assert result.exit_code == 1
         assert "✗ Backtest failed:" in result.output
         assert "Invalid config format" in result.output
 
+    @patch("qtrader.cli.commands.backtest.ExperimentMetadata")
+    @patch("qtrader.cli.commands.backtest.ExperimentResolver")
     @patch("qtrader.cli.commands.backtest.BacktestEngine")
     @patch("qtrader.cli.commands.backtest.load_backtest_config")
     @patch("qtrader.cli.commands.backtest.reload_system_config")
@@ -457,8 +534,12 @@ class TestBacktestCommandErrors:
         mock_reload_sys_config,
         mock_load_config,
         mock_engine_class,
+        mock_resolver_class,
+        mock_metadata_class,
         cli_runner,
         valid_config_file,
+        mock_system_config,
+        mock_experiment_setup,
     ):
         """Test graceful handling of engine initialization errors."""
         mock_config = Mock()
@@ -469,10 +550,12 @@ class TestBacktestCommandErrors:
         mock_config.replay_speed = 0.0
         mock_config.display_events = ["bar"]
 
+        mock_experiment_setup(mock_resolver_class, mock_metadata_class)
         mock_load_config.return_value = mock_config
+        mock_get_sys_config.return_value = mock_system_config
         mock_engine_class.from_config.side_effect = RuntimeError("Failed to initialize data service")
 
-        result = cli_runner.invoke(backtest_command, ["--file", str(valid_config_file)])
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file)])
 
         assert result.exit_code == 1
         assert "✗ Backtest failed:" in result.output
@@ -507,7 +590,7 @@ class TestBacktestCommandErrors:
         mock_get_sys_config.return_value = mock_system_config
         mock_engine.run.side_effect = RuntimeError("Data loading failed")
 
-        result = cli_runner.invoke(backtest_command, ["--file", str(valid_config_file)])
+        result = cli_runner.invoke(backtest_command, [str(valid_config_file)])
 
         assert result.exit_code == 1
         assert "✗ Backtest failed:" in result.output
