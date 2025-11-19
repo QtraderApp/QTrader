@@ -92,6 +92,77 @@ The engine processes a stream of domain events. Each service reacts deterministi
 
 ______________________________________________________________________
 
+### Concept: Strategies vs Backtest Experiments
+
+QTrader treats a **strategy** and a **backtest configuration** (experiment) as distinct layers:
+
+- **Strategy (Code + StrategyConfig)**
+
+  - Lives in a Python module (e.g., `library/strategies/sma_crossover.py`).
+  - Pairs a `Strategy` class (PROCESS / logic) with a `StrategyConfig` object (PARAMETERS / defaults).
+  - Encapsulates reusable trading logic: indicator usage, signal emission rules, warmup behavior.
+  - The config supplies tunable parameters (`fast_period`, `slow_period`, etc.) plus identity metadata (`name`, `display_name`, version, description).
+
+- **Backtest Experiment (BacktestConfig YAML)**
+
+  - Defines a single run of one or more strategies under specific market conditions.
+  - Specifies: date range, initial equity, data sources + universes, adjustment modes, risk policy, and per-strategy overrides.
+  - Each entry in `strategies:` references a registered strategy by `strategy_id` and may provide a `config:` block that overrides defaults from the base `StrategyConfig` (e.g., shorter lookback, different warmup).
+
+Why separate them?
+
+| Layer                   | Purpose                                                        | Change Frequency | Versioning Focus                    |
+| ----------------------- | -------------------------------------------------------------- | ---------------- | ----------------------------------- |
+| Strategy Code           | Core trading logic                                             | Lower            | Semantic version of strategy module |
+| StrategyConfig Defaults | Recommended baseline parameters                                | Medium           | Align with logic evolution          |
+| Backtest YAML           | Experimental scenario (dates/universe) and parameter overrides | High             | Captured per run for provenance     |
+
+This separation enables:
+
+- Running MANY experiments (parameter sweeps, universe variations) against ONE well-designed strategy without duplicating code.
+- Clean provenance: each run stores the exact `BacktestConfig` snapshot and effective merged strategy parameters.
+- Deterministic replay: event sequence depends strictly on the experiment config + code version.
+- Incremental refinement: improve strategy code while preserving historical experiment definitions.
+
+Override Mechanics:
+
+Step 1. Base strategy declares defaults in its `StrategyConfig` subclass.
+
+Step 2. Backtest YAML includes:
+
+```yaml
+strategies:
+  - strategy_id: sma_crossover
+    universe: [AAPL, MSFT]
+    data_sources: [yahoo-us-equity-1d-csv]
+    config:
+      name: sma_crossover_fast   # overrides display identity
+      fast_period: 5             # overrides default 10
+      slow_period: 15            # overrides default 20
+```
+
+Step 3. Loader merges provided fields with defaults using Pydantic validation (type safety, forbidden extras if strategy enforces).
+
+Step 4. The resulting effective config instance is passed to the strategy runtime.
+
+Strategic Philosophy:
+
+- “Acquire or build a robust strategy” → treat it like a model artifact with version and documentation.
+- “Run multiple experiments” → vary universes, dates, and parameter grids to understand stability, sensitivity, and regime performance.
+- Optimize *experiment design* separately from *strategy implementation* for clearer research iteration.
+
+Suggested Workflow:
+
+- Step 1. Implement or refine a strategy (add docstring, ensure parameters have meaningful defaults).
+- Step 2. Create a baseline backtest YAML (canonical scenario).
+- Step 3. Duplicate YAML into variants (e.g., `sma_fast.yaml`, `sma_large_universe.yaml`) changing only experiment-specific fields.
+- Step 4. Use naming convention: `backtest_id` reflects purpose (`sma_crossover_fast_2020_2023`).
+- Step 5. Collect outputs under `output/backtests/{backtest_id}` for comparison; automate summary metrics across runs.
+
+Outcome: You maintain a small, high-quality library of strategies while scaling the number of experiments safely.
+
+______________________________________________________________________
+
 ## 3. User Guide (Getting Started)
 
 ### Install
@@ -133,12 +204,12 @@ my-trading-system/
 ### Run a Backtest (CLI)
 
 ```bash
-qtrader backtest config/backtests/buy_hold.yaml
-qtrader backtest --file config/backtests/sma_crossover.yaml
+qtrader backtest experiments/buy_hold
+qtrader backtest experiments/sma_crossover
 qtrader backtest --help
 ```
 
-Artifacts: `output/backtests/{backtest_id}/` (metrics, equity curve, trades, config snapshot).
+Artifacts: `experiments/{backtest_id}/runs` (metrics, equity curve, trades, config snapshot).
 
 ### Programmatic API
 
@@ -156,7 +227,7 @@ print(results.final_value, results.total_return)
 
 ```bash
 # Run a backtest
-qtrader backtest --file config/backtests/sma_crossover.yaml
+qtrader backtest experiments/sma_crossover/
 
 # Update Yahoo CSV data incrementally (auto symbol discovery)
 qtrader data yahoo-update --days 365
@@ -175,7 +246,7 @@ ______________________________________________________________________
 | Command                                                      | Purpose                                      |
 | ------------------------------------------------------------ | -------------------------------------------- |
 | `qtrader init-project <path>`                                | Scaffold a new backtesting project           |
-| `qtrader backtest --file <yaml>`                             | Run a configured backtest                    |
+| `qtrader backtest <experiment dirpath>`                      | Run a configured backtest                    |
 | `qtrader data yahoo-update [--days N] [--symbols AAPL MSFT]` | Download/refresh local Yahoo OHLCV CSVs      |
 | `qtrader data list`                                          | List configured data adapters/sources        |
 | `qtrader init-library <path> [--type ...]`                   | Generate template code for custom components |
@@ -282,10 +353,6 @@ Current internal metrics (may differ in CI): ~1600+ tests, ~80% coverage.
 - Services are cohesive; cross-service communication only via events.
 - Deterministic sequencing enables replay & debugging.
 
-### Contributing (Early Phase)
-
-Open issues for feature proposals or architecture questions. Please include reproducible examples for bug reports (config YAML, sample data snippet, strategy code).
-
 ______________________________________________________________________
 
 ## 7. Indicator Library Overview
@@ -304,24 +371,12 @@ See: `docs/packages/indicators/README.md` for parameters & formulas.
 
 ______________________________________________________________________
 
-## 8. Status & Roadmap
-
-Status: Active development (beta). Core single-strategy backtesting stable.
-
-Planned / Evaluating:
-
-- Multi-strategy portfolio coordination.
-- Streaming / live paper feed integration.
-- Enhanced risk & order routing models.
-- More built-in adapters (Parquet, SQL, APIs).
-- Scenario & walk-forward utilities.
-
 ______________________________________________________________________
 
-## 9. License
+## 8. License
 
 MIT License. See [LICENSE](LICENSE).
 
 ______________________________________________________________________
 
-Enjoy building! If something feels unclear or friction-heavy, open an issue early—we iterate fast during beta.
+Enjoy backtesting! If you have any questions or feedback, feel free to reach out.
