@@ -1240,6 +1240,10 @@ class HTMLReportGenerator:
                     last_row = equity_curve.iloc[-1]
                     current_market_value = float(last_row.get("positions_value", 0))
 
+                    # Calculate current market price from market value and quantity
+                    current_price = current_market_value / original_quantity if original_quantity > 0 else 0
+                    exit_str = f"${current_price:.2f}*"  # Show current market price with asterisk
+
                     # Calculate MTM unrealized P&L
                     entry_cost = entry_price * original_quantity + commission
                     mtm_pnl = current_market_value - entry_cost
