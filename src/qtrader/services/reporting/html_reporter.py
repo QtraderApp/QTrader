@@ -26,6 +26,7 @@ class HTMLReportGenerator:
                 - performance.json
                 - run_manifest.json (optional)
                 - timeseries/*.parquet files
+                - events.parquet
         """
         self.output_dir = Path(output_dir)
         self.timeseries_dir = self.output_dir / "timeseries"
@@ -47,6 +48,7 @@ class HTMLReportGenerator:
         equity_curve = self._load_timeseries("equity_curve.parquet")
         returns = self._load_timeseries("returns.parquet")
         drawdowns = self._load_timeseries("drawdowns.parquet")
+        trades = self._load_trades()
 
         # Generate HTML sections
         html = self._build_html(
@@ -55,6 +57,7 @@ class HTMLReportGenerator:
             equity_curve=equity_curve,
             returns=returns,
             drawdowns=drawdowns,
+            trades=trades,
         )
 
         # Write to file
@@ -93,6 +96,27 @@ class HTMLReportGenerator:
             return df
         return None
 
+    def _load_trades(self) -> list[dict[str, Any]]:
+        """Load trade events from events.parquet."""
+        import json
+
+        events_path = self.output_dir / "events.parquet"
+        if not events_path.exists():
+            return []
+
+        try:
+            events_df = pd.read_parquet(events_path)
+            trade_events = events_df[events_df["event_type"] == "trade"]
+
+            trades = []
+            for _, row in trade_events.iterrows():
+                payload = json.loads(row["payload"])
+                trades.append(payload)
+
+            return trades
+        except Exception:
+            return []
+
     def _build_html(
         self,
         performance: dict[str, Any],
@@ -100,10 +124,10 @@ class HTMLReportGenerator:
         equity_curve: pd.DataFrame | None,
         returns: pd.DataFrame | None,
         drawdowns: pd.DataFrame | None,
+        trades: list[dict[str, Any]] | None,
     ) -> str:
         """Build complete HTML document."""
         # Generate charts
-        monthly_chart = self._create_monthly_returns_chart(performance)
         combined_chart = self._create_combined_chart(equity_curve, drawdowns)
 
         # Build HTML
@@ -318,12 +342,14 @@ class HTMLReportGenerator:
 
         {self._build_run_info(performance, manifest)}
 
+        {self._build_price_chart()}
+
         <div class="chart-container">
             <div class="chart-title">📈 Portfolio Performance</div>
             {combined_chart}
         </div>
 
-        {monthly_chart}
+        {self._build_trades_table(trades, equity_curve)}
 
         {self._build_performance_table(performance)}
 
@@ -399,12 +425,15 @@ class HTMLReportGenerator:
         """Build run information section."""
         info_items = []
 
-        # Basic info
+        # Basic info with currency formatting
+        initial_equity = float(performance.get("initial_equity", 0))
+        final_equity = float(performance.get("final_equity", 0))
+
         info_items.append(
-            f'<div class="info-item"><span class="info-label">Initial Equity</span><span class="info-value">${performance.get("initial_equity", "0")}</span></div>'
+            f'<div class="info-item"><span class="info-label">Initial Equity</span><span class="info-value">${initial_equity:,.2f}</span></div>'
         )
         info_items.append(
-            f'<div class="info-item"><span class="info-label">Final Equity</span><span class="info-value">${performance.get("final_equity", "0")}</span></div>'
+            f'<div class="info-item"><span class="info-label">Final Equity</span><span class="info-value">${final_equity:,.2f}</span></div>'
         )
         info_items.append(
             f'<div class="info-item"><span class="info-label">Duration</span><span class="info-value">{performance.get("duration_days", 0)} days</span></div>'
@@ -611,15 +640,20 @@ class HTMLReportGenerator:
         """
 
     def _build_performance_table(self, performance: dict[str, Any]) -> str:
-        """Build comprehensive performance metrics table."""
+        """Build comprehensive performance metrics table with multi-column layout."""
+
+        # Format returns with proper precision
+        best_day = float(performance.get("best_day_return_pct", 0))
+        worst_day = float(performance.get("worst_day_return_pct", 0))
+
         metrics = [
             (
                 "Returns",
                 [
                     ("Total Return", f"{performance.get('total_return_pct', '0')}%"),
                     ("CAGR", f"{performance.get('cagr', '0')}%"),
-                    ("Best Day", f"{performance.get('best_day_return_pct', '0')}%"),
-                    ("Worst Day", f"{performance.get('worst_day_return_pct', '0')}%"),
+                    ("Best Day", f"{best_day:.2f}%"),
+                    ("Worst Day", f"{worst_day:.2f}%"),
                 ],
             ),
             (
@@ -628,6 +662,7 @@ class HTMLReportGenerator:
                     ("Volatility (Annual)", f"{performance.get('volatility_annual_pct', '0')}%"),
                     ("Max Drawdown", f"{performance.get('max_drawdown_pct', '0')}%"),
                     ("Max DD Duration", f"{performance.get('max_drawdown_duration_days', 0)} days"),
+                    ("Avg Drawdown", f"{performance.get('avg_drawdown_pct', '0')}%"),
                     ("Current Drawdown", f"{performance.get('current_drawdown_pct', '0')}%"),
                 ],
             ),
@@ -637,7 +672,7 @@ class HTMLReportGenerator:
                     ("Sharpe Ratio", performance.get("sharpe_ratio", "0")),
                     ("Sortino Ratio", performance.get("sortino_ratio", "0")),
                     ("Calmar Ratio", performance.get("calmar_ratio", "0")),
-                    ("Risk-Free Rate", f"{performance.get('risk_free_rate', '0')}"),
+                    ("Risk-Free Rate", f"{float(performance.get('risk_free_rate', 0)) * 100:.2f}%"),
                 ],
             ),
             (
@@ -647,25 +682,42 @@ class HTMLReportGenerator:
                     ("Winning Trades", performance.get("winning_trades", 0)),
                     ("Losing Trades", performance.get("losing_trades", 0)),
                     ("Win Rate", f"{performance.get('win_rate', '0')}%"),
+                    (
+                        "Profit Factor",
+                        performance.get("profit_factor", "N/A") if performance.get("profit_factor") else "N/A",
+                    ),
+                    ("Avg Win", f"${performance.get('avg_win', '0')}"),
+                    ("Avg Loss", f"${performance.get('avg_loss', '0')}"),
+                    ("Expectancy", f"${performance.get('expectancy', '0')}"),
                 ],
             ),
         ]
 
-        sections = []
-        for section_title, items in metrics:
-            rows = "".join([f"<tr><td>{label}</td><td><strong>{value}</strong></td></tr>" for label, value in items])
-            sections.append(f"""
-                <div class="chart-container">
-                    <div class="chart-title">{section_title}</div>
-                    <table>
-                        <tbody>
-                            {rows}
-                        </tbody>
-                    </table>
-                </div>
-            """)
+        # Build sections with 2-column grid layout
+        sections_html = []
+        for i in range(0, len(metrics), 2):
+            section_pair = metrics[i : i + 2]
+            pair_html = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">'
 
-        return "".join(sections)
+            for section_title, items in section_pair:
+                rows = "".join(
+                    [f"<tr><td>{label}</td><td><strong>{value}</strong></td></tr>" for label, value in items]
+                )
+                pair_html += f"""
+                    <div class="chart-container" style="margin-bottom: 0;">
+                        <div class="chart-title">{section_title}</div>
+                        <table>
+                            <tbody>
+                                {rows}
+                            </tbody>
+                        </table>
+                    </div>
+                """
+
+            pair_html += "</div>"
+            sections_html.append(pair_html)
+
+        return "".join(sections_html)
 
     def _build_monthly_breakdown_table(self, performance: dict[str, Any]) -> str:
         """Build monthly returns heatmap table (years × months)."""
@@ -727,6 +779,255 @@ class HTMLReportGenerator:
             <table class="heatmap-table">
                 <thead>
                     {header}
+                </thead>
+                <tbody>
+                    {"".join(rows)}
+                </tbody>
+            </table>
+        </div>
+        """
+
+    def _build_price_chart(self) -> str:
+        """Build instrument price chart from bar events."""
+        import json
+
+        events_path = self.output_dir / "events.parquet"
+        if not events_path.exists():
+            return ""
+
+        try:
+            events_df = pd.read_parquet(events_path)
+            bar_events = events_df[events_df["event_type"] == "bar"]
+
+            if len(bar_events) == 0:
+                return ""
+
+            # Extract price data by symbol
+            price_data: dict[str, list[dict[str, Any]]] = {}
+            for _, row in bar_events.iterrows():
+                payload = json.loads(row["payload"])
+                symbol = payload.get("symbol", "")
+                if symbol not in price_data:
+                    price_data[symbol] = []
+                price_data[symbol].append(
+                    {
+                        "timestamp": payload.get("timestamp", ""),
+                        "close": float(payload.get("close", 0)),
+                    }
+                )
+
+            if not price_data:
+                return ""
+
+            num_symbols = len(price_data)
+
+            # Define color palette for multiple symbols
+            colors = [
+                "#667eea",
+                "#764ba2",
+                "#f093fb",
+                "#4facfe",
+                "#43e97b",
+                "#fa709a",
+                "#fee140",
+                "#30cfd0",
+            ]
+
+            # For multiple symbols with very different price scales, use subplots
+            # Check if price ranges differ significantly
+            price_ranges = {}
+            for symbol, data in price_data.items():
+                prices = [d["close"] for d in data]
+                price_ranges[symbol] = (min(prices), max(prices))
+
+            # Calculate if we need separate subplots (price ranges differ by >10x)
+            use_subplots = False
+            if num_symbols > 1:
+                max_range = max(r[1] for r in price_ranges.values())
+                min_range = min(r[0] for r in price_ranges.values())
+                if max_range / max(min_range, 0.01) > 10:
+                    use_subplots = True
+
+            if use_subplots and num_symbols > 1:
+                # Create subplots for symbols with very different price scales
+                fig = make_subplots(
+                    rows=num_symbols,
+                    cols=1,
+                    subplot_titles=[symbol for symbol in sorted(price_data.keys())],
+                    vertical_spacing=0.08,
+                    shared_xaxes=True,
+                )
+
+                for idx, (symbol, data) in enumerate(sorted(price_data.items()), start=1):
+                    data_sorted = sorted(data, key=lambda x: x["timestamp"])
+                    timestamps = [d["timestamp"] for d in data_sorted]
+                    prices = [d["close"] for d in data_sorted]
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=timestamps,
+                            y=prices,
+                            mode="lines",
+                            name=symbol,
+                            line=dict(width=2, color=colors[(idx - 1) % len(colors)]),
+                            showlegend=False,
+                        ),
+                        row=idx,
+                        col=1,
+                    )
+
+                    fig.update_yaxes(title_text="Price ($)", row=idx, col=1)
+
+                fig.update_xaxes(title_text="Date", row=num_symbols, col=1)
+                height = 250 * num_symbols
+            else:
+                # Single chart for one symbol or multiple symbols with similar scales
+                fig = go.Figure()
+
+                for idx, (symbol, data) in enumerate(sorted(price_data.items())):
+                    data_sorted = sorted(data, key=lambda x: x["timestamp"])
+                    timestamps = [d["timestamp"] for d in data_sorted]
+                    prices = [d["close"] for d in data_sorted]
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=timestamps,
+                            y=prices,
+                            mode="lines",
+                            name=symbol,
+                            line=dict(width=2, color=colors[idx % len(colors)]),
+                        )
+                    )
+
+                fig.update_xaxes(title_text="Date")
+                fig.update_yaxes(title_text="Price ($)")
+                height = 400
+
+            # Update layout
+            fig.update_layout(
+                title="",
+                hovermode="x unified",
+                height=height,
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                showlegend=num_symbols > 1 and not use_subplots,
+                margin=dict(l=50, r=50, t=30 if not use_subplots else 50, b=50),
+            )
+
+            fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="#f0f0f0")
+            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="#f0f0f0")
+
+            html: str = fig.to_html(include_plotlyjs=False, div_id="price-chart")
+
+            symbol_text = ", ".join(sorted(price_data.keys()))
+            symbol_count_text = f"{num_symbols} Asset{'s' if num_symbols > 1 else ''}"
+            return f"""
+            <div class="chart-container">
+                <div class="chart-title">📈 Instrument Prices · {symbol_count_text} ({symbol_text})</div>
+                {html}
+            </div>
+            """
+        except Exception:
+            return ""
+
+    def _build_trades_table(self, trades: list[dict[str, Any]] | None, equity_curve: pd.DataFrame | None) -> str:
+        """Build trades table showing both closed and open trades."""
+        if not trades:
+            return ""
+
+        # Sort trades by entry timestamp
+        sorted_trades = sorted(trades, key=lambda t: t.get("entry_timestamp", ""))
+
+        rows = []
+        for trade in sorted_trades:
+            trade_id = trade.get("trade_id", "")
+            symbol = trade.get("symbol", "")
+            strategy = trade.get("strategy_id", "")
+            side = trade.get("side", "")
+            status = trade.get("status", "")
+            entry_price = float(trade.get("entry_price", 0))
+            exit_price = trade.get("exit_price")
+            quantity = int(trade.get("current_quantity", 0))
+            commission = float(trade.get("commission_total", 0))
+            entry_time = trade.get("entry_timestamp", "")[:10] if trade.get("entry_timestamp") else ""
+            exit_time = trade.get("exit_timestamp", "")[:10] if trade.get("exit_timestamp") else ""
+
+            # Format entry/exit prices
+            entry_str = f"${entry_price:.2f}"
+            exit_str = f"${float(exit_price):.2f}" if exit_price else "—"
+
+            # Calculate PnL
+            if status == "closed" and exit_price:
+                exit_price_val = float(exit_price)
+                if side == "long":
+                    pnl = quantity * (exit_price_val - entry_price) - commission
+                else:
+                    pnl = quantity * (entry_price - exit_price_val) - commission
+                pnl_pct = (pnl / (entry_price * quantity)) * 100 if quantity > 0 else 0
+                pnl_str = f"${pnl:,.2f}"
+                pnl_pct_str = f"({pnl_pct:+.2f}%)"
+                pnl_class = "positive" if pnl >= 0 else "negative"
+                status_badge = '<span class="badge success">Closed</span>'
+            else:
+                # Open trade - calculate unrealized PnL if we have current price
+                if equity_curve is not None and len(equity_curve) > 0:
+                    # Get last available price for this symbol from equity curve
+                    # This is approximate; ideally we'd have current market price
+                    current_price = entry_price  # Fallback
+
+                    # Simple approximation: use equity change
+                    if side == "long":
+                        unrealized_pnl = quantity * (current_price - entry_price) - commission
+                    else:
+                        unrealized_pnl = quantity * (entry_price - current_price) - commission
+
+                    unrealized_pct = (unrealized_pnl / (entry_price * quantity)) * 100 if quantity > 0 else 0
+                    pnl_str = f"${unrealized_pnl:,.2f}"
+                    pnl_pct_str = f"({unrealized_pct:+.2f}%)"
+                    pnl_class = "positive" if unrealized_pnl >= 0 else "negative"
+                else:
+                    pnl_str = "—"
+                    pnl_pct_str = ""
+                    pnl_class = ""
+                status_badge = '<span class="badge warning">Open</span>'
+
+            row = f"""
+            <tr>
+                <td>{trade_id}</td>
+                <td><strong>{symbol}</strong></td>
+                <td>{strategy}</td>
+                <td>{status_badge}</td>
+                <td style="text-align: center;">{side.upper()}</td>
+                <td>{entry_time}</td>
+                <td style="text-align: right;">{entry_str}</td>
+                <td>{exit_time}</td>
+                <td style="text-align: right;">{exit_str}</td>
+                <td style="text-align: right;">{quantity:,}</td>
+                <td style="text-align: right;">${commission:.2f}</td>
+                <td style="text-align: right;" class="{pnl_class}"><strong>{pnl_str}</strong> <small>{pnl_pct_str}</small></td>
+            </tr>
+            """
+            rows.append(row)
+
+        return f"""
+        <div class="chart-container">
+            <div class="chart-title">💼 Trades</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Trade ID</th>
+                        <th>Symbol</th>
+                        <th>Strategy</th>
+                        <th>Status</th>
+                        <th style="text-align: center;">Side</th>
+                        <th>Entry Date</th>
+                        <th style="text-align: right;">Entry Price</th>
+                        <th>Exit Date</th>
+                        <th style="text-align: right;">Exit Price</th>
+                        <th style="text-align: right;">Quantity</th>
+                        <th style="text-align: right;">Commission</th>
+                        <th style="text-align: right;">P&L</th>
+                    </tr>
                 </thead>
                 <tbody>
                     {"".join(rows)}
