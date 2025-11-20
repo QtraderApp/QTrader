@@ -13,6 +13,10 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from qtrader.system import LoggerFactory
+
+logger = LoggerFactory.get_logger(__name__)
+
 
 class HTMLReportGenerator:
     """Generates standalone HTML reports for backtest results."""
@@ -378,6 +382,8 @@ class HTMLReportGenerator:
         {self._build_run_info(performance, manifest, metadata, config_snapshot)}
 
         {self._build_price_chart()}
+
+        {self._build_indicator_charts()}
 
         <div class="chart-container">
             <div class="chart-title">📈 Portfolio Performance</div>
@@ -980,7 +986,7 @@ class HTMLReportGenerator:
         """
 
     def _build_price_chart(self) -> str:
-        """Build instrument price chart from bar events."""
+        """Build instrument price chart from bar events with overlay indicators."""
         import json
 
         events_path = self.output_dir / "events.parquet"
@@ -1010,6 +1016,37 @@ class HTMLReportGenerator:
 
             if not price_data:
                 return ""
+
+            # Extract overlay indicators by symbol
+            overlay_indicators: dict[str, dict[str, list[tuple[str, Any]]]] = {}
+            indicator_colors: dict[str, dict[str, str]] = {}
+            indicator_events = events_df[events_df["event_type"] == "indicator"]
+
+            if len(indicator_events) > 0:
+                for _, row in indicator_events.iterrows():
+                    payload = json.loads(row["payload"])
+                    symbol = payload.get("symbol", "")
+                    timestamp = payload.get("timestamp", "")
+                    indicators = payload.get("indicators", {})
+                    metadata = payload.get("metadata", {})
+                    placements = metadata.get("placements", {})
+                    colors_meta = metadata.get("colors", {})
+
+                    # Only process overlay indicators
+                    for name, value in indicators.items():
+                        if placements.get(name, "subplot") == "overlay":
+                            if symbol not in overlay_indicators:
+                                overlay_indicators[symbol] = {}
+                                indicator_colors[symbol] = {}
+
+                            if name not in overlay_indicators[symbol]:
+                                overlay_indicators[symbol][name] = []
+
+                            overlay_indicators[symbol][name].append((timestamp, value))
+
+                            # Store color if provided
+                            if name not in indicator_colors[symbol] and name in colors_meta:
+                                indicator_colors[symbol][name] = colors_meta[name]
 
             num_symbols = len(price_data)
 
@@ -1068,6 +1105,32 @@ class HTMLReportGenerator:
                         col=1,
                     )
 
+                    # Add overlay indicators for this symbol
+                    if symbol in overlay_indicators:
+                        default_indicator_colors = ["#667eea", "#764ba2", "#f093fb", "#fa709a"]
+                        for ind_idx, (ind_name, ind_data) in enumerate(sorted(overlay_indicators[symbol].items())):
+                            ind_data_sorted = sorted(ind_data, key=lambda x: x[0])
+                            ind_timestamps = [d[0] for d in ind_data_sorted]
+                            ind_values = [d[1] for d in ind_data_sorted]
+
+                            # Get color from metadata or use default
+                            ind_color = indicator_colors[symbol].get(
+                                ind_name, default_indicator_colors[ind_idx % len(default_indicator_colors)]
+                            )
+
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=ind_timestamps,
+                                    y=ind_values,
+                                    mode="lines",
+                                    name=ind_name,
+                                    line=dict(width=1.5, color=ind_color, dash="dash"),
+                                    showlegend=False,
+                                ),
+                                row=idx,
+                                col=1,
+                            )
+
                     fig.update_yaxes(title_text="Price ($)", row=idx, col=1)
 
                 fig.update_xaxes(title_text="Date", row=num_symbols, col=1)
@@ -1091,18 +1154,45 @@ class HTMLReportGenerator:
                         )
                     )
 
+                    # Add overlay indicators for this symbol
+                    if symbol in overlay_indicators:
+                        default_indicator_colors = ["#667eea", "#764ba2", "#f093fb", "#fa709a"]
+                        for ind_idx, (ind_name, ind_data) in enumerate(sorted(overlay_indicators[symbol].items())):
+                            ind_data_sorted = sorted(ind_data, key=lambda x: x[0])
+                            ind_timestamps = [d[0] for d in ind_data_sorted]
+                            ind_values = [d[1] for d in ind_data_sorted]
+
+                            # Get color from metadata or use default
+                            ind_color = indicator_colors[symbol].get(
+                                ind_name, default_indicator_colors[ind_idx % len(default_indicator_colors)]
+                            )
+
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=ind_timestamps,
+                                    y=ind_values,
+                                    mode="lines",
+                                    name=ind_name,
+                                    line=dict(width=1.5, color=ind_color, dash="dash"),
+                                )
+                            )
+
                 fig.update_xaxes(title_text="Date")
                 fig.update_yaxes(title_text="Price ($)")
                 height = 400
 
             # Update layout
+            # Show legend if multiple symbols OR if we have overlay indicators
+            has_overlay = any(symbol in overlay_indicators for symbol in price_data.keys())
+            show_legend = (num_symbols > 1 or has_overlay) and not use_subplots
+
             fig.update_layout(
                 title="",
                 hovermode="x unified",
                 height=height,
                 plot_bgcolor="white",
                 paper_bgcolor="white",
-                showlegend=num_symbols > 1 and not use_subplots,
+                showlegend=show_legend,
                 margin=dict(l=50, r=50, t=30 if not use_subplots else 50, b=50),
             )
 
@@ -1120,6 +1210,152 @@ class HTMLReportGenerator:
             </div>
             """
         except Exception:
+            return ""
+
+    def _build_indicator_charts(self) -> str:
+        """Build indicator overlay and subplot charts from IndicatorEvents."""
+        import json
+
+        from plotly.subplots import make_subplots
+
+        events_path = self.output_dir / "events.parquet"
+        if not events_path.exists():
+            return ""
+
+        try:
+            events_df = pd.read_parquet(events_path)
+            indicator_events = events_df[events_df["event_type"] == "indicator"]
+
+            if len(indicator_events) == 0:
+                return ""
+
+            # Group by symbol
+            symbols = set()
+            for _, row in indicator_events.iterrows():
+                payload = json.loads(row["payload"])
+                symbols.add(payload.get("symbol", ""))
+
+            # Build charts for each symbol
+            charts_html = []
+            for symbol in sorted(symbols):
+                symbol_events = [
+                    json.loads(row["payload"])
+                    for _, row in indicator_events.iterrows()
+                    if json.loads(row["payload"]).get("symbol") == symbol
+                ]
+
+                if not symbol_events:
+                    continue
+
+                # Organize indicators by placement
+                overlay_indicators: dict[str, list[tuple[str, Any]]] = {}
+                subplot_indicators: dict[str, list[tuple[str, Any]]] = {}
+                colors: dict[str, str] = {}
+                default_colors = ["#667eea", "#764ba2", "#f093fb", "#fa709a", "#43e97b", "#4facfe"]
+
+                for event in symbol_events:
+                    timestamp = event.get("timestamp", "")
+                    indicators = event.get("indicators", {})
+                    metadata = event.get("metadata", {})
+                    placements = metadata.get("placements", {})
+                    colors_meta = metadata.get("colors", {})
+
+                    for name, value in indicators.items():
+                        placement = placements.get(name, "subplot")
+
+                        # Store color if provided
+                        if name not in colors and name in colors_meta:
+                            colors[name] = colors_meta[name]
+
+                        # Group by placement
+                        if placement == "overlay":
+                            if name not in overlay_indicators:
+                                overlay_indicators[name] = []
+                            overlay_indicators[name].append((timestamp, value))
+                        else:  # subplot
+                            if name not in subplot_indicators:
+                                subplot_indicators[name] = []
+                            subplot_indicators[name].append((timestamp, value))
+
+                # Skip if no indicators to plot
+                if not overlay_indicators and not subplot_indicators:
+                    continue
+
+                # Determine subplot configuration
+                num_subplots = len(subplot_indicators)
+                if num_subplots == 0:
+                    # Only overlay indicators - no chart needed (they go on price chart)
+                    continue
+
+                # Create subplots for indicator charts
+                subplot_titles = list(subplot_indicators.keys())
+                fig = make_subplots(
+                    rows=num_subplots,
+                    cols=1,
+                    subplot_titles=subplot_titles,
+                    vertical_spacing=0.08,
+                    shared_xaxes=True,
+                )
+
+                # Add subplot indicators
+                for idx, (name, data) in enumerate(sorted(subplot_indicators.items()), start=1):
+                    data_sorted = sorted(data, key=lambda x: x[0])
+                    timestamps = [d[0] for d in data_sorted]
+                    values = [d[1] for d in data_sorted]
+
+                    color = colors.get(name, default_colors[(idx - 1) % len(default_colors)])
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=timestamps,
+                            y=values,
+                            mode="lines",
+                            name=name,
+                            line=dict(width=2, color=color),
+                            showlegend=False,
+                        ),
+                        row=idx,
+                        col=1,
+                    )
+
+                    # Update y-axis for this subplot
+                    fig.update_yaxes(title_text=name, row=idx, col=1)
+
+                # Update x-axis for bottom subplot
+                fig.update_xaxes(title_text="Date", row=num_subplots, col=1)
+
+                # Update layout
+                height = 200 * num_subplots
+                fig.update_layout(
+                    title="",
+                    hovermode="x unified",
+                    height=height,
+                    plot_bgcolor="white",
+                    paper_bgcolor="white",
+                    showlegend=False,
+                    margin=dict(l=60, r=50, t=50, b=50),
+                )
+
+                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="#f0f0f0")
+                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="#f0f0f0")
+
+                chart_html = fig.to_html(include_plotlyjs=False, div_id=f"indicator-chart-{symbol}")
+
+                indicator_count = len(subplot_indicators)
+
+                charts_html.append(
+                    f"""
+            <div class="chart-container">
+                <div class="chart-title">📊 Technical Indicators · {symbol} ({indicator_count} indicator{"s" if indicator_count > 1 else ""})</div>
+                {chart_html}
+            </div>
+            """
+                )
+
+            return "\n".join(charts_html) if charts_html else ""
+
+        except Exception as e:
+            logger.warning("html_reporter.indicator_charts.failed", error=str(e))
             return ""
 
     def _calculate_total_dividends(
