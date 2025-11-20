@@ -16,7 +16,7 @@ and stateless computation modes.
 from collections import deque
 from typing import Any
 
-from qtrader.libraries.indicators.base import BaseIndicator
+from qtrader.libraries.indicators.base import BaseIndicator, IndicatorPlacement
 from qtrader.libraries.indicators.buildin.moving_averages import EMA, SMA
 from qtrader.services.data.models import Bar
 
@@ -51,6 +51,11 @@ class RSI(BaseIndicator):
         ...         elif value < 30:
         ...             print(f"Oversold: RSI={value:.2f}")
     """
+
+    # Visualization metadata
+    placement = IndicatorPlacement.SUBPLOT
+    value_range = (0.0, 100.0)
+    default_color = "#fa709a"
 
     def __init__(self, period: int = 14, price_field: str = "close", **params: Any):
         """

@@ -17,7 +17,7 @@ and stateless computation modes.
 from collections import deque
 from typing import Any
 
-from qtrader.libraries.indicators.base import BaseIndicator
+from qtrader.libraries.indicators.base import BaseIndicator, IndicatorPlacement
 from qtrader.services.data.models import Bar
 
 
@@ -41,6 +41,10 @@ class SMA(BaseIndicator):
         ...     if value is not None:
         ...         print(f"SMA(20): {value:.2f}")
     """
+
+    # Visualization metadata
+    placement = IndicatorPlacement.OVERLAY
+    default_color = "#667eea"
 
     def __init__(self, period: int, price_field: str = "close", **params: Any):
         """
@@ -189,6 +193,10 @@ class EMA(BaseIndicator):
         ...     if value is not None:
         ...         print(f"EMA(12): {value:.2f}")
     """
+
+    # Visualization metadata
+    placement = IndicatorPlacement.OVERLAY
+    default_color = "#764ba2"
 
     def __init__(self, period: int, smoothing: float = 2.0, price_field: str = "close", **params: Any):
         """

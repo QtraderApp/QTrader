@@ -14,9 +14,32 @@ Registry Name: Derived from class name (e.g., SMAIndicator → "sma")
 """
 
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Any
 
 from qtrader.services.data.models import Bar
+
+
+class IndicatorPlacement(str, Enum):
+    """
+    Indicator chart placement classification.
+
+    Determines where an indicator should be rendered in chart visualizations:
+    - OVERLAY: Same chart as price (e.g., moving averages, Bollinger Bands)
+    - SUBPLOT: Separate chart below price (e.g., RSI, MACD, ATR)
+    - VOLUME: Volume-specific subplot (e.g., volume bars, OBV)
+
+    Usage:
+        class SMA(BaseIndicator):
+            placement = IndicatorPlacement.OVERLAY
+
+        class RSI(BaseIndicator):
+            placement = IndicatorPlacement.SUBPLOT
+    """
+
+    OVERLAY = "overlay"
+    SUBPLOT = "subplot"
+    VOLUME = "volume"
 
 
 class BaseIndicator(ABC):
@@ -33,6 +56,11 @@ class BaseIndicator(ABC):
     - Subscribe to EventBus (strategies pass bars to indicators)
     - Generate trading signals (that's strategies)
     - Store historical data (strategies manage that)
+
+    Class Attributes (for visualization):
+    - placement: Where to render in charts (OVERLAY, SUBPLOT, VOLUME)
+    - value_range: Expected value range as (min, max) tuple
+    - default_color: Hex color for chart rendering
 
     Usage Patterns:
 
@@ -52,6 +80,10 @@ class BaseIndicator(ABC):
     Example Implementation:
         ```python
         class SMA(BaseIndicator):
+            # Visualization metadata
+            placement = IndicatorPlacement.OVERLAY
+            default_color = "#667eea"
+
             def __init__(self, period: int):
                 self.period = period
                 self._values = []
@@ -83,6 +115,11 @@ class BaseIndicator(ABC):
                 return len(self._values) >= self.period
         ```
     """
+
+    # Class attributes for visualization (override in subclasses)
+    placement: IndicatorPlacement = IndicatorPlacement.SUBPLOT
+    value_range: tuple[float | None, float | None] = (None, None)
+    default_color: str = "#667eea"
 
     @abstractmethod
     def __init__(self, **params: Any):

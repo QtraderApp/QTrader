@@ -9,7 +9,7 @@ Technical indicators for quantitative analysis:
 - Trend: ADX, Aroon
 """
 
-from qtrader.libraries.indicators.base import BaseIndicator
+from qtrader.libraries.indicators.base import BaseIndicator, IndicatorPlacement
 from qtrader.libraries.indicators.buildin.momentum import CCI, MACD, ROC, RSI, Stochastic, WilliamsR
 from qtrader.libraries.indicators.buildin.moving_averages import DEMA, EMA, HMA, SMA, SMMA, TEMA, WMA
 from qtrader.libraries.indicators.buildin.trend import ADX, Aroon
@@ -19,6 +19,7 @@ from qtrader.libraries.indicators.buildin.volume import AD, CMF, OBV, VWAP
 __all__ = [
     # Base
     "BaseIndicator",
+    "IndicatorPlacement",
     # Moving Averages
     "SMA",
     "EMA",

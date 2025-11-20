@@ -13,7 +13,7 @@ and stateless computation modes.
 import math
 from collections import deque
 
-from qtrader.libraries.indicators.base import BaseIndicator
+from qtrader.libraries.indicators.base import BaseIndicator, IndicatorPlacement
 from qtrader.libraries.indicators.buildin.moving_averages import SMA
 from qtrader.services.data.models import Bar
 
@@ -50,6 +50,11 @@ class ATR(BaseIndicator):
         ...     if value is not None:
         ...         print(f"ATR: {value:.2f}")
     """
+
+    # Visualization metadata
+    placement = IndicatorPlacement.SUBPLOT
+    value_range = (0.0, None)
+    default_color = "#f093fb"
 
     def __init__(self, period: int = 14):
         """
