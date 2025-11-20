@@ -36,6 +36,7 @@ class WeeklyMondayFridayConfig(StrategyConfig):
 
     # Strategy-specific parameters
     confidence: Decimal = Decimal("1.0")  # Signal confidence
+    log_indicators: bool = False  # Enable indicator logging for visualization
 
 
 # Export config for auto-discovery

@@ -35,6 +35,7 @@ class BuyAndHoldConfig(StrategyConfig):
 
     # Signal confidence (always max confidence)
     confidence: float = 1.0
+    log_indicators: bool = False  # Enable indicator logging for visualization
 
 
 class BuyAndHoldStrategy(Strategy[BuyAndHoldConfig]):

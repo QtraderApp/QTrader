@@ -37,7 +37,8 @@ strategies:
   - strategy_id: "buy_and_hold" # Registry name
     universe: ["AAPL"] # Symbols this strategy trades (subset of backtest universe)
     data_sources: ["sample-csv-1d"] # Data feeds this strategy uses
-    config: {} # Strategy-specific config overrides
+    config: # Strategy-specific config overrides
+      log_indicators: false # Enable indicator event logging
 
 risk_policy:
   name: "naive" # Registry name
