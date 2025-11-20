@@ -241,9 +241,15 @@ class Context:
 
         return signal
 
-    def track_indicators(self, indicators: dict[str, Any], display_names: dict[str, str] | None = None) -> None:
+    def track_indicators(
+        self,
+        indicators: dict[str, Any],
+        display_names: dict[str, str] | None = None,
+        placements: dict[str, str] | None = None,
+        colors: dict[str, str] | None = None,
+    ) -> None:
         """
-        Track indicator values for automatic event emission with optional display names.
+        Track indicator values for automatic event emission with optional display names and visualization metadata.
 
         Strategies call this to register calculated indicators.
         If log_indicators: true in strategy config, StrategyService will automatically
@@ -258,6 +264,12 @@ class Context:
             display_names: Optional mapping from indicator keys to display names
                 Display names are used in CSV exports and include parameters
                 If not provided, uses the indicator keys as-is
+            placements: Optional mapping from indicator keys to placement type
+                Values: "overlay" (same chart as price), "subplot" (separate chart), "volume"
+                If not provided, defaults to "subplot"
+            colors: Optional mapping from indicator keys to hex color codes
+                Format: "#RRGGBB" (e.g., "#667eea")
+                If not provided, uses default colors
 
         Example:
             ```python
@@ -270,21 +282,37 @@ class Context:
                 fast_sma = sum(b.close for b in bars[-10:]) / 10
                 slow_sma = sum(b.close for b in bars[-50:]) / 50
                 rsi = calculate_rsi(bars, 14)
+                atr = calculate_atr(bars, 14)
                 crossover = fast_sma > slow_sma
 
-                # Track indicators with display names showing parameters
+                # Track indicators with display names and visualization metadata
                 context.track_indicators(
                     indicators={
                         "fast_sma": float(fast_sma),
                         "slow_sma": float(slow_sma),
                         "rsi": float(rsi),
+                        "atr": float(atr),
                         "golden_cross": crossover,
                     },
                     display_names={
-                        "fast_sma": "fast_sma(10)",
-                        "slow_sma": "slow_sma(50)",
-                        "rsi": "rsi(14)",
-                        "golden_cross": "golden_cross",  # No params
+                        "fast_sma": "SMA(10)",
+                        "slow_sma": "SMA(50)",
+                        "rsi": "RSI(14)",
+                        "atr": "ATR(14)",
+                        "golden_cross": "Golden Cross",
+                    },
+                    placements={
+                        "fast_sma": "overlay",
+                        "slow_sma": "overlay",
+                        "rsi": "subplot",
+                        "atr": "subplot",
+                        "golden_cross": "subplot",
+                    },
+                    colors={
+                        "fast_sma": "#667eea",
+                        "slow_sma": "#764ba2",
+                        "rsi": "#fa709a",
+                        "atr": "#f093fb",
                     }
                 )
 
@@ -298,6 +326,7 @@ class Context:
             - Indicators cleared by StrategyService at start of each bar
             - Only emitted if log_indicators: true in strategy config
             - Display names appear in CSV exports as ticker column
+            - Placement and colors used for HTML report chart rendering
         """
         # Store indicator values with display names
         for key, value in indicators.items():
@@ -308,6 +337,21 @@ class Context:
             # Use display name if provided, otherwise use key
             display_name = display_names.get(key, key) if display_names else key
             self._indicators[display_name] = value
+
+        # Store visualization metadata if provided
+        if placements:
+            if not hasattr(self, "_indicator_placements"):
+                self._indicator_placements: dict[str, str] = {}
+            for key, placement in placements.items():
+                display_name = display_names.get(key, key) if display_names else key
+                self._indicator_placements[display_name] = placement
+
+        if colors:
+            if not hasattr(self, "_indicator_colors"):
+                self._indicator_colors: dict[str, str] = {}
+            for key, color in colors.items():
+                display_name = display_names.get(key, key) if display_names else key
+                self._indicator_colors[display_name] = color
 
     def emit_indicator_event(
         self,
@@ -334,6 +378,18 @@ class Context:
             - Usually called automatically by StrategyService
             - Strategies should use track_indicators() instead
         """
+        # Merge visualization metadata into metadata dict
+        if metadata is None:
+            metadata = {}
+
+        # Add placements if tracked
+        if hasattr(self, "_indicator_placements") and self._indicator_placements:
+            metadata["placements"] = self._indicator_placements.copy()
+
+        # Add colors if tracked
+        if hasattr(self, "_indicator_colors") and self._indicator_colors:
+            metadata["colors"] = self._indicator_colors.copy()
+
         # Create IndicatorEvent (validates against schema)
         # event_id and occurred_at are auto-generated by BaseEvent
         indicator_event = IndicatorEvent(
@@ -341,7 +397,7 @@ class Context:
             symbol=symbol,
             timestamp=timestamp,
             indicators=indicators,
-            metadata=metadata,
+            metadata=metadata if metadata else None,
             source_service="strategy_service",
         )
 
@@ -651,3 +707,7 @@ class Context:
         Strategies should not call this directly.
         """
         self._indicators.clear()
+        if hasattr(self, "_indicator_placements"):
+            self._indicator_placements.clear()
+        if hasattr(self, "_indicator_colors"):
+            self._indicator_colors.clear()
