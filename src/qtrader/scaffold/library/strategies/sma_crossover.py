@@ -37,6 +37,7 @@ class SMAConfig(StrategyConfig):
     fast_period: int = 10  # Fast SMA period
     slow_period: int = 50  # Slow SMA period (strategy needs this many bars minimum)
     confidence: Decimal = Decimal("1.0")  # Signal confidence
+    log_indicators: bool = True  # Enable indicator logging for visualization
 
 
 # Export config for auto-discovery
@@ -165,14 +166,18 @@ class SMACrossover(Strategy[SMAConfig]):
             indicators={
                 "fast_sma": float(fast_sma),
                 "slow_sma": float(slow_sma),
-                "golden_cross": golden_cross,
-                "death_cross": death_cross,
             },
             display_names={
-                "fast_sma": f"fast_sma({self.config.fast_period})",
-                "slow_sma": f"slow_sma({self.config.slow_period})",
-                "golden_cross": "golden_cross",
-                "death_cross": "death_cross",
+                "fast_sma": f"SMA({self.config.fast_period})",
+                "slow_sma": f"SMA({self.config.slow_period})",
+            },
+            placements={
+                "fast_sma": "overlay",
+                "slow_sma": "overlay",
+            },
+            colors={
+                "fast_sma": "#667eea",
+                "slow_sma": "#764ba2",
             },
         )
 
